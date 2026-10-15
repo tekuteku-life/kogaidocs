@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>校外委員会 名簿・帳票・スクゾ管理ツール</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="js/utils.js"></script>
+<script src="js/crypto.js"></script>
+<script src="js/state.js"></script>
+<script src="js/hata.js"></script>
+<script src="js/district.js"></script>
+<script src="js/seat.js"></script>
+<script src="js/rep.js"></script>
+<script src="js/print.js"></script>
+<script src="js/app.js"></script>
+</head>
+<body>
+
+<header class="no-print">
+	<h1>📋 校外委員会 名簿・帳票・スクゾ管理システム</h1>
+	<div class="tabs">
+		<button class="tab-btn active" onclick="switchTab('district')">① 各地区役員モード（地区入力・ハタフロット・地区印刷）</button>
+		<button class="tab-btn" onclick="switchTab('rep')">② 校外代表モード（全地区集約・スクゾ協議会・選択印刷）</button>
+	</div>
+</header>
+
+<div class="container no-print">
+
+	<!-- =========================================================================
+	       タブ1：各地区役員モード
+	========================================================================== -->
+	<div id="tab-district">
+
+		<div class="collapse-all-bar">
+			<button type="button" class="btn btn-outline btn-sm" onclick="setAllCardsCollapse(false, 'tab-district')">📂 すべて展開</button>
+			<button type="button" class="btn btn-outline btn-sm" onclick="setAllCardsCollapse(true, 'tab-district')">📁 すべて折りたたむ</button>
+		</div>
+
+		<!-- 1. 地区名・班名・校外役員情報 -->
+		<div class="card" id="card-d-officers">
+			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
+				<span>👤 1. 地区名・班名・校外役員情報（担当役員・手紙受取用児童）</span>
+				<div class="flex-row" onclick="event.stopPropagation()">
+					<button type="button" class="btn btn-sm" onclick="addOfficer()">＋ 校外役員を追加</button>
+					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))"></span>
+				</div>
+			</h2>
+			<div class="card-body">
+				<div class="grid-form" style="margin-bottom: 14px;">
+					<div>
+						<label>地区名（必須）</label>
+						<input type="text" id="d-name" placeholder="例：1丁目 / 〇〇自治会" oninput="saveDistrictLocal()">
+					</div>
+					<div>
+						<label>規定の班名（例：1班 / A班 ※省略可）</label>
+						<input type="text" id="d-ban" placeholder="例：1班" oninput="saveDistrictLocal()">
+					</div>
+				</div>
+				<div id="officers-container"></div>
+			</div>
+		</div>
+
+		<!-- 2. 自治会役員名簿 -->
+		<div class="card" id="card-d-neighbors">
+			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
+				<span>🏘️ 2. 自治会役員名簿（地区結びつき）</span>
+				<div class="flex-row" onclick="event.stopPropagation()">
+					<button type="button" class="btn btn-sm" onclick="addNeighborhoodRow()">＋ 行を追加</button>
+					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))"></span>
+				</div>
+			</h2>
+			<div class="card-body">
+				<div class="help-text" style="margin-bottom: 8px;">
+					※自治会役員は班名には無関係で、地区名と結びつきます。スクールゾーン協議会出席者抽出等の基礎情報となります。
+				</div>
+				<div class="table-scroll-hint">👉 左右にスクロールして全項目を確認・入力できます</div>
+				<div class="table-scroll">
+					<table class="edit-table" id="neighborhood-table">
+						<thead>
+							<tr>
+								<th style="width:18%">役職</th>
+								<th style="width:26%">氏名・ふりがな</th>
+								<th style="width:31%">住所</th>
+								<th style="width:18%">電話番号</th>
+								<th style="width:7%; text-align:center;">削除</th>
+							</tr>
+						</thead>
+						<tbody id="neighborhood-tbody"></tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+
+		<!-- 3. 児童名簿 -->
+		<div class="card" id="card-d-students">
+			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
+				<span>🎒 3. 児童名簿（班長・学年・住所順・集計付）</span>
+				<div class="flex-row" onclick="event.stopPropagation()">
+					<button type="button" class="btn btn-outline btn-sm" onclick="sortStudentsDesc()">🔽 班長・学年・住所順で並び替え</button>
+					<button type="button" class="btn btn-sm" onclick="addStudentRow()">＋ 児童を追加</button>
+					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))"></span>
+				</div>
+			</h2>
+			<div class="card-body">
+				<div class="table-scroll-hint">👉 左右にスクロールして全項目を確認・入力できます</div>
+				<div class="table-scroll">
+					<table class="edit-table" id="students-table">
+						<thead>
+							<tr>
+								<th style="width:7%">学年</th>
+								<th style="width:6%">組</th>
+								<th style="width:9%">班</th>
+								<th style="width:24%">児童氏名・ふりがな</th>
+								<th style="width:22%">住所（号棟-号室・番地等）</th>
+								<th style="width:13%">電話番号</th>
+								<th style="width:11%">班長・副班長</th>
+								<th style="width:4%; text-align:center;">学区外</th>
+								<th style="width:4%; text-align:center;">削除</th>
+							</tr>
+						</thead>
+						<tbody id="students-tbody"></tbody>
+					</table>
+				</div>
+				<div id="district-student-summary" class="help-text" style="margin-top:8px; font-weight:bold; color:#0f172a;"></div>
+			</div>
+		</div>
+
+		<!-- 4. 自地区帳票の選択印刷 -->
+		<div class="card" id="card-d-print">
+			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
+				<span>🖨️ 4. 自地区帳票の印刷・PDF出力（1枚ずつ出力）</span>
+				<span class="btn-card-toggle"></span>
+			</h2>
+			<div class="card-body">
+				<div class="check-group-box" style="margin-bottom:12px; background:var(--primary-light); border-color:#bfdbfe;">
+					<strong>【児童名簿 役員連絡先の表示選択】</strong>
+					<div class="check-list" style="margin-top:4px;">
+						<label class="check-item"><input type="checkbox" id="d-opt-officer-tel" checked> 児童名簿ヘッダーに役員電話番号を表示する</label>
+						<label class="check-item"><input type="checkbox" id="d-opt-officer-email" checked> 児童名簿ヘッダーに役員メールアドレスを表示する</label>
+					</div>
+				</div>
+
+				<div class="check-group-box">
+					<strong>【印刷する帳票の選択】</strong>
+					<div class="check-list" style="margin-top:4px;">
+						<label class="check-item"><input type="checkbox" id="d-print-students" checked> ① 児童名簿（地区名＋班名ごとに改ページ・班/地区人数集計・学区外バッジ付）</label>
+						<label class="check-item"><input type="checkbox" id="d-print-neighbors" checked> ② 自治会役員名簿（班無関係・地区結びつき）</label>
+						<label class="check-item"><input type="checkbox" id="d-print-school"> ③ 校外役員名簿（学校提出用：住所・TEL・児童情報・集計・学区外集計入）</label>
+						<label class="check-item"><input type="checkbox" id="d-print-pta"> ④ 校外役員名簿（PTA提出用：氏名・学年のみ／代表三役連絡先別掲）</label>
+					</div>
+					<div style="margin-top:12px;">
+						<button type="button" class="btn btn-success" onclick="printSingleDistrictSelected()">🖨️ チェックした自地区帳票を印刷 / PDF保存</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- 5. ハタフロット連携 -->
+		<div class="card" id="card-d-hata">
+			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
+				<span>🚩 5. ハタフロット用リスト連携</span>
+				<span class="btn-card-toggle"></span>
+			</h2>
+			<div class="card-body">
+				<div class="grid-form">
+					<div style="grid-column: 1 / -1;">
+						<label>ハタフロット名前欄の出力フォーマット</label>
+						<input type="text" id="hata-format" value="{住所数字} {苗字}" oninput="updateHataPreview()">
+						<div class="help-text">
+							変数: <code>{住所}</code>(そのまま), <code>{住所数字}</code>(号棟・号室等の数字をハイフン繋ぎに変換), <code>{苗字}</code>, <code>{名前}</code>, <code>{氏名}</code>, <code>{ふりがな}</code>, <code>{苗字ふりがな}</code>, <code>{名前ふりがな}</code>, <code>{学年}</code>
+						</div>
+						<label class="check-item" style="margin-top:8px;">
+							<input type="checkbox" id="hata-dedup" checked onchange="updateHataPreview()">
+							同一世帯（同じ住所＋苗字）の重複を1行にまとめる
+						</label>
+						<div style="margin-top:8px;">
+							<textarea id="hata-preview" rows="4" readonly placeholder="児童を入力するとここに変換リストが表示されます"></textarea>
+							<button type="button" class="btn btn-sm" style="margin-top:4px;" onclick="copyHataList()">📋 ハタフロット用リストをコピー</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- 6. 提出・保存用ファイル(.txt)出力・読み込み・年度更新 -->
+		<div class="card" id="card-d-file">
+			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
+				<span>💾 6. 地区データの保存・読み込み・年度更新</span>
+				<span class="btn-card-toggle"></span>
+			</h2>
+			<div class="card-body">
+				<div class="grid-form" style="align-items: end;">
+					<div>
+						<label>共通パスワード（保存・暗号化用／必須）</label>
+						<div class="pass-input-group">
+							<input type="password" id="d-pass" placeholder="半角英数記号12文字以上" oninput="validateDistrictPasswords()">
+							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('d-pass', this)" title="表示/非表示">👁️</button>
+						</div>
+					</div>
+					<div>
+						<label>確認用パスワード（二度入力）</label>
+						<div class="pass-input-group">
+							<input type="password" id="d-pass-confirm" placeholder="もう一度入力" oninput="validateDistrictPasswords()">
+							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('d-pass-confirm', this)" title="表示/非表示">👁️</button>
+						</div>
+					</div>
+					<div>
+						<label>保存済み地区ファイル(.txt)を読み込む</label>
+						<input type="file" id="d-file-in" accept=".txt" onchange="loadDistrictTxt(event)">
+					</div>
+				</div>
+				<div id="d-pass-match-msg" class="pass-feedback-msg" style="margin-top: 6px;"></div>
+				<div class="flex-row" style="margin-top: 12px;">
+					<button type="button" class="btn" onclick="exportDistrictTxt()">💾 提出・保存用ファイル(.txt)出力</button>
+					<button type="button" class="btn btn-danger" onclick="runDistrictYearUpdate()">🔄 年度更新（新年度化）</button>
+				</div>
+				<div class="help-text">
+					※セキュリティ保護のため、保存時のパスワードは<strong>半角英数大文字・小文字・記号の最低12文字以上</strong>が必須です。「年度更新」を押すと校外役員・自治会役員一覧がクリアされ、児童の6年生が削除、1〜5年生が+1学年されます。
+				</div>
+			</div>
+		</div>
+
+	</div>
+
+	<!-- =========================================================================
+	       タブ2：校外代表モード
+	========================================================================== -->
+	<div id="tab-rep" style="display:none;">
+
+		<div class="collapse-all-bar">
+			<button type="button" class="btn btn-outline btn-sm" onclick="setAllCardsCollapse(false, 'tab-rep')">📂 すべて展開</button>
+			<button type="button" class="btn btn-outline btn-sm" onclick="setAllCardsCollapse(true, 'tab-rep')">📁 すべて折りたたむ</button>
+		</div>
+
+		<!-- 1. 全地区データの集約・代表統合ファイル管理 -->
+		<div class="card" id="card-rep-file">
+			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
+				<span>📥 1. 各地区データの集約 ＆ 代表統合データの保存・引き継ぎ</span>
+				<span class="btn-card-toggle"></span>
+			</h2>
+			<div class="card-body">
+				<div class="grid-form" style="align-items: end;">
+					<div>
+						<label>共通パスワード（復号・保存用／必須）</label>
+						<div class="pass-input-group">
+							<input type="password" id="rep-pass" placeholder="半角英数記号12文字以上" oninput="validateRepPasswords()">
+							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('rep-pass', this)" title="表示/非表示">👁️</button>
+						</div>
+					</div>
+					<div>
+						<label>確認用パスワード（二度入力）</label>
+						<div class="pass-input-group">
+							<input type="password" id="rep-pass-confirm" placeholder="もう一度入力" oninput="validateRepPasswords()">
+							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('rep-pass-confirm', this)" title="表示/非表示">👁️</button>
+						</div>
+					</div>
+					<div>
+						<label>各地区の .txt ファイルをまとめて追加（複数選択可）</label>
+						<input type="file" id="rep-files" accept=".txt" multiple onchange="loadMultipleDistrictFiles(event)">
+					</div>
+				</div>
+				<div id="rep-pass-match-msg" class="pass-feedback-msg" style="margin-top: 6px;"></div>
+
+				<div class="flex-row" style="margin-top: 12px;">
+					<button type="button" class="btn btn-outline btn-sm" onclick="addCurrentDistrictToRep()">＋ タブ①の地区データを合算</button>
+					<button type="button" class="btn btn-sm" onclick="exportRepMasterTxt()">💾 代表統合ファイル(.txt)を保存</button>
+					<button type="button" class="btn btn-danger btn-sm" onclick="runRepYearUpdate()">🔄 代表データの年度更新</button>
+				</div>
+
+				<div style="margin-top: 14px;" class="grid-form">
+					<div>
+						<label>代表統合ファイル(.txt)を読み込む（引き継ぎ・再開用）</label>
+						<input type="file" accept=".txt" onchange="loadRepMasterTxt(event)">
+					</div>
+					<div>
+						<label>メール本文等で送られた暗号化テキストを貼り付けて追加</label>
+						<div class="flex-row">
+							<input type="text" id="rep-paste-box" placeholder="BEGIN_DATA: ... :END_DATA を貼り付け" style="flex:1;">
+							<button type="button" class="btn btn-sm" onclick="loadPastedTextToRep()">追加</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- 2. 読み込み済み地区一覧 ＆ 印刷対象の選択 -->
+		<div class="card" id="card-rep-districts">
+			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
+				<span>📊 2. 集約済み地区一覧（<span id="rep-count">0</span> 地区）＆ 印刷対象の個別選択</span>
+				<div class="flex-row" onclick="event.stopPropagation()">
+					<button type="button" class="btn btn-outline btn-sm" onclick="toggleAllDistrictChecks(true)">全地区を選択</button>
+					<button type="button" class="btn btn-outline btn-sm" onclick="toggleAllDistrictChecks(false)">全解除</button>
+					<button type="button" class="btn btn-danger btn-sm" onclick="clearAllRepDistricts()">全地区クリア</button>
+					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))"></span>
+				</div>
+			</h2>
+			<div class="card-body">
+				<div class="help-text">※下の「印刷対象」にチェックが入っている地区（役員）だけが、名札・封筒宛名・地区別名簿・スクゾ名札等の出力対象になります。</div>
+				<div class="table-scroll-hint">👉 左右にスクロールして全項目を確認・入力できます</div>
+				<div class="table-scroll">
+					<table class="edit-table" id="rep-districts-table">
+						<thead>
+							<tr>
+								<th style="width:10%; text-align:center;">印刷対象</th>
+								<th style="width:18%">地区名</th>
+								<th style="width:20%">校外役員氏名（役職）</th>
+								<th style="width:22%">連絡用児童（学年・組・氏名）</th>
+								<th style="width:12%">児童数</th>
+								<th style="width:12%">自治会役員数</th>
+								<th style="width:6%; text-align:center;">除外</th>
+							</tr>
+						</thead>
+						<tbody id="rep-districts-tbody">
+							<tr><td colspan="7" style="text-align:center; color:#64748b;">まだ地区データが読み込まれていません。</td></tr>
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+
+		<!-- 3. スクールゾーン協議会（スクゾ）出席者・関係者設定 -->
+		<div class="card" id="card-rep-sz">
+			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
+				<span>🚸 3. スクールゾーン協議会（スクゾ）出席者・関係者設定</span>
+				<span class="btn-card-toggle"></span>
+			</h2>
+			<div class="card-body">
+				<h3>① 各地区の自治会役員からのスクゾ出席者選択（地区データから自動抽出）</h3>
+				<div class="help-text">※今年度のスクールゾーン協議会に出席する自治会役員にチェックを入れてください（チェックした方がスクゾ名札・出席簿②・座席表の対象になります）。</div>
+				<div id="sz-neighborhood-selector" class="check-group-box" style="margin-top:6px;">
+					地区データを読み込むと、ここに各地区の自治会役員が表示されます。
+				</div>
+
+				<h3 style="display:flex; justify-content:space-between; align-items:center;">
+					<span>② 学校関係者・PTA本部・役所職員・関係機関リスト（代表管理マスター）</span>
+					<button type="button" class="btn btn-sm" onclick="addSzExternalRow()">＋ 関係者を追加</button>
+				</h3>
+				<div class="help-text">※氏名が未定の場合は空欄のままにしておくと、名札は手書き用余白、出席簿は「（空欄）様」として印刷されます。</div>
+				<div class="table-scroll-hint">👉 左右にスクロールして全項目を確認・入力できます</div>
+				<div class="table-scroll">
+					<table class="edit-table" id="sz-external-table">
+						<thead>
+							<tr>
+								<th style="width:7%; text-align:center;">スクゾ出席<br>(印刷対象)</th>
+								<th style="width:14%">区分</th>
+								<th style="width:20%">ご所属（学校・PTA・役所部署等）</th>
+								<th style="width:13%">お役職</th>
+								<th style="width:20%">ご芳名・ふりがな（空欄可）</th>
+								<th style="width:20%">連絡先・備考（代表控え用）</th>
+								<th style="width:6%; text-align:center;">削除</th>
+							</tr>
+						</thead>
+						<tbody id="sz-external-tbody"></tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+
+		<!-- 4. スクールゾーン協議会 座席表エディタ -->
+		<div class="card" id="card-rep-seat">
+			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
+				<span>💺 4. スクールゾーン協議会 座席表レイアウト設定</span>
+				<div class="flex-row" onclick="event.stopPropagation()">
+					<button type="button" class="btn btn-outline btn-sm" onclick="swapSeatWindowCorridor()">🔄 左右（窓側 ⇔ 廊下側）を入れ替え</button>
+					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))"></span>
+				</div>
+			</h2>
+			<div class="card-body">
+				<div class="grid-form">
+					<div>
+						<label>横の列数（マス）</label>
+						<input type="number" id="seat-cols" min="2" max="10" value="4" onchange="resizeSeatGrid()">
+					</div>
+					<div>
+						<label>縦の段数（マス）</label>
+						<input type="number" id="seat-rows" min="2" max="14" value="5" onchange="resizeSeatGrid()">
+					</div>
+					<div>
+						<label>前方ラベル</label>
+						<input type="text" id="seat-top-label" value="前方（演台・司会・スクリーン側）" oninput="saveRepLocal()">
+					</div>
+					<div>
+						<label>後方ラベル</label>
+						<input type="text" id="seat-bottom-label" value="後方（出入口側）" oninput="saveRepLocal()">
+					</div>
+				</div>
+
+				<div class="seat-editor-wrapper">
+					<div class="seat-side-bar" id="seat-left-bar">窓側</div>
+					<div class="seat-main-col">
+						<div class="seat-top-bottom-bar" id="seat-top-bar-view">前方（演台・司会・スクリーン側）</div>
+						<div id="seat-grid-container" class="seat-grid-edit"></div>
+						<div class="seat-top-bottom-bar" id="seat-bottom-bar-view">後方（出入口側）</div>
+					</div>
+					<div class="seat-side-bar" id="seat-right-bar">廊下側</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- 5. チェック選択式 一括印刷パネル -->
+		<div class="card" id="card-rep-print">
+			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
+				<span>🖨️ 5. 帳票の選択印刷・PDF出力（チェックを入れた帳票のみまとめて出力）</span>
+				<span class="btn-card-toggle"></span>
+			</h2>
+			<div class="card-body">
+				<div class="help-text">
+					※出力したい書類にチェックを入れて「選択した帳票を印刷」を押してください。特定の地区や特定の人の名札だけを印刷したい場合は、上の「2. 集約済み地区一覧」や「3. スクゾ出席チェック」で対象を絞り込めます。
+				</div>
+
+				<div class="check-group-box" style="margin-top:10px; background:var(--primary-light); border-color:#bfdbfe;">
+					<strong>【児童名簿 役員連絡先の表示選択】</strong>
+					<div class="check-list" style="margin-top:4px;">
+						<label class="check-item"><input type="checkbox" id="rep-opt-officer-tel" checked> 児童名簿ヘッダーに役員電話番号を表示する</label>
+						<label class="check-item"><input type="checkbox" id="rep-opt-officer-email" checked> 児童名簿ヘッダーに役員メールアドレスを表示する</label>
+					</div>
+				</div>
+
+				<div class="check-group-box" style="margin-top:10px;">
+					<strong>【A. 通常業務・年度始め提出用 帳票】</strong>
+					<div class="check-list">
+						<label class="check-item"><input type="checkbox" class="rep-print-chk" value="officers_pta" checked> ①-A 校外役員名簿（PTA提出用：氏名・学年のみ／代表三役連絡先別掲）</label>
+						<label class="check-item"><input type="checkbox" class="rep-print-chk" value="officers_school" checked> ①-B 校外役員名簿（学校提出用：住所・TEL・児童情報・集計・学区外集計入）</label>
+						<label class="check-item"><input type="checkbox" class="rep-print-chk" value="reg_tent" checked> ② 定例会用 四つ折り名札（A4・1人1枚）</label>
+						<label class="check-item"><input type="checkbox" class="rep-print-chk" value="envelopes" checked> ③ 子供経由の封筒宛名（A4・3×4面）</label>
+						<label class="check-item"><input type="checkbox" class="rep-print-chk" value="all_students" checked> ④ 地区別 児童名簿（地区名＋班名ごとに改ページ・班/地区人数集計・学区外バッジ付）</label>
+						<label class="check-item"><input type="checkbox" class="rep-print-chk" value="all_neighbors" checked> ⑤ 地区別 自治会役員名簿（班無関係・地区結びつき）</label>
+					</div>
+				</div>
+
+				<div class="check-group-box">
+					<strong>【B. スクールゾーン協議会（スクゾ）用 帳票】</strong>
+					<div class="check-list">
+						<label class="check-item"><input type="checkbox" class="rep-print-chk" value="sz_tent" checked> ⑥ スクゾ用 四つ折り名札（A4・1人1枚）</label>
+						<label class="check-item"><input type="checkbox" class="rep-print-chk" value="sz_att_1" checked> ⑦ 出席簿1（学校関係者・PTA本部・校外委員）</label>
+						<label class="check-item"><input type="checkbox" class="rep-print-chk" value="sz_att_2" checked> ⑧ 出席簿2（役所関係職員・自治会代表）</label>
+						<label class="check-item"><input type="checkbox" class="rep-print-chk" value="sz_att_3" checked> ⑨ 出席簿3（その他・当日追加記入用空白）</label>
+						<label class="check-item"><input type="checkbox" class="rep-print-chk" value="sz_seats" checked> ⑩ スクゾ 座席表</label>
+						<label class="check-item"><input type="checkbox" class="rep-print-chk" value="sz_master" checked> ⑪ 代表控え用 スクゾ関係者名簿（連絡先入）</label>
+					</div>
+				</div>
+
+				<div class="flex-row" style="justify-content: space-between; margin-top: 14px;">
+					<div class="flex-row">
+						<button type="button" class="btn btn-outline btn-sm" onclick="setRepPrintChecks(true)">全帳票を選択</button>
+						<button type="button" class="btn btn-outline btn-sm" onclick="setRepPrintChecks(false)">全帳票を解除</button>
+					</div>
+					<button type="button" class="btn btn-success" style="font-size:1rem; padding:10px 24px;" onclick="executeRepSelectedPrint()">🖨️ チェックした帳票をまとめて印刷 / PDF保存</button>
+				</div>
+			</div>
+		</div>
+
+	</div>
+
+</div>
+
+<!-- ==================== 印刷専用出力コンテナ ==================== -->
+<div id="print-area"></div>
+
+</body>
+</html>
