@@ -1,10 +1,68 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-	<rect width="472" height="472" x="20" y="20" rx="100" fill="#1d4ed8"/>
-	<rect width="266" height="296" x="123" y="123" rx="30" fill="#ffffff"/>
-	<rect width="133" height="61" x="189" y="92" rx="20" fill="#e2e8f0" stroke="#1e293b" stroke-width="8"/>
-	<line x1="164" y1="205" x2="348" y2="205" stroke="#64748b" stroke-width="13" stroke-linecap="round"/>
-	<line x1="164" y1="266" x2="348" y2="266" stroke="#64748b" stroke-width="13" stroke-linecap="round"/>
-	<line x1="164" y1="328" x2="280" y2="328" stroke="#64748b" stroke-width="13" stroke-linecap="round"/>
-	<rect width="122" height="143" x="323" y="312" rx="25" fill="#059669"/>
-	<path d="M 353 384 L 379 410 L 415 358" fill="none" stroke="#ffffff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+	<!-- 背景スクワークル（ロイヤルブルー＆ディープブルーの2層レイヤー） -->
+	<rect x="20" y="20" width="472" height="472" rx="108" fill="#1d4ed8"/>
+	<rect x="36" y="36" width="440" height="440" rx="94" fill="#1e3a8a"/>
+
+	<!-- デジタル回路ライン＆ノード（デジタル化の象徴：書類から右上へ展開） -->
+	<polygon points="320,176 368,176 404,140 411,147 372,186 320,186" fill="#38bdf8"/>
+	<rect x="320" y="210" width="106" height="10" fill="#38bdf8"/>
+	<circle cx="412" cy="140" r="16" fill="#38bdf8"/>
+	<circle cx="412" cy="140" r="7" fill="#ffffff"/>
+	<circle cx="432" cy="215" r="16" fill="#38bdf8"/>
+	<circle cx="432" cy="215" r="7" fill="#ffffff"/>
+
+	<!-- スクールゾーン横断歩道ストライプ（下部） -->
+	<rect x="76" y="426" width="48" height="18" rx="6" fill="#93c5fd" fill-opacity="0.35"/>
+	<rect x="142" y="426" width="48" height="18" rx="6" fill="#93c5fd" fill-opacity="0.35"/>
+	<rect x="208" y="426" width="48" height="18" rx="6" fill="#93c5fd" fill-opacity="0.35"/>
+	<rect x="274" y="426" width="48" height="18" rx="6" fill="#93c5fd" fill-opacity="0.35"/>
+
+	<!-- 学校×書類（校舎の三角屋根と一体化した名簿ドキュメント） -->
+	<rect x="88" y="154" width="240" height="248" rx="22" fill="#ffffff"/>
+	<polygon points="88,178 208,76 328,178" fill="#ffffff"/>
+
+	<!-- 校舎の三角屋根ひさし（学校の象徴） -->
+	<polygon points="68,172 208,56 348,172 335,187 208,82 81,187" fill="#38bdf8"/>
+
+	<!-- 学校の時計台（登校時刻 8:00） -->
+	<circle cx="208" cy="134" r="31" fill="#1d4ed8"/>
+	<circle cx="208" cy="134" r="22" fill="#eff6ff"/>
+	<rect x="205" y="116" width="6" height="19" rx="3" fill="#1e3a8a"/>
+	<polygon points="208,131 211,137 195,146 192,140" fill="#1e3a8a"/>
+	<circle cx="208" cy="134" r="4" fill="#1e3a8a"/>
+
+	<!-- 書類・名簿のリスト行（デジタルドット＋名簿レコード） -->
+	<circle cx="126" cy="204" r="9" fill="#0284c7"/>
+	<rect x="148" y="196" width="144" height="16" rx="8" fill="#1e3a8a"/>
+
+	<circle cx="126" cy="252" r="9" fill="#0284c7"/>
+	<rect x="148" y="244" width="112" height="16" rx="8" fill="#2563eb"/>
+
+	<circle cx="126" cy="300" r="9" fill="#0284c7"/>
+	<rect x="148" y="292" width="102" height="16" rx="8" fill="#64748b"/>
+
+	<circle cx="126" cy="348" r="9" fill="#0284c7"/>
+	<rect x="148" y="340" width="86" height="16" rx="8" fill="#94a3b8"/>
+
+	<!-- 校外委員の象徴：黄色い横断旗（登校見守りフラッグ） -->
+	<!-- 旗のシャドウ -->
+	<polygon points="292,282 446,258 432,376 306,396" fill="#0f172a" fill-opacity="0.32"/>
+	<!-- 旗の白縁取りベース -->
+	<polygon points="282,272 442,246 428,370 296,390" fill="#ffffff"/>
+	<!-- 黄色い横断旗本体 -->
+	<polygon points="290,279 433,256 420,362 303,381" fill="#facc15"/>
+
+	<!-- 旗の中の交通安全グリーンバッジ＆白チェックマーク -->
+	<circle cx="364" cy="319" r="32" fill="#059669"/>
+	<polygon points="344,319 351,312 359,320 377,302 384,309 359,334" fill="#ffffff"/>
+
+	<!-- 旗のポール（白軸＋濃紺縁取り） -->
+	<polygon points="269,262 287,259 319,442 301,445" fill="#1e293b"/>
+	<circle cx="278" cy="260" r="9" fill="#1e293b"/>
+	<circle cx="310" cy="444" r="9" fill="#1e293b"/>
+	<polygon points="274,261 282,260 314,443 306,444" fill="#f8fafc"/>
+
+	<!-- ポール先端の金色玉（竿頭） -->
+	<circle cx="276" cy="250" r="14" fill="#1e293b"/>
+	<circle cx="276" cy="250" r="9" fill="#facc15"/>
 </svg>
