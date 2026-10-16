@@ -148,7 +148,7 @@ function saveDistrictLocal() {
 		currentDistrict.officer = officerObj;
 	}
 
-	localStorage.setItem('kogai_district_v2', JSON.stringify(currentDistrict));
+	return saveStorageData('kogai_district_v2', currentDistrict);
 }
 
 function saveRepLocal() {
@@ -162,5 +162,5 @@ function saveRepLocal() {
 		if (topBarEl) topBarEl.textContent = repState.seatConfig.topLabel;
 		if (bottomBarEl) bottomBarEl.textContent = repState.seatConfig.bottomLabel;
 	}
-	localStorage.setItem('kogai_rep_v2', JSON.stringify(repState));
+	return saveStorageData('kogai_rep_v2', repState);
 }

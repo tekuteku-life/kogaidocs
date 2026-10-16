@@ -1,0 +1,32 @@
+{
+	"name": "校外委員会 名簿・帳票・スクゾ管理システム",
+	"short_name": "校外委管理",
+	"description": "PTA校外委員会用 児童名簿・役員名簿・印刷帳票・スクールゾーン協議会管理システム",
+	"start_url": "./index.html",
+	"scope": "./",
+	"display": "standalone",
+	"orientation": "any",
+	"background_color": "#f1f5f9",
+	"theme_color": "#1d4ed8",
+	"icons": [
+		{
+			"src": "icons/icon-192.png",
+			"sizes": "192x192",
+			"type": "image/png",
+			"purpose": "any maskable"
+		},
+		{
+			"src": "icons/icon-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "any maskable"
+		},
+		{
+			"src": "icons/icon.svg",
+			"sizes": "any",
+			"type": "image/svg+xml",
+			"purpose": "any"
+		}
+	]
+}
+
