@@ -39,18 +39,18 @@ function updateHataPreview() {
 		const district = (currentDistrict.district || "").trim();
 
 		const line = fmt
-			.replace(/\{住所\}/g, rawAddr)
-			.replace(/\{住所数字\}/g, numAddr)
-			.replace(/\{地区\}/g, district)
-			.replace(/\{班\}/g, han)
-			.replace(/\{班名\}/g, han)
-			.replace(/\{苗字\}/g, lastName)
-			.replace(/\{名前\}/g, firstName)
-			.replace(/\{氏名\}/g, fullName)
-			.replace(/\{ふりがな\}/g, fullKana)
-			.replace(/\{苗字ふりがな\}/g, lastKana)
-			.replace(/\{名前ふりがな\}/g, firstKana)
-			.replace(/\{学年\}/g, (s.grade || "") + "年")
+			.replace(/\{住所\}/g, () => rawAddr)
+			.replace(/\{住所数字\}/g, () => numAddr)
+			.replace(/\{地区\}/g, () => district)
+			.replace(/\{班\}/g, () => han)
+			.replace(/\{班名\}/g, () => han)
+			.replace(/\{苗字\}/g, () => lastName)
+			.replace(/\{名前\}/g, () => firstName)
+			.replace(/\{氏名\}/g, () => fullName)
+			.replace(/\{ふりがな\}/g, () => fullKana)
+			.replace(/\{苗字ふりがな\}/g, () => lastKana)
+			.replace(/\{名前ふりがな\}/g, () => firstKana)
+			.replace(/\{学年\}/g, () => (s.grade || "") + "年")
 			.trim();
 
 		if (dedup) {
@@ -67,7 +67,26 @@ function updateHataPreview() {
 /**
  * プレビューに表示されたハタフロット用リストをクリップボードにコピーします
  */
-function copyHataList() {
-	const text = document.getElementById('hata-preview').value;
-	navigator.clipboard.writeText(text).then(() => alert("ハタフロット用リストをクリップボードにコピーしました。"));
+async function copyHataList() {
+	const previewEl = document.getElementById('hata-preview');
+	const text = previewEl ? previewEl.value : "";
+	if (navigator.clipboard && navigator.clipboard.writeText) {
+		try {
+			await navigator.clipboard.writeText(text);
+			alert("ハタフロット用リストをクリップボードにコピーしました。");
+			return;
+		} catch (e) {}
+	}
+	if (previewEl) {
+		if (typeof previewEl.select === 'function') previewEl.select();
+		alert("ハタフロット用リストを選択しました。コピー（Ctrl+C）してご活用ください。");
+	}
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+	module.exports = {
+		updateHataPreview,
+		copyHataList
+	};
+	Object.assign(global, module.exports);
 }

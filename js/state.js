@@ -25,7 +25,6 @@ let currentDistrict = {
 			childFirstNameKana: ""
 		}
 	],
-	officer: {}, // 旧バージョン互換用
 	neighborhood: [],
 	students: []
 };
@@ -49,6 +48,11 @@ let repState = {
 		bottomLabel: "後方（出入口側）",
 		cells: {} // key: "r_c" -> { refKey: "", customText: "" }
 	}
+};
+
+let neighborState = {
+	district: "",
+	neighborhood: []
 };
 
 function saveDistrictLocal() {
@@ -107,45 +111,9 @@ function saveDistrictLocal() {
 				childLastNameKana: oChildLastKana,
 				childFirstNameKana: oChildFirstKana
 			};
-			obj.name = getFullName(obj);
-			obj.childName = getChildFullName(obj);
 			newOfficers.push(obj);
 		});
 		currentDistrict.officers = newOfficers;
-		currentDistrict.officer = newOfficers[0] || {};
-	} else if (document.getElementById('o-last-name')) {
-		const oLastName = document.getElementById('o-last-name').value.trim();
-		const oFirstName = document.getElementById('o-first-name') ? document.getElementById('o-first-name').value.trim() : "";
-		const oLastKana = document.getElementById('o-last-kana') ? document.getElementById('o-last-kana').value.trim() : "";
-		const oFirstKana = document.getElementById('o-first-kana') ? document.getElementById('o-first-kana').value.trim() : "";
-		const oAddress = document.getElementById('o-address') ? document.getElementById('o-address').value.trim() : "";
-
-		const oChildLastName = document.getElementById('o-c-last-name') ? document.getElementById('o-c-last-name').value.trim() : "";
-		const oChildFirstName = document.getElementById('o-c-first-name') ? document.getElementById('o-c-first-name').value.trim() : "";
-		const oChildLastKana = document.getElementById('o-c-last-kana') ? document.getElementById('o-c-last-kana').value.trim() : "";
-		const oChildFirstKana = document.getElementById('o-c-first-kana') ? document.getElementById('o-c-first-kana').value.trim() : "";
-
-		const officerObj = {
-			lastName: oLastName,
-			firstName: oFirstName,
-			lastNameKana: oLastKana,
-			firstNameKana: oFirstKana,
-			role: document.getElementById('o-role') ? document.getElementById('o-role').value : "",
-			han: document.getElementById('o-han') ? document.getElementById('o-han').value.trim() : "",
-			tel: document.getElementById('o-tel') ? document.getElementById('o-tel').value.trim() : "",
-			email: document.getElementById('o-email') ? document.getElementById('o-email').value.trim() : "",
-			address: oAddress,
-			childGrade: document.getElementById('o-c-grade') ? document.getElementById('o-c-grade').value : "",
-			childClass: document.getElementById('o-c-class') ? document.getElementById('o-c-class').value.trim() : "",
-			childLastName: oChildLastName,
-			childFirstName: oChildFirstName,
-			childLastNameKana: oChildLastKana,
-			childFirstNameKana: oChildFirstKana
-		};
-		officerObj.name = getFullName(officerObj);
-		officerObj.childName = getChildFullName(officerObj);
-		currentDistrict.officers = [officerObj];
-		currentDistrict.officer = officerObj;
 	}
 
 	return saveStorageData('kogai_district_v2', currentDistrict);
@@ -163,4 +131,30 @@ function saveRepLocal() {
 		if (bottomBarEl) bottomBarEl.textContent = repState.seatConfig.bottomLabel;
 	}
 	return saveStorageData('kogai_rep_v2', repState);
+}
+
+function saveNeighborLocal() {
+	const dNameEl = document.getElementById('neighbor-district-name');
+	if (dNameEl) neighborState.district = dNameEl.value.trim();
+	return saveStorageData('kogai_neighbor_v2', neighborState);
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+	global.currentDistrict = currentDistrict;
+	global.repState = repState;
+	global.neighborState = neighborState;
+	global.saveDistrictLocal = saveDistrictLocal;
+	global.saveRepLocal = saveRepLocal;
+	global.saveNeighborLocal = saveNeighborLocal;
+	module.exports = {
+		get currentDistrict() { return global.currentDistrict !== undefined ? global.currentDistrict : currentDistrict; },
+		set currentDistrict(v) { currentDistrict = v; global.currentDistrict = v; },
+		get repState() { return global.repState !== undefined ? global.repState : repState; },
+		set repState(v) { repState = v; global.repState = v; },
+		get neighborState() { return global.neighborState !== undefined ? global.neighborState : neighborState; },
+		set neighborState(v) { neighborState = v; global.neighborState = v; },
+		saveDistrictLocal,
+		saveRepLocal,
+		saveNeighborLocal
+	};
 }

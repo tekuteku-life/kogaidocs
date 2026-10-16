@@ -1,0 +1,413 @@
+const test = require('node:test');
+const assert = require('node:assert');
+const { setupDomEnvironment } = require('../helpers/dom-mock.js');
+const { createMockDistrict, createMockRepState } = require('../helpers/fixtures.js');
+
+setupDomEnvironment();
+const utils = require('../../js/utils.js');
+const cryptoLib = require('../../js/crypto.js');
+const state = require('../../js/state.js');
+const hata = require('../../js/hata.js');
+const seat = require('../../js/seat.js');
+const rep = require('../../js/rep.js');
+const district = require('../../js/district.js');
+const app = require('../../js/app.js');
+
+test('app: switchTab toggles district and rep view and button active classes', () => {
+	setupDomEnvironment();
+	const tabD = document.getElementById('tab-district');
+	const tabR = document.getElementById('tab-rep');
+	const btnContainer = document.createElement('div');
+	btnContainer.innerHTML = `
+		<button class="tab-btn active">地区</button>
+		<button class="tab-btn">代表</button>
+	`;
+	document.body.appendChild(btnContainer);
+
+	// Switch to rep
+	app.switchTab('rep');
+	assert.strictEqual(tabD.style.display, 'none');
+	assert.strictEqual(tabR.style.display, 'block');
+	const btns = document.querySelectorAll('.tab-btn');
+	assert.strictEqual(btns[0].classList.contains('active'), false);
+	assert.strictEqual(btns[1].classList.contains('active'), true);
+
+	// Switch to district
+	app.switchTab('district');
+	assert.strictEqual(tabD.style.display, 'block');
+	assert.strictEqual(tabR.style.display, 'none');
+	assert.strictEqual(btns[0].classList.contains('active'), true);
+	assert.strictEqual(btns[1].classList.contains('active'), false);
+});
+
+test('app: updateSecurityBadge reflects locked, unlocked with/without biometrics, and unencrypted', () => {
+	setupDomEnvironment();
+	const badge = document.getElementById('storage-security-badge');
+
+	// 1. Locked
+	app.updateSecurityBadge('locked');
+	assert(badge.classList.contains('is-locked'));
+	assert(badge.innerHTML.includes('データロック中'));
+
+	// 2. Unlocked without biometrics
+	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: true }));
+	app.updateSecurityBadge('unlocked');
+	assert(badge.classList.contains('is-encrypted'));
+	assert(badge.innerHTML.includes('暗号化保護中'));
+	assert(!badge.innerHTML.includes('生体認証連携'));
+
+	// 3. Unlocked with biometrics
+	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: true, webauthn: { credentialId: "cred1" } }));
+	app.updateSecurityBadge('unlocked');
+	assert(badge.innerHTML.includes('生体認証連携'));
+
+	// 4. Unencrypted
+	app.updateSecurityBadge('unencrypted');
+	assert(badge.classList.contains('is-plain'));
+	assert(badge.innerHTML.includes('ストレージ未暗号化'));
+});
+
+test('app: showStorageUnlockModal and hideStorageUnlockModal manage modal display and input focus', () => {
+	setupDomEnvironment();
+	const modal = document.getElementById('storage-lock-modal');
+	const webauthnSec = document.getElementById('webauthn-unlock-section');
+	const passInput = document.getElementById('modal-unlock-pass');
+	const errEl = document.getElementById('modal-unlock-error');
+
+	// Unregistered WebAuthn -> section hidden
+	localStorage.removeItem('kogai_auth_meta');
+	passInput.value = "old-pass";
+	errEl.textContent = "old-error";
+	app.showStorageUnlockModal();
+	assert.strictEqual(modal.style.display, 'flex');
+	assert.strictEqual(webauthnSec.style.display, 'none');
+	assert.strictEqual(passInput.value, "");
+	assert.strictEqual(errEl.textContent, "");
+
+	// Registered WebAuthn -> section visible
+	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: true, webauthn: { credentialId: "cred" } }));
+	app.showStorageUnlockModal();
+	assert.strictEqual(webauthnSec.style.display, 'block');
+
+	// Hide
+	app.hideStorageUnlockModal();
+	assert.strictEqual(modal.style.display, 'none');
+});
+
+test('app: handlePasswordUnlock handles validation, unlock failure, and success', async () => {
+	setupDomEnvironment();
+	const passInput = document.getElementById('modal-unlock-pass');
+	const errEl = document.getElementById('modal-unlock-error');
+
+	// 1. Empty password
+	passInput.value = "";
+	await app.handlePasswordUnlock();
+	assert.strictEqual(errEl.textContent, "パスワードを入力してください。");
+
+	// 2. Encryption active, wrong password
+	const pass = "CorrectPassword123!@#";
+	await cryptoLib.setupStorageEncryption(pass, false);
+	cryptoLib.lockStorage();
+	app.updateSecurityBadge('locked');
+
+	passInput.value = "WrongPassword123!@#";
+	await app.handlePasswordUnlock();
+	assert.strictEqual(errEl.textContent, "パスワードが正しくないか、復号に失敗しました。");
+
+	// 3. Correct password
+	passInput.value = pass;
+	await app.handlePasswordUnlock();
+	assert.strictEqual(cryptoLib.isStorageUnlocked(), true);
+	const badge = document.getElementById('storage-security-badge');
+	assert(badge.classList.contains('is-encrypted'));
+});
+
+test('app: handleWebAuthnUnlock handles failure and success', async () => {
+	setupDomEnvironment();
+	const errEl = document.getElementById('modal-unlock-error');
+
+	// 1. Success path
+	await cryptoLib.setupStorageEncryption("Password12345!@#", true);
+	cryptoLib.lockStorage();
+	assert.strictEqual(cryptoLib.isStorageUnlocked(), false);
+
+	await app.handleWebAuthnUnlock(false);
+	assert.strictEqual(cryptoLib.isStorageUnlocked(), true);
+
+	// 2. Failure path with silent=false
+	cryptoLib.lockStorage();
+	navigator.credentials.failGet = true;
+	await app.handleWebAuthnUnlock(false);
+	assert(errEl.textContent.length > 0);
+
+	// 3. Failure path with silent=true
+	errEl.textContent = "";
+	await app.handleWebAuthnUnlock(true);
+	assert.strictEqual(errEl.textContent, "");
+	navigator.credentials.failGet = false;
+});
+
+test('app: handleResetStorageConfirm prompts warning and resets storage', () => {
+	setupDomEnvironment();
+	localStorage.setItem('kogai_auth_meta', '{"test":1}');
+	localStorage.setItem('kogai_district_v2', '{"test":2}');
+
+	let reloaded = false;
+	window.location.reload = () => { reloaded = true; };
+
+	// Cancel
+	global.confirm = () => false;
+	app.handleResetStorageConfirm();
+	assert.strictEqual(reloaded, false);
+	assert(localStorage.getItem('kogai_auth_meta') !== null);
+
+	// Confirm
+	global.confirm = () => true;
+	app.handleResetStorageConfirm();
+	assert.strictEqual(reloaded, true);
+	assert.strictEqual(localStorage.getItem('kogai_auth_meta'), null);
+});
+
+test('app: openStorageSettingsModal renders unencrypted vs encrypted settings', () => {
+	setupDomEnvironment();
+	const modal = document.getElementById('storage-settings-modal');
+	const bodyEl = document.getElementById('settings-modal-body');
+
+	// 1. Unencrypted state
+	cryptoLib.clearStorageSecurity();
+	app.openStorageSettingsModal();
+	assert.strictEqual(modal.style.display, 'flex');
+	assert(bodyEl.innerHTML.includes('暗号化パスワード'));
+	assert(bodyEl.innerHTML.includes('確認用パスワード'));
+	assert(bodyEl.innerHTML.includes('生体認証（Touch ID / Face ID / Windows Hello等）も有効にする'));
+
+	// Close modal
+	app.closeStorageSettingsModal();
+	assert.strictEqual(modal.style.display, 'none');
+
+	// 2. Encrypted state
+	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: true, salt: "s", iv: "i", authTag: "a", encryptedKey: "k" }));
+	app.openStorageSettingsModal();
+	assert(bodyEl.innerHTML.includes('端末内保存データは暗号化されています'));
+	assert(bodyEl.innerHTML.includes('生体認証（Touch ID / Windows Hello等）を追加登録する'));
+	assert(bodyEl.innerHTML.includes('今すぐストレージをロックする'));
+});
+
+test('app: validateModalPasswords validates rules, confirmation, and match states', () => {
+	setupDomEnvironment();
+	app.openStorageSettingsModal();
+	const p1 = document.getElementById('modal-set-pass');
+	const p2 = document.getElementById('modal-set-pass-confirm');
+	const msgEl = document.getElementById('modal-set-pass-msg');
+
+	// 1. Both empty
+	p1.value = "";
+	p2.value = "";
+	app.validateModalPasswords();
+	assert.strictEqual(msgEl.textContent, "");
+
+	// 2. Invalid password
+	p1.value = "short";
+	p2.value = "short";
+	app.validateModalPasswords();
+	assert(msgEl.textContent.includes("⚠️"));
+	assert(msgEl.className.includes("mismatch"));
+
+	// 3. Valid password, confirmation empty
+	p1.value = "ValidPassword123!@#";
+	p2.value = "";
+	app.validateModalPasswords();
+	assert(msgEl.textContent.includes("確認のためもう一度"));
+
+	// 4. Mismatch
+	p2.value = "DifferentPassword123!@#";
+	app.validateModalPasswords();
+	assert(msgEl.textContent.includes("パスワードが一致していません"));
+
+	// 5. Match
+	p2.value = "ValidPassword123!@#";
+	app.validateModalPasswords();
+	assert(msgEl.textContent.includes("✅"));
+	assert(msgEl.className.includes("match"));
+});
+
+test('app: handleEnableEncryptionSubmit validates inputs and sets up encryption', async () => {
+	setupDomEnvironment();
+	cryptoLib.clearStorageSecurity();
+	app.openStorageSettingsModal();
+	const p1 = document.getElementById('modal-set-pass');
+	const p2 = document.getElementById('modal-set-pass-confirm');
+	const enableBio = document.getElementById('modal-set-enable-bio');
+
+	let alertMsg = "";
+	global.alert = (msg) => { alertMsg = msg; };
+
+	// 1. Invalid
+	p1.value = "weak";
+	p2.value = "weak";
+	await app.handleEnableEncryptionSubmit();
+	assert(alertMsg.includes("12文字以上"));
+
+	// 2. Mismatch
+	p1.value = "ValidPassword123!@#";
+	p2.value = "MismatchPassword123!@#";
+	await app.handleEnableEncryptionSubmit();
+	assert(alertMsg.includes("確認用パスワードが一致していません"));
+
+	// 3. Success
+	p2.value = "ValidPassword123!@#";
+	enableBio.checked = true;
+	await app.handleEnableEncryptionSubmit();
+	assert(alertMsg.includes("暗号化を有効化しました"));
+	assert.strictEqual(cryptoLib.isStorageEncrypted(), true);
+	assert.strictEqual(cryptoLib.isStorageUnlocked(), true);
+});
+
+test('app: handleAddOrUpdateBiometric and handleImmediateLock', async () => {
+	setupDomEnvironment();
+	await cryptoLib.setupStorageEncryption("Password123!@#", false);
+
+	let alertMsg = "";
+	global.alert = (msg) => { alertMsg = msg; };
+
+	// 1. Add biometric
+	await app.handleAddOrUpdateBiometric();
+	assert(alertMsg.includes("生体認証（WebAuthn PRF）の登録が完了しました"));
+	const meta = cryptoLib.getStorageAuthMeta();
+	assert(meta.webauthn);
+
+	// 2. Immediate lock
+	app.handleImmediateLock();
+	assert.strictEqual(cryptoLib.isStorageUnlocked(), false);
+	const lockModal = document.getElementById('storage-lock-modal');
+	assert.strictEqual(lockModal.style.display, 'flex');
+});
+
+test('app: quickSetupEncryptionFromCard validates input and sets up encryption', async () => {
+	setupDomEnvironment();
+	cryptoLib.clearStorageSecurity();
+	const inputEl = document.getElementById('d-pass');
+
+	let alertMsg = "";
+	global.alert = (msg) => { alertMsg = msg; };
+	global.confirm = () => false;
+
+	// 1. Invalid
+	inputEl.value = "short";
+	await app.quickSetupEncryptionFromCard('d-pass');
+	assert(alertMsg.includes("12文字以上"));
+
+	// 2. Success with confirm bio = false
+	inputEl.value = "QuickPassword123!@#";
+	await app.quickSetupEncryptionFromCard('d-pass');
+	assert(alertMsg.includes("このパスワードで端末内保存（LocalStorage）の暗号化を有効化しました"));
+	assert.strictEqual(cryptoLib.isStorageEncrypted(), true);
+});
+
+test('app: loadAppDataFromStorage handles plain and encrypted data and normalizes defaults', async () => {
+	setupDomEnvironment();
+	cryptoLib.clearStorageSecurity();
+
+	// 1. Unsaved empty storage sets fallback defaults
+	state.currentDistrict = {};
+	state.repState = {};
+	await app.loadAppDataFromStorage();
+
+	assert.strictEqual(state.currentDistrict.officers.length, 1);
+	assert.strictEqual(state.currentDistrict.neighborhood.length, 1);
+	assert.strictEqual(state.currentDistrict.neighborhood[0].role, "会長");
+	assert.strictEqual(state.currentDistrict.students.length, 1);
+	assert.strictEqual(state.currentDistrict.students[0].grade, "6");
+
+	// 2. Pre-existing saved data in storage
+	const savedDistrict = createMockDistrict({ district: "本町", han: "1班" });
+	const savedRep = createMockRepState();
+	localStorage.setItem('kogai_district_v2', JSON.stringify(savedDistrict));
+	localStorage.setItem('kogai_rep_v2', JSON.stringify(savedRep));
+
+	await app.loadAppDataFromStorage();
+	assert.strictEqual(state.currentDistrict.district, "本町");
+	assert.strictEqual(state.repState.districts.length, 3);
+});
+
+test('app: additional branch coverage tests for non-secure context and error alerts', async () => {
+	setupDomEnvironment();
+	let alertMsg = "";
+	global.alert = (msg) => { alertMsg = msg; };
+
+	// 1. openStorageSettingsModal when isWebAuthnAvailable is false
+	window.isSecureContext = false;
+	cryptoLib.clearStorageSecurity();
+	app.openStorageSettingsModal();
+	const bodyEl = document.getElementById('settings-modal-body');
+	assert(bodyEl.innerHTML.includes("HTTPS環境またはlocalhost"));
+	window.isSecureContext = true;
+
+	// 2. handleEnableEncryptionSubmit catch error alert
+	const origSetup = global.setupStorageEncryption;
+	global.setupStorageEncryption = async () => { throw new Error("Setup failed simulation"); };
+	document.getElementById('modal-set-pass').value = "Password12345!@#";
+	document.getElementById('modal-set-pass-confirm').value = "Password12345!@#";
+	await app.handleEnableEncryptionSubmit();
+	assert(alertMsg.includes("暗号化の有効化に失敗しました"));
+	global.setupStorageEncryption = origSetup;
+
+	// 3. handleAddOrUpdateBiometric catch error alert
+	const origReg = global.registerWebAuthnForActiveKey;
+	global.registerWebAuthnForActiveKey = async () => { throw new Error("Bio reg fail"); };
+	await app.handleAddOrUpdateBiometric();
+	assert(alertMsg.includes("生体認証の登録に失敗しました"));
+	global.registerWebAuthnForActiveKey = origReg;
+
+	// 4. quickSetupEncryptionFromCard catch error alert
+	global.setupStorageEncryption = async () => { throw new Error("Card setup fail"); };
+	document.getElementById('d-pass').value = "Password12345!@#";
+	await app.quickSetupEncryptionFromCard('d-pass');
+	assert(alertMsg.includes("暗号化設定に失敗しました"));
+	global.setupStorageEncryption = origSetup;
+});
+
+test('app: clearMemoryAndDomForLock, resetAutoLockTimer, and initAutoLockListeners', async () => {
+	setupDomEnvironment();
+	state.currentDistrict.district = "機密地区";
+	state.repState.districts = [{ district: "集約地区" }];
+	state.neighborState.district = "自治会X";
+	const printArea = document.getElementById('print-area');
+	if (printArea) printArea.innerHTML = "<div>印刷機密データ</div>";
+
+	app.clearMemoryAndDomForLock();
+	assert.strictEqual(state.currentDistrict.district, "");
+	assert.strictEqual(state.repState.districts.length, 0);
+	assert.strictEqual(state.neighborState.district, "");
+	if (printArea) assert.strictEqual(printArea.innerHTML, "");
+
+	// resetAutoLockTimer & initAutoLockListeners in unencrypted state
+	app.initAutoLockListeners();
+	app.resetAutoLockTimer();
+
+	// resetAutoLockTimer in encrypted & unlocked state
+	await cryptoLib.setupStorageEncryption("AutoLockPass123!@#", false);
+	assert.strictEqual(cryptoLib.isStorageEncrypted(), true);
+	assert.strictEqual(cryptoLib.isStorageUnlocked(), true);
+
+	const origSetTimeout = global.setTimeout;
+	let timerCb = null;
+	global.setTimeout = (cb, ms) => {
+		timerCb = cb;
+		return { unref: () => {} };
+	};
+
+	app.resetAutoLockTimer();
+	assert(typeof timerCb === 'function');
+	// Execute auto-lock timer callback
+	timerCb();
+	global.setTimeout = origSetTimeout;
+
+	// Unlock again and test visibilitychange
+	await cryptoLib.unlockStorageWithPassword("AutoLockPass123!@#");
+	document.hidden = true;
+	document.dispatchEvent({ type: 'visibilitychange' });
+	document.hidden = false;
+
+	cryptoLib.clearStorageSecurity();
+});

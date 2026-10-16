@@ -13,7 +13,8 @@ function esc(str) {
 		.replace(/&/g, "&amp;")
 		.replace(/</g, "&lt;")
 		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;");
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#39;");
 }
 
 /**
@@ -169,9 +170,12 @@ function formatGradeCounts(c) {
 function downloadTextFile(content, filename) {
 	const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
 	const a = document.createElement('a');
-	a.href = URL.createObjectURL(blob);
+	const url = URL.createObjectURL(blob);
+	a.href = url;
 	a.download = filename;
 	a.click();
+	const t = setTimeout(() => URL.revokeObjectURL(url), 1000);
+	if (t && typeof t.unref === 'function') t.unref();
 }
 
 /**
@@ -327,4 +331,26 @@ function getDistrictWideValidStudents(targetDistrict, allDistricts) {
 		});
 	});
 	return allStudents;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+	module.exports = {
+		esc,
+		getFullName,
+		getFullNameKana,
+		getChildFullName,
+		getChildFullNameKana,
+		normalizeNameFields,
+		normalizeOfficerChildNames,
+		getDistrictHanList,
+		getGradeCounts,
+		formatGradeCounts,
+		downloadTextFile,
+		validatePassword,
+		togglePasswordVisibility,
+		compareStudents,
+		getUniqueNeighborhoodDistricts,
+		getDistrictWideValidStudents
+	};
+	Object.assign(global, module.exports);
 }

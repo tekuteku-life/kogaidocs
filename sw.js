@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kogai-cache-v1';
+const CACHE_NAME = 'kogai-cache-v2';
 const ASSETS = [
 	'./',
 	'./index.html',
@@ -11,6 +11,7 @@ const ASSETS = [
 	'./js/district.js',
 	'./js/seat.js',
 	'./js/rep.js',
+	'./js/neighbor.js',
 	'./js/print.js',
 	'./js/app.js',
 	'./icons/icon-192.png',

@@ -7,10 +7,16 @@ let deferredInstallPrompt = null;
 function switchTab(mode) {
 	const tabD = document.getElementById('tab-district');
 	const tabR = document.getElementById('tab-rep');
+	const tabN = document.getElementById('tab-neighbor');
 	if (tabD) tabD.style.display = mode === 'district' ? 'block' : 'none';
 	if (tabR) tabR.style.display = mode === 'rep' ? 'block' : 'none';
+	if (tabN) tabN.style.display = mode === 'neighbor' ? 'block' : 'none';
 	const btns = document.querySelectorAll('.tab-btn');
-	if (btns.length >= 2) {
+	if (btns.length >= 3) {
+		btns[0].classList.toggle('active', mode === 'district');
+		btns[1].classList.toggle('active', mode === 'rep');
+		btns[2].classList.toggle('active', mode === 'neighbor');
+	} else if (btns.length >= 2) {
 		btns[0].classList.toggle('active', mode === 'district');
 		btns[1].classList.toggle('active', mode === 'rep');
 	}
@@ -108,8 +114,11 @@ async function handleWebAuthnUnlock(silent = false) {
 		await loadAppDataFromStorage();
 		renderDistrictForm();
 		renderRepAll();
+		if (typeof renderNeighborForm === 'function') renderNeighborForm();
 		setAllCardsCollapse(true, 'tab-district');
 		setAllCardsCollapse(true, 'tab-rep');
+		setAllCardsCollapse(true, 'tab-neighbor');
+		resetAutoLockTimer();
 	} catch (err) {
 		console.warn("WebAuthn unlock failed:", err);
 		if (!silent && errEl) {
@@ -139,8 +148,11 @@ async function handlePasswordUnlock() {
 		await loadAppDataFromStorage();
 		renderDistrictForm();
 		renderRepAll();
+		if (typeof renderNeighborForm === 'function') renderNeighborForm();
 		setAllCardsCollapse(true, 'tab-district');
 		setAllCardsCollapse(true, 'tab-rep');
+		setAllCardsCollapse(true, 'tab-neighbor');
+		resetAutoLockTimer();
 	} catch (err) {
 		console.warn("Password unlock failed:", err);
 		if (errEl) {
@@ -330,10 +342,79 @@ async function handleAddOrUpdateBiometric() {
 }
 
 /**
+ * ロック時にメモリ内データとDOMを初期化して画面からの情報漏洩を防ぎます
+ */
+function clearMemoryAndDomForLock() {
+	if (typeof currentDistrict !== 'undefined') {
+		currentDistrict.district = "";
+		currentDistrict.han = "";
+		currentDistrict.hanList = [];
+		currentDistrict.officers = [
+			{
+				lastName: "", firstName: "", lastNameKana: "", firstNameKana: "",
+				role: "校外委員", han: "", tel: "", email: "", address: "",
+				childGrade: "", childClass: "", childLastName: "", childFirstName: "",
+				childLastNameKana: "", childFirstNameKana: ""
+			}
+		];
+		currentDistrict.neighborhood = [{ role: "会長", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "" }];
+		currentDistrict.students = [{ grade: "1", class: "", han: "", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", leader: "", isOutOfDistrict: false }];
+	}
+	if (typeof repState !== 'undefined') {
+		repState.districts = [];
+	}
+	if (typeof neighborState !== 'undefined') {
+		neighborState.district = "";
+		neighborState.neighborhood = [
+			{ role: "会長", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", email: "", note: "" },
+			{ role: "副会長", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", email: "", note: "" }
+		];
+	}
+	if (typeof renderDistrictForm === 'function') renderDistrictForm();
+	if (typeof renderRepAll === 'function') renderRepAll();
+	if (typeof renderNeighborForm === 'function') renderNeighborForm();
+	const printArea = document.getElementById('print-area');
+	if (printArea) printArea.innerHTML = "";
+}
+
+let autoLockTimer = null;
+const AUTO_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
+
+function resetAutoLockTimer() {
+	if (autoLockTimer) {
+		clearTimeout(autoLockTimer);
+		autoLockTimer = null;
+	}
+	if (isStorageEncrypted() && isStorageUnlocked()) {
+		autoLockTimer = setTimeout(() => {
+			handleImmediateLock();
+		}, AUTO_LOCK_TIMEOUT_MS);
+		if (autoLockTimer && typeof autoLockTimer.unref === 'function') {
+			autoLockTimer.unref();
+		}
+	}
+}
+
+function initAutoLockListeners() {
+	if (typeof window === 'undefined') return;
+	['pointerdown', 'keydown', 'touchstart'].forEach(evt => {
+		window.addEventListener(evt, resetAutoLockTimer, { passive: true });
+	});
+	if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+		document.addEventListener('visibilitychange', () => {
+			if (document.hidden && isStorageEncrypted() && isStorageUnlocked()) {
+				resetAutoLockTimer();
+			}
+		});
+	}
+}
+
+/**
  * 今すぐストレージをロックします
  */
 function handleImmediateLock() {
 	lockStorage();
+	clearMemoryAndDomForLock();
 	closeStorageSettingsModal();
 	updateSecurityBadge('locked');
 	showStorageUnlockModal();
@@ -383,11 +464,11 @@ async function loadAppDataFromStorage() {
 	if (!currentDistrict.officers || !Array.isArray(currentDistrict.officers) || currentDistrict.officers.length === 0) {
 		currentDistrict.officers = [currentDistrict.officer || {}];
 	}
+	delete currentDistrict.officer;
 	currentDistrict.officers.forEach(off => {
 		normalizeOfficerChildNames(off);
 		normalizeNameFields(off);
 	});
-	currentDistrict.officer = currentDistrict.officers[0];
 
 	if (currentDistrict.han === undefined) {
 		currentDistrict.han = "";
@@ -428,11 +509,11 @@ async function loadAppDataFromStorage() {
 			if (!d.officers || !Array.isArray(d.officers) || d.officers.length === 0) {
 				d.officers = [d.officer || {}];
 			}
+			delete d.officer;
 			d.officers.forEach(off => {
 				normalizeOfficerChildNames(off);
 				normalizeNameFields(off);
 			});
-			d.officer = d.officers[0];
 			(d.neighborhood || []).forEach(normalizeNameFields);
 			(d.students || []).forEach(s => {
 				normalizeNameFields(s);
@@ -443,6 +524,24 @@ async function loadAppDataFromStorage() {
 	}
 	if (repState.szExternals && Array.isArray(repState.szExternals)) {
 		repState.szExternals.forEach(normalizeNameFields);
+	}
+
+	try {
+		const savedN = await loadStorageDecrypted('kogai_neighbor_v2');
+		if (savedN && typeof savedN === 'object') {
+			neighborState = savedN;
+		}
+	} catch (e) {
+		console.warn("Failed to load neighbor data:", e);
+	}
+
+	if (!neighborState.neighborhood || !Array.isArray(neighborState.neighborhood) || neighborState.neighborhood.length === 0) {
+		neighborState.neighborhood = [
+			{ role: "会長", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", email: "", note: "" },
+			{ role: "副会長", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", email: "", note: "" }
+		];
+	} else {
+		neighborState.neighborhood.forEach(normalizeNameFields);
 	}
 }
 
@@ -465,6 +564,8 @@ window.addEventListener('DOMContentLoaded', async () => {
 		});
 	}
 
+	initAutoLockListeners();
+
 	// ストレージ暗号化チェック
 	if (isStorageEncrypted()) {
 		updateSecurityBadge('locked');
@@ -481,7 +582,35 @@ window.addEventListener('DOMContentLoaded', async () => {
 		await loadAppDataFromStorage();
 		renderDistrictForm();
 		renderRepAll();
+		if (typeof renderNeighborForm === 'function') renderNeighborForm();
 		setAllCardsCollapse(true, 'tab-district');
 		setAllCardsCollapse(true, 'tab-rep');
+		setAllCardsCollapse(true, 'tab-neighbor');
+		resetAutoLockTimer();
 	}
 });
+
+if (typeof module !== 'undefined' && module.exports) {
+	module.exports = {
+		switchTab,
+		triggerPwaInstall,
+		updateSecurityBadge,
+		showStorageUnlockModal,
+		hideStorageUnlockModal,
+		handleWebAuthnUnlock,
+		handlePasswordUnlock,
+		handleResetStorageConfirm,
+		openStorageSettingsModal,
+		closeStorageSettingsModal,
+		validateModalPasswords,
+		handleEnableEncryptionSubmit,
+		handleAddOrUpdateBiometric,
+		handleImmediateLock,
+		clearMemoryAndDomForLock,
+		resetAutoLockTimer,
+		initAutoLockListeners,
+		quickSetupEncryptionFromCard,
+		loadAppDataFromStorage
+	};
+	Object.assign(global, module.exports);
+}

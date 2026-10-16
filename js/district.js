@@ -39,7 +39,7 @@ function renderOfficersList() {
 	container.innerHTML = "";
 
 	if (!currentDistrict.officers || currentDistrict.officers.length === 0) {
-		currentDistrict.officers = [currentDistrict.officer || {}];
+		currentDistrict.officers = [{}];
 	}
 
 	const hanList = getDistrictHanList(currentDistrict);
@@ -335,7 +335,6 @@ function runDistrictYearUpdate() {
 			childLastNameKana: "", childFirstNameKana: ""
 		}
 	];
-	currentDistrict.officer = currentDistrict.officers[0];
 	currentDistrict.neighborhood = [{ role: "会長", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "" }];
 
 	const nextStudents = [];
@@ -437,15 +436,19 @@ async function loadDistrictTxt(e) {
 	const pass = document.getElementById('d-pass').value;
 	try {
 		const data = await parseTxtContent(await file.text(), pass);
+		if (data.isNeighborhoodData || (!data.students && Array.isArray(data.neighborhood))) {
+			mergeNeighborDataIntoDistrict(data);
+			e.target.value = "";
+			return;
+		}
 		if (!data.officers || !data.officers.length) {
 			data.officers = [data.officer || {}];
 		}
+		delete data.officer;
 		data.officers.forEach(off => {
 			normalizeOfficerChildNames(off);
 			normalizeNameFields(off);
 		});
-		normalizeOfficerChildNames(data.officer);
-		normalizeNameFields(data.officer);
 		(data.neighborhood || []).forEach(normalizeNameFields);
 		(data.students || []).forEach(s => {
 			normalizeNameFields(s);
@@ -463,6 +466,71 @@ async function loadDistrictTxt(e) {
 		alert("読み込みに失敗しました。パスワードが正しいか確認してください。");
 	}
 	e.target.value = "";
+}
+
+function mergeNeighborDataIntoDistrict(data) {
+	if (!data) return;
+	const nList = data.neighborhood || (Array.isArray(data) ? data : []);
+	const dName = (data.district || "").trim();
+	const curName = (currentDistrict.district || "").trim();
+
+	if (dName && curName && dName !== curName) {
+		const ok = confirm(`自治会名「${dName}」が現在の地区名「${curName}」と異なりますが、この地区の自治会役員名簿としてマージしますか？\n（キャンセルした場合はマージされません）`);
+		if (!ok) return;
+	} else if (dName && !curName) {
+		currentDistrict.district = dName;
+		const dNameEl = document.getElementById('d-name');
+		if (dNameEl) dNameEl.value = dName;
+	}
+
+	currentDistrict.neighborhood = JSON.parse(JSON.stringify(nList));
+	currentDistrict.neighborhood.forEach(normalizeNameFields);
+	saveDistrictLocal();
+	renderNeighborhoodTable();
+	alert(`自治会役員データ「${dName || curName}」（${currentDistrict.neighborhood.length}名）をマージしました。`);
+}
+
+async function loadNeighborFileIntoDistrict(e) {
+	const file = e.target.files[0];
+	if (!file) return;
+	const pass = document.getElementById('d-pass')?.value || "";
+	try {
+		const text = await file.text();
+		let data;
+		try {
+			data = await parseTxtContent(text, pass);
+		} catch (err) {
+			const promptPass = prompt("自治会ファイルの復号パスワードを入力してください：");
+			if (!promptPass) { e.target.value = ""; return; }
+			data = await parseTxtContent(text, promptPass);
+		}
+		mergeNeighborDataIntoDistrict(data);
+	} catch (err) {
+		alert("自治会データの読み込みに失敗しました。パスワードをご確認ください。");
+	}
+	e.target.value = "";
+}
+
+async function loadPastedNeighborTextIntoDistrict() {
+	const box = document.getElementById('d-neighbor-paste-box');
+	if (!box) return;
+	const raw = box.value.trim();
+	if (!raw) return;
+	let pass = document.getElementById('d-pass')?.value || "";
+	try {
+		let data;
+		try {
+			data = await parseTxtContent(raw, pass);
+		} catch (err) {
+			const promptPass = prompt("自治会データの復号パスワードを入力してください：");
+			if (!promptPass) return;
+			data = await parseTxtContent(raw, promptPass);
+		}
+		mergeNeighborDataIntoDistrict(data);
+		box.value = "";
+	} catch (err) {
+		alert("自治会データの復号に失敗しました。パスワードをご確認ください。");
+	}
 }
 
 function toggleCard(cardEl) {
@@ -484,4 +552,34 @@ function setAllCardsCollapse(collapse, containerId) {
 			btn.textContent = collapse ? '▼ 開く' : '▲ 閉じる';
 		}
 	});
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+	module.exports = {
+		renderDistrictForm,
+		onHanListInput,
+		renderOfficersList,
+		addOfficer,
+		removeOfficer,
+		renderNeighborhoodTable,
+		renderStudentsTable,
+		updateN,
+		removeN,
+		addNeighborhoodRow,
+		updateS,
+		removeS,
+		addStudentRow,
+		sortStudentsDesc,
+		updateStudentSummaryText,
+		runDistrictYearUpdate,
+		validateDistrictPasswords,
+		exportDistrictTxt,
+		loadDistrictTxt,
+		mergeNeighborDataIntoDistrict,
+		loadNeighborFileIntoDistrict,
+		loadPastedNeighborTextIntoDistrict,
+		toggleCard,
+		setAllCardsCollapse
+	};
+	Object.assign(global, module.exports);
 }

@@ -46,11 +46,11 @@ async function encryptPayload(jsonStr, password) {
  */
 async function decryptPayload(payloadStr, password) {
 	const dec = new TextDecoder();
-	if (payloadStr.startsWith("PLAIN:")) {
-		return dec.decode(base64ToUint8(payloadStr.slice(6)));
-	}
 	const b64 = payloadStr.startsWith("ENC:") ? payloadStr.slice(4) : payloadStr;
 	const combined = base64ToUint8(b64);
+	if (combined.length < 44) {
+		throw new Error("暗号化データの形式が不正です（データ長不足）。");
+	}
 	const salt = combined.slice(0, 16);
 	const iv = combined.slice(16, 28);
 	const cipherBytes = combined.slice(28);
@@ -195,7 +195,9 @@ async function unwrapKeyWithPassword(passwordWrapMeta, password) {
 		["encrypt", "decrypt"]
 	);
 	const rawMasterBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, wrapKey, wrappedBytes);
-	return await crypto.subtle.importKey("raw", rawMasterBuf, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
+	const importedKey = await crypto.subtle.importKey("raw", rawMasterBuf, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
+	new Uint8Array(rawMasterBuf).fill(0);
+	return importedKey;
 }
 
 /**
@@ -327,7 +329,9 @@ async function unwrapKeyWithWebAuthn(webauthnMeta) {
 
 	const prfWrapKey = await crypto.subtle.importKey("raw", prfResult, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 	const rawMasterBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, prfWrapKey, wrappedBytes);
-	return await crypto.subtle.importKey("raw", rawMasterBuf, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
+	const importedKey = await crypto.subtle.importKey("raw", rawMasterBuf, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
+	new Uint8Array(rawMasterBuf).fill(0);
+	return importedKey;
 }
 
 /**
@@ -353,6 +357,7 @@ async function setupStorageEncryption(password, enableBiometric = false) {
 			console.warn("生体認証の登録に失敗しました（パスワード暗号化で継続します）:", e);
 		}
 	}
+	new Uint8Array(rawMasterKey).fill(0);
 
 	const meta = {
 		isEncrypted: true,
@@ -371,6 +376,9 @@ async function setupStorageEncryption(password, enableBiometric = false) {
 	}
 	if (typeof repState !== 'undefined') {
 		await saveStorageData('kogai_rep_v2', repState);
+	}
+	if (typeof neighborState !== 'undefined') {
+		await saveStorageData('kogai_neighbor_v2', neighborState);
 	}
 
 	return { success: true, biometric: biometricSuccess };
@@ -437,6 +445,7 @@ function clearStorageSecurity() {
 	localStorage.removeItem(STORAGE_AUTH_KEY);
 	localStorage.removeItem('kogai_district_v2');
 	localStorage.removeItem('kogai_rep_v2');
+	localStorage.removeItem('kogai_neighbor_v2');
 	activeStorageKey = null;
 }
 
@@ -497,4 +506,36 @@ async function loadStorageDecrypted(storageKey) {
 	);
 	const dec = new TextDecoder();
 	return JSON.parse(dec.decode(plainBuf));
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+	module.exports = {
+		STORAGE_AUTH_KEY,
+		deriveKey,
+		encryptPayload,
+		decryptPayload,
+		uint8ToBase64,
+		base64ToUint8,
+		parseTxtContent,
+		isWebAuthnAvailable,
+		getStorageAuthMeta,
+		isStorageEncrypted,
+		isStorageUnlocked,
+		generateMasterKey,
+		wrapKeyWithPassword,
+		unwrapKeyWithPassword,
+		registerWebAuthnPrf,
+		unwrapKeyWithWebAuthn,
+		setupStorageEncryption,
+		registerWebAuthnForActiveKey,
+		unlockStorageWithPassword,
+		unlockStorageWithWebAuthn,
+		lockStorage,
+		clearStorageSecurity,
+		saveStorageData,
+		loadStorageDecrypted,
+		get activeStorageKey() { return activeStorageKey; },
+		set activeStorageKey(v) { activeStorageKey = v; }
+	};
+	Object.assign(global, module.exports);
 }

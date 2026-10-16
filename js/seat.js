@@ -14,7 +14,7 @@ function getAllSzParticipantsForSeat() {
 	// 校外役員（複数役員・同一地区別班データのキー重複防止）
 	repState.districts.forEach((d, dIdx) => {
 		if (!d.selectedForPrint) return;
-		const offList = (d.officers && d.officers.length > 0) ? d.officers : (d.officer ? [d.officer] : []);
+		const offList = d.officers || [];
 		offList.forEach((off, oIdx) => {
 			const r = off?.role ? `${off.role} ` : "";
 			const officerName = getFullName(off);
@@ -116,5 +116,16 @@ function updateSeatCell(cellKey, field, val) {
 	if (!repState.seatConfig.cells[cellKey]) repState.seatConfig.cells[cellKey] = { refKey: "", customText: "" };
 	repState.seatConfig.cells[cellKey][field] = val;
 	saveRepLocal();
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+	module.exports = {
+		getAllSzParticipantsForSeat,
+		swapSeatWindowCorridor,
+		resizeSeatGrid,
+		renderSeatEditor,
+		updateSeatCell
+	};
+	Object.assign(global, module.exports);
 }
 
