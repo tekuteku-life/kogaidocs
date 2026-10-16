@@ -96,7 +96,7 @@ function normalizeNameFields(item) {
 function normalizeOfficerChildNames(officer) {
 	if (!officer) return;
 	if (officer.address === undefined) officer.address = "";
-	if (officer.ban === undefined) officer.ban = "";
+	if (officer.han === undefined) officer.han = "";
 	if (officer.childLastName === undefined) {
 		if (officer.childName) {
 			const parts = officer.childName.trim().split(/[\s　]+/);
@@ -211,11 +211,11 @@ function togglePasswordVisibility(inputId, btnEl) {
  */
 function compareStudents(a, b) {
 	// 0. 班名（異なる班名の場合は班の自然順でグループ化）
-	const banA = String(a.ban || "").trim();
-	const banB = String(b.ban || "").trim();
-	if (banA !== banB) {
-		const bDiff = banA.localeCompare(banB, 'ja', { numeric: true });
-		if (bDiff !== 0) return bDiff;
+	const hanA = String(a.han || "").trim();
+	const hanB = String(b.han || "").trim();
+	if (hanA !== hanB) {
+		const hDiff = hanA.localeCompare(hanB, 'ja', { numeric: true });
+		if (hDiff !== 0) return hDiff;
 	}
 
 	// 1. 先頭に班長 → 副班長 → その他
@@ -251,4 +251,57 @@ function compareStudents(a, b) {
 	const aKana = getFullNameKana(a) || getFullName(a);
 	const bKana = getFullNameKana(b) || getFullName(b);
 	return aKana.localeCompare(bKana, 'ja');
+}
+
+/**
+ * 地区リストから、同一地区名（班違いで複数ファイルに分かれている場合）の重複を排除し、
+ * 自治会役員データが最も充実している代表1件ずつ（元の配列インデックス dIdx 付き）を返します。
+ * @param {Array} districts
+ * @param {boolean} onlySelected
+ * @returns {Array<{ d: Object, dIdx: number }>}
+ */
+function getUniqueNeighborhoodDistricts(districts, onlySelected = false) {
+	const districtMap = new Map();
+	(districts || []).forEach((d, dIdx) => {
+		if (onlySelected && !d.selectedForPrint) return;
+		const key = (d.district || "").trim();
+		if (!districtMap.has(key)) {
+			districtMap.set(key, { d, dIdx });
+		} else {
+			const existing = districtMap.get(key);
+			const existingN = (existing.d.neighborhood || []).filter(n => n.lastName || n.firstName || n.name || n.role).length;
+			const newN = (d.neighborhood || []).filter(n => n.lastName || n.firstName || n.name || n.role).length;
+			if (newN > existingN) {
+				districtMap.set(key, { d, dIdx });
+			}
+		}
+	});
+	return Array.from(districtMap.values());
+}
+
+/**
+ * 同一地区名（別班で別ファイル提出された場合を含む）の全有効児童リストを取得します
+ * @param {Object} targetDistrict
+ * @param {Array} allDistricts
+ * @returns {Array}
+ */
+function getDistrictWideValidStudents(targetDistrict, allDistricts) {
+	const targetName = (targetDistrict.district || "").trim();
+	const list = (allDistricts && allDistricts.length > 0)
+		? allDistricts.filter(x => (x.district || "").trim() === targetName)
+		: [targetDistrict];
+	const targetList = list.length > 0 ? list : [targetDistrict];
+	const allStudents = [];
+	targetList.forEach(dist => {
+		const defHan = (dist.han || "").trim();
+		(dist.students || []).forEach(s => {
+			if (s.lastName || s.firstName || s.name || s.address) {
+				allStudents.push({
+					...s,
+					_effectiveHan: (s.han && s.han.trim()) ? s.han.trim() : defHan
+				});
+			}
+		});
+	});
+	return allStudents;
 }

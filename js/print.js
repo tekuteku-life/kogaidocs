@@ -21,9 +21,9 @@ function printSingleDistrictSelected() {
 	};
 
 	const pages = [];
-	if (pStu) pages.push(buildStudentPageHtml(currentDistrict, options));
+	if (pStu) pages.push(buildStudentPageHtml(currentDistrict, options, [currentDistrict]));
 	if (pNei) pages.push(buildNeighborPageHtml(currentDistrict));
-	if (pSch) pages.push(buildSchoolOfficersRosterPageHtml([currentDistrict]));
+	if (pSch) pages.push(buildSchoolOfficersRosterPageHtml([currentDistrict], [currentDistrict]));
 	if (pPta) pages.push(buildPtaOfficersRosterPageHtml([currentDistrict]));
 
 	const area = document.getElementById('print-area');
@@ -52,12 +52,13 @@ function executeRepSelectedPrint() {
 		if (type === 'officers_pta' || type === 'officers') {
 			pages.push(buildPtaOfficersRosterPageHtml(targetDistricts));
 		} else if (type === 'officers_school') {
-			pages.push(buildSchoolOfficersRosterPageHtml(targetDistricts));
+			pages.push(buildSchoolOfficersRosterPageHtml(targetDistricts, repState.districts));
 		} else if (type === 'reg_tent') {
 			targetDistricts.forEach(d => {
 				const offList = (d.officers && d.officers.length > 0) ? d.officers : (d.officer ? [d.officer] : []);
 				offList.forEach(off => {
-					const sub = off.ban ? `${d.district} ${off.ban}` : d.district;
+					const hStr = (off.han || d.han || "").trim();
+					const sub = hStr ? `${d.district} ${hStr}` : d.district;
 					const officerName = getFullName(off);
 					const officerKana = getFullNameKana(off);
 					const role = off.role || "";
@@ -67,24 +68,12 @@ function executeRepSelectedPrint() {
 		} else if (type === 'envelopes') {
 			pages.push(...buildEnvelopesPagesHtml(targetDistricts));
 		} else if (type === 'all_students') {
-			targetDistricts.forEach(d => pages.push(buildStudentPageHtml(d, options)));
+			targetDistricts.forEach(d => pages.push(buildStudentPageHtml(d, options, repState.districts)));
 		} else if (type === 'all_neighbors') {
 			// 自治会役員名簿は班名には無関係に地区名とだけ結びつく（同一地区名の重複出力を防ぐ）
-			const districtMap = new Map();
-			targetDistricts.forEach(d => {
-				const key = d.district || '';
-				if (!districtMap.has(key)) {
-					districtMap.set(key, d);
-				} else {
-					const existing = districtMap.get(key);
-					const existingN = (existing.neighborhood || []).filter(n => n.lastName || n.firstName || n.role).length;
-					const newN = (d.neighborhood || []).filter(n => n.lastName || n.firstName || n.role).length;
-					if (newN > existingN) {
-						districtMap.set(key, d);
-					}
-				}
+			getUniqueNeighborhoodDistricts(targetDistricts, false).forEach(({ d }) => {
+				pages.push(buildNeighborPageHtml(d));
 			});
-			districtMap.forEach(d => pages.push(buildNeighborPageHtml(d)));
 		} else if (type === 'sz_tent') {
 			pages.push(...buildSzTentCardsPagesHtml(targetDistricts));
 		} else if (type === 'sz_att_1') {
@@ -113,39 +102,43 @@ function executeRepSelectedPrint() {
 /* --- 個別帳票ビルダー群 --- */
 
 // 児童名簿ページ（自治会役員名簿とは別ページ・班ごとに1枚出力・班長/副班長/学年/住所順・末尾に班と地区の集計併記）
-function buildStudentPageHtml(d, options) {
+function buildStudentPageHtml(d, options, allDistricts) {
 	options = options || {};
 	const showTel = options.includeOfficerTel !== false;
 	const showEmail = options.includeOfficerEmail !== false;
 
 	const allValidStudents = (d.students || []).filter(s => s.lastName || s.firstName || s.name || s.address);
-	const defaultBan = (d.ban || "").trim();
+	const defaultHan = (d.han || "").trim();
 
-	// 班ごとに生徒をグルーピング
-	const banMap = new Map();
+	// 班ごとに生徒をグルーピング（班名なしの場合は空文字のまま保持）
+	const hanMap = new Map();
 	allValidStudents.forEach(s => {
-		const b = (s.ban && s.ban.trim()) ? s.ban.trim() : (defaultBan || "班未設定");
-		if (!banMap.has(b)) banMap.set(b, []);
-		banMap.get(b).push(s);
+		const h = (s.han && s.han.trim()) ? s.han.trim() : defaultHan;
+		if (!hanMap.has(h)) hanMap.set(h, []);
+		hanMap.get(h).push(s);
 	});
 
-	if (banMap.size === 0) {
-		banMap.set(defaultBan || "1班", []);
+	if (hanMap.size === 0) {
+		hanMap.set(defaultHan, []);
 	}
 
 	const officersList = (d.officers && d.officers.length > 0) ? d.officers : (d.officer ? [d.officer] : []);
-	const districtTotal = allValidStudents.length;
-	const districtOutCount = allValidStudents.filter(s => s.isOutOfDistrict).length;
+
+	// 同一地区名の複数データ（別ファイル提出時）も含めた地区全体の児童集計
+	const districtWideStudents = getDistrictWideValidStudents(d, allDistricts);
+	const districtCounts = getGradeCounts(districtWideStudents);
+	const districtTotal = districtWideStudents.length;
+	const districtOutCount = districtWideStudents.filter(s => s.isOutOfDistrict).length;
 
 	const pages = [];
 
-	banMap.forEach((banStudents, banName) => {
-		const sorted = [...banStudents].sort(compareStudents);
+	hanMap.forEach((hanStudents, hanName) => {
+		const sorted = [...hanStudents].sort(compareStudents);
 		const counts = getGradeCounts(sorted);
-		const banOutCount = sorted.filter(s => s.isOutOfDistrict).length;
+		const hanOutCount = sorted.filter(s => s.isOutOfDistrict).length;
 
 		// 当該班の担当役員を特定（担当班が一致する役員、または全班・未指定役員）
-		let assignedOfficers = officersList.filter(o => o.ban && o.ban.trim() === banName);
+		let assignedOfficers = hanName ? officersList.filter(o => o.han && o.han.trim() === hanName) : [];
 		if (assignedOfficers.length === 0) {
 			assignedOfficers = officersList;
 		}
@@ -154,10 +147,10 @@ function buildStudentPageHtml(d, options) {
 			const oName = getFullName(o) || "未設定";
 			const oKana = getFullNameKana(o);
 			const oRole = o.role ? ` [${esc(o.role)}]` : "";
-			const oBanLabel = (o.ban && o.ban !== banName) ? `（担当:${esc(o.ban)}）` : "";
+			const oHanLabel = (o.han && o.han !== hanName) ? `（担当:${esc(o.han)}）` : "";
 			return `
 				<div class="print-officer-banner">
-					<div><strong>担当校外委員：</strong>${esc(oName)}${oKana ? `（${esc(oKana)}）` : ""}${oRole}${oBanLabel}</div>
+					<div><strong>担当校外委員：</strong>${esc(oName)}${oKana ? `（${esc(oKana)}）` : ""}${oRole}${oHanLabel}</div>
 					${(showTel && o.tel) ? `<div><strong>TEL：</strong>${esc(o.tel)}</div>` : ""}
 					${(showEmail && o.email) ? `<div><strong>E-mail：</strong>${esc(o.email)}</div>` : ""}
 				</div>
@@ -168,13 +161,17 @@ function buildStudentPageHtml(d, options) {
 			</div>
 		`;
 
+		const summaryTitle = hanName
+			? `【${esc(d.district)} ${esc(hanName)} 児童集計】`
+			: `【${esc(d.district)} 児童集計】`;
+
 		const pageHtml = `
 			<div class="print-page">
 				<div class="print-title">児童名簿</div>
 				<div class="print-header-meta">
 					<div class="print-header-tags">
 						<span><strong>地区名：</strong>${esc(d.district || "未設定")}</span>
-						<span><strong>班名：</strong>${esc(banName)}</span>
+						${hanName ? `<span><strong>班名：</strong>${esc(hanName)}</span>` : ""}
 					</div>
 					<div class="print-date">作成日：${new Date().toLocaleDateString('ja-JP')}</div>
 				</div>
@@ -213,13 +210,14 @@ function buildStudentPageHtml(d, options) {
 					</tbody>
 				</table>
 				<div class="summary-box">
-					<div class="summary-title">【${esc(d.district)} ${esc(banName)} 児童集計】</div>
+					<div class="summary-title">${summaryTitle}</div>
 					<div class="summary-stats">
-						<span><strong>班の児童数：</strong>${sorted.length}名${banOutCount ? `（うち学区外: ${banOutCount}名）` : ''}</span>
+						<span><strong>班の児童数：</strong>${sorted.length}名${hanOutCount ? `（うち学区外: ${hanOutCount}名）` : ''}</span>
 						<span style="margin-left: 20px;"><strong>地区全体の児童数：</strong>${districtTotal}名${districtOutCount ? `（うち学区外: ${districtOutCount}名）` : ''}</span>
 					</div>
 					<div class="summary-grades" style="margin-top: 4px;">
-						${formatGradeCounts(counts)}
+						<div><strong>[班の学年別内訳]</strong> ${formatGradeCounts(counts)}</div>
+						<div><strong>[地区全体の学年別内訳]</strong> ${formatGradeCounts(districtCounts)}</div>
 					</div>
 				</div>
 			</div>
@@ -281,7 +279,7 @@ function buildPtaOfficersRosterPageHtml(districts) {
 		const list = (d.officers && d.officers.length > 0) ? d.officers : (d.officer ? [d.officer] : []);
 		list.forEach(o => {
 			if (o.lastName || o.firstName || o.role || o.tel) {
-				allOfficers.push({ district: d.district, officer: o });
+				allOfficers.push({ district: d.district, han: d.han, officer: o });
 			}
 		});
 	});
@@ -317,9 +315,10 @@ function buildPtaOfficersRosterPageHtml(districts) {
 							? `<div class="print-ruby-name"><span class="p-kana">${esc(kana)}</span><span class="p-kanji">${esc(name)}</span></div>`
 							: esc(name);
 						const gradeStr = o.childGrade ? `${esc(o.childGrade)}年` : "-";
+						const hStr = (o.han || item.han || "").trim();
 						return `
 							<tr>
-								<td>${esc(item.district)}${o.ban ? ` (${esc(o.ban)})` : ''}</td>
+								<td>${esc(item.district)}${hStr ? ` (${esc(hStr)})` : ''}</td>
 								<td>${nameHtml}</td>
 								<td style="text-align:center;">${esc(o.role || '校外委員')}</td>
 								<td style="text-align:center;">${gradeStr}</td>
@@ -367,28 +366,30 @@ function buildPtaOfficersRosterPageHtml(districts) {
 }
 
 // ② 校外役員名簿（学校提出用：連絡先・住所・児童数・学区外児童数入）
-function buildSchoolOfficersRosterPageHtml(districts) {
+function buildSchoolOfficersRosterPageHtml(districts, allDistricts) {
 	const rows = [];
 
 	districts.forEach(d => {
 		const list = (d.officers && d.officers.length > 0) ? d.officers : (d.officer ? [d.officer] : []);
-		const allStudents = (d.students || []).filter(s => s.lastName || s.firstName || s.name || s.address);
-		const distTotal = allStudents.length;
-		const distOutCount = allStudents.filter(s => s.isOutOfDistrict).length;
+		// 同一地区名の別班ファイルも含めて地区全体の児童を集計
+		const districtWideStudents = getDistrictWideValidStudents(d, allDistricts || districts);
+		const distTotal = districtWideStudents.length;
+		const distOutCount = districtWideStudents.filter(s => s.isOutOfDistrict).length;
 
 		list.forEach(o => {
 			if (o.lastName || o.firstName || o.role || o.tel) {
-				let banStudentCount = null;
-				if (o.ban && o.ban.trim()) {
-					const bName = o.ban.trim();
-					banStudentCount = allStudents.filter(s => (s.ban && s.ban.trim() === bName) || (!s.ban && d.ban === bName)).length;
+				const hName = (o.han && o.han.trim()) ? o.han.trim() : ((d.han && d.han.trim()) ? d.han.trim() : "");
+				let hanStudentCount = null;
+				if (hName) {
+					hanStudentCount = districtWideStudents.filter(s => s._effectiveHan === hName).length;
 				}
 
 				rows.push({
 					district: d.district,
 					officer: o,
+					hanName: hName,
 					distTotal: distTotal,
-					banStudentCount: banStudentCount,
+					hanStudentCount: hanStudentCount,
 					distOutCount: distOutCount
 				});
 			}
@@ -433,13 +434,13 @@ function buildSchoolOfficersRosterPageHtml(districts) {
 						const gradeClass = o.childGrade ? `${esc(o.childGrade)}-${esc(o.childClass || '')}` : '-';
 
 						let studentCountText = `地区: ${r.distTotal}名`;
-						if (r.banStudentCount !== null) {
-							studentCountText += `<br><span style="font-size:8pt; color:#444;">(${esc(o.ban)}: ${r.banStudentCount}名)</span>`;
+						if (r.hanStudentCount !== null && r.hanName) {
+							studentCountText += `<br><span style="font-size:8pt; color:#444;">(${esc(r.hanName)}: ${r.hanStudentCount}名)</span>`;
 						}
 
 						return `
 							<tr>
-								<td>${esc(r.district)}${o.ban ? `<br><span style="font-size:8pt; color:#444;">(${esc(o.ban)})</span>` : ''}</td>
+								<td>${esc(r.district)}${r.hanName ? `<br><span style="font-size:8pt; color:#444;">(${esc(r.hanName)})</span>` : ''}</td>
 								<td>${oNameHtml}</td>
 								<td>${cNameHtml}</td>
 								<td style="text-align:center;">${gradeClass}</td>
@@ -515,7 +516,7 @@ function buildEnvelopesPagesHtml(districts) {
 		const list = (d.officers && d.officers.length > 0) ? d.officers : (d.officer ? [d.officer] : []);
 		list.forEach(off => {
 			if (off.childLastName || off.childFirstName || off.childName) {
-				allItems.push({ district: d.district, officer: off });
+				allItems.push({ district: d.district, han: d.han, officer: off });
 			}
 		});
 	});
@@ -531,12 +532,13 @@ function buildEnvelopesPagesHtml(districts) {
 						if (!item) return `<div class="address-cell"></div>`;
 						const d = item.district;
 						const off = item.officer;
+						const hStr = (off.han || item.han || "").trim();
 						const officerFullName = getFullName(off);
 						const childFullName = getChildFullName(off);
 						const childKana = getChildFullNameKana(off);
 						return `
 							<div class="address-cell">
-								<div class="addr-district">地区：${esc(d)}${off.ban ? ` (${esc(off.ban)})` : ''}（校外委員：${esc(officerFullName)} 様宛）</div>
+								<div class="addr-district">地区：${esc(d)}${hStr ? ` (${esc(hStr)})` : ''}（校外委員：${esc(officerFullName)} 様宛）</div>
 								<div class="addr-child">
 									<span class="addr-grade">${esc(off.childGrade)}年 ${esc(off.childClass)}組</span>
 									${childKana ? `<span class="addr-child-kana">${esc(childKana)}</span>` : ''}
@@ -561,7 +563,8 @@ function buildSzTentCardsPagesHtml(targetDistricts) {
 	targetDistricts.forEach(d => {
 		const list = (d.officers && d.officers.length > 0) ? d.officers : (d.officer ? [d.officer] : []);
 		list.forEach(off => {
-			const sub = `校外委員（${d.district}${off.ban ? ' ' + off.ban : ''}）`;
+			const hStr = (off.han || d.han || "").trim();
+			const sub = `校外委員（${d.district}${hStr ? ' ' + hStr : ''}）`;
 			const officerName = getFullName(off);
 			const officerKana = getFullNameKana(off);
 			const role = off.role || "";
@@ -569,8 +572,8 @@ function buildSzTentCardsPagesHtml(targetDistricts) {
 		});
 	});
 
-	// 2. 自治会出席者：上段「地区名」／下段「役職＋氏名」
-	targetDistricts.forEach(d => {
+	// 2. 自治会出席者：上段「地区名」／下段「役職＋氏名」（同一地区名の重複排除）
+	getUniqueNeighborhoodDistricts(targetDistricts, false).forEach(({ d }) => {
 		(d.neighborhood || []).forEach((n, idx) => {
 			if (d.szNeighborChecks && d.szNeighborChecks[idx]) {
 				const sub = d.district;
@@ -615,8 +618,9 @@ function buildSzAttendance1PageHtml(targetDistricts) {
 	targetDistricts.forEach(d => {
 		const list = (d.officers && d.officers.length > 0) ? d.officers : (d.officer ? [d.officer] : []);
 		list.forEach(off => {
+			const hStr = (off.han || d.han || "").trim();
 			rows.push({
-				org: `PTA校外委員会（${d.district}${off.ban ? ' ' + off.ban : ''}）`,
+				org: `PTA校外委員会（${d.district}${hStr ? ' ' + hStr : ''}）`,
 				role: off.role || "校外委員",
 				name: getFullName(off),
 				kana: getFullNameKana(off)
@@ -669,8 +673,8 @@ function buildSzAttendance2PageHtml(targetDistricts) {
 		rows.push({ org: ex.org, role: ex.role, name: getFullName(ex), kana: getFullNameKana(ex) });
 	});
 
-	// 自治会代表
-	targetDistricts.forEach(d => {
+	// 自治会代表（同一地区名の重複排除）
+	getUniqueNeighborhoodDistricts(targetDistricts, false).forEach(({ d }) => {
 		(d.neighborhood || []).forEach((n, idx) => {
 			if (d.szNeighborChecks && d.szNeighborChecks[idx]) {
 				rows.push({ org: d.district, role: n.role, name: getFullName(n), kana: getFullNameKana(n) });
@@ -823,7 +827,8 @@ function buildSzMasterRosterPageHtml(targetDistricts) {
 		});
 	});
 
-	targetDistricts.forEach(d => {
+	// 自治会役員（同一地区名の重複排除）
+	getUniqueNeighborhoodDistricts(targetDistricts, false).forEach(({ d }) => {
 		(d.neighborhood || []).forEach((n, idx) => {
 			if (n.lastName || n.firstName || n.name || n.role) {
 				const isAtt = d.szNeighborChecks && d.szNeighborChecks[idx];

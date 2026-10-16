@@ -26,8 +26,8 @@ window.addEventListener('DOMContentLoaded', () => {
 	});
 	currentDistrict.officer = currentDistrict.officers[0];
 
-	if (currentDistrict.ban === undefined) {
-		currentDistrict.ban = "";
+	if (currentDistrict.han === undefined) {
+		currentDistrict.han = "";
 	}
 
 	if (!currentDistrict.neighborhood || currentDistrict.neighborhood.length === 0) {
@@ -37,11 +37,11 @@ window.addEventListener('DOMContentLoaded', () => {
 	}
 
 	if (!currentDistrict.students || currentDistrict.students.length === 0) {
-		currentDistrict.students = [{ grade: "6", class: "1", ban: currentDistrict.ban || "", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", leader: "", isOutOfDistrict: false }];
+		currentDistrict.students = [{ grade: "6", class: "1", han: currentDistrict.han || "", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", leader: "", isOutOfDistrict: false }];
 	} else {
 		currentDistrict.students.forEach(s => {
 			normalizeNameFields(s);
-			if (s.ban === undefined) s.ban = currentDistrict.ban || "";
+			if (s.han === undefined) s.han = currentDistrict.han || "";
 			if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
 		});
 	}
@@ -52,7 +52,7 @@ window.addEventListener('DOMContentLoaded', () => {
 	}
 	if (repState.districts && Array.isArray(repState.districts)) {
 		repState.districts.forEach(d => {
-			if (d.ban === undefined) d.ban = "";
+			if (d.han === undefined) d.han = "";
 			if (!d.officers || !Array.isArray(d.officers) || d.officers.length === 0) {
 				d.officers = [d.officer || {}];
 			}
@@ -64,7 +64,7 @@ window.addEventListener('DOMContentLoaded', () => {
 			(d.neighborhood || []).forEach(normalizeNameFields);
 			(d.students || []).forEach(s => {
 				normalizeNameFields(s);
-				if (s.ban === undefined) s.ban = d.ban || "";
+				if (s.han === undefined) s.han = d.han || "";
 				if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
 			});
 		});

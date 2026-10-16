@@ -31,15 +31,17 @@ function updateHataPreview() {
 		const numMatches = rawAddr.match(/\d+/g);
 		const numAddr = numMatches ? numMatches.join('-') : rawAddr;
 
-		const ban = (currentDistrict.ban || "").trim();
+		const defaultHan = (currentDistrict.han || "").trim();
+		const sHan = (s.han || "").trim();
+		const han = sHan || defaultHan;
 		const district = (currentDistrict.district || "").trim();
 
 		const line = fmt
 			.replace(/\{住所\}/g, rawAddr)
 			.replace(/\{住所数字\}/g, numAddr)
 			.replace(/\{地区\}/g, district)
-			.replace(/\{班\}/g, ban)
-			.replace(/\{班名\}/g, ban)
+			.replace(/\{班\}/g, han)
+			.replace(/\{班名\}/g, han)
 			.replace(/\{苗字\}/g, lastName)
 			.replace(/\{名前\}/g, firstName)
 			.replace(/\{氏名\}/g, fullName)

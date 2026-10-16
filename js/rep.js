@@ -21,12 +21,12 @@ function upsertRepDistrict(d) {
 	(d.neighborhood || []).forEach(normalizeNameFields);
 	(d.students || []).forEach(s => {
 		normalizeNameFields(s);
-		if (s.ban === undefined) s.ban = d.ban || "";
+		if (s.han === undefined) s.han = d.han || "";
 		if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
 	});
 
-	d.ban = d.ban || "";
-	const existingIdx = repState.districts.findIndex(x => x.district === d.district && (x.ban || "") === d.ban);
+	d.han = d.han || "";
+	const existingIdx = repState.districts.findIndex(x => x.district === d.district && (x.han || "") === d.han);
 	// 自治会役員の初期チェック（役職に「会長」が含まれる人をデフォルトON、いなければ先頭をON）
 	const defaultChecks = {};
 	(d.neighborhood || []).forEach((n, idx) => {
@@ -69,7 +69,7 @@ async function loadMultipleDistrictFiles(e) {
 					(d.neighborhood || []).forEach(normalizeNameFields);
 					(d.students || []).forEach(s => {
 						normalizeNameFields(s);
-						if (s.ban === undefined) s.ban = d.ban || "";
+						if (s.han === undefined) s.han = d.han || "";
 						if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
 					});
 				});
@@ -95,8 +95,8 @@ async function loadPastedTextToRep() {
 		upsertRepDistrict(data);
 		document.getElementById('rep-paste-box').value = "";
 		renderRepAll();
-		const banMsg = data.ban ? `（${data.ban}）` : "";
-		alert(`「${data.district}${banMsg}」を追加しました。`);
+		const hanMsg = data.han ? `（${data.han}）` : "";
+		alert(`「${data.district}${hanMsg}」を追加しました。`);
 	} catch (err) {
 		alert("復号に失敗しました。パスワードを確認してください。");
 	}
@@ -182,7 +182,7 @@ async function loadRepMasterTxt(e) {
 		const data = await parseTxtContent(await file.text(), pass);
 		if (data.districts) {
 			(data.districts || []).forEach(d => {
-				if (d.ban === undefined) d.ban = "";
+				if (d.han === undefined) d.han = "";
 				if (!d.officers || !Array.isArray(d.officers) || d.officers.length === 0) {
 					d.officers = [d.officer || {}];
 				}
@@ -194,7 +194,7 @@ async function loadRepMasterTxt(e) {
 				(d.neighborhood || []).forEach(normalizeNameFields);
 				(d.students || []).forEach(s => {
 					normalizeNameFields(s);
-					if (s.ban === undefined) s.ban = d.ban || "";
+					if (s.han === undefined) s.han = d.han || "";
 					if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
 				});
 			});
@@ -206,8 +206,8 @@ async function loadRepMasterTxt(e) {
 		} else {
 			upsertRepDistrict(data);
 			renderRepAll();
-			const banMsg = data.ban ? `（${data.ban}）` : "";
-			alert(`地区データ「${data.district}${banMsg}」として追加しました。`);
+			const hanMsg = data.han ? `（${data.han}）` : "";
+			alert(`地区データ「${data.district}${hanMsg}」として追加しました。`);
 		}
 	} catch (err) {
 		alert("読み込みに失敗しました。パスワードを確認してください。");
@@ -247,8 +247,8 @@ function renderRepDistrictsTable() {
 		const officerHtml = offList.map(off => {
 			const roleBadge = off.role ? `<strong>[${esc(off.role)}]</strong> ` : "";
 			const offName = getFullName(off) || "未入力";
-			const offBan = off.ban ? `<span style="font-size:0.75rem; color:#64748b; margin-left:2px;">(${esc(off.ban)})</span>` : "";
-			return `<div>${roleBadge}${esc(offName)}${offBan}</div>`;
+			const offHan = off.han ? `<span style="font-size:0.75rem; color:#64748b; margin-left:2px;">(${esc(off.han)})</span>` : "";
+			return `<div>${roleBadge}${esc(offName)}${offHan}</div>`;
 		}).join('') || "未入力";
 
 		const childInfo = offList.map(off => {
@@ -256,13 +256,13 @@ function renderRepDistrictsTable() {
 			return childFullName ? `<div>${esc(off.childGrade || "")}年${esc(off.childClass || "")}組 ${esc(childFullName)}</div>` : `<div>（未入力）</div>`;
 		}).join('') || "（未入力）";
 
-		const banBadge = d.ban ? `<span style="font-size:0.8rem; color:#475569; margin-left:4px;">(${esc(d.ban)})</span>` : "";
+		const hanBadge = d.han ? `<span style="font-size:0.8rem; color:#475569; margin-left:4px;">(${esc(d.han)})</span>` : "";
 		return `
 			<tr>
 				<td style="text-align:center;">
 					<input type="checkbox" ${d.selectedForPrint ? 'checked' : ''} onchange="repState.districts[${i}].selectedForPrint=this.checked;saveRepLocal();">
 				</td>
-				<td><strong>${esc(d.district)}</strong>${banBadge}</td>
+				<td><strong>${esc(d.district)}</strong>${hanBadge}</td>
 				<td>${officerHtml}</td>
 				<td>${childInfo}</td>
 				<td>${c.total} 名</td>
@@ -286,14 +286,15 @@ function clearAllRepDistricts() {
 	renderRepAll();
 }
 
-/* スクゾ自治会出席者セレクタ */
+/* スクゾ自治会出席者セレクタ（同一地区名の重複表示を排除） */
 function renderSzNeighborhoodSelector() {
 	const box = document.getElementById('sz-neighborhood-selector');
 	if (repState.districts.length === 0) {
 		box.innerHTML = `<span class="help-text">地区データを読み込むと、ここに各地区の自治会役員が表示されます。</span>`;
 		return;
 	}
-	box.innerHTML = repState.districts.map((d, dIdx) => {
+	const uniqueDistricts = getUniqueNeighborhoodDistricts(repState.districts, false);
+	box.innerHTML = uniqueDistricts.map(({ d, dIdx }) => {
 		const neighbors = (d.neighborhood || []).map((n, nIdx) => ({ ...n, nIdx })).filter(n => n.lastName || n.firstName || n.name || n.role);
 		if (neighbors.length === 0) return "";
 		const checksHtml = neighbors.map(n => {
@@ -311,8 +312,16 @@ function renderSzNeighborhoodSelector() {
 }
 
 function toggleSzNeighbor(dIdx, nIdx, flag) {
-	if (!repState.districts[dIdx].szNeighborChecks) repState.districts[dIdx].szNeighborChecks = {};
-	repState.districts[dIdx].szNeighborChecks[nIdx] = flag;
+	const targetDist = repState.districts[dIdx];
+	if (!targetDist) return;
+	const distName = (targetDist.district || '').trim();
+	// 同一地区名の全エントリに対してチェック状態を同期する
+	repState.districts.forEach((d, idx) => {
+		if (idx === dIdx || (distName && (d.district || '').trim() === distName)) {
+			if (!d.szNeighborChecks) d.szNeighborChecks = {};
+			d.szNeighborChecks[nIdx] = flag;
+		}
+	});
 	saveRepLocal();
 	renderSeatEditor();
 }

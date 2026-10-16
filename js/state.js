@@ -4,7 +4,7 @@
 
 let currentDistrict = {
 	district: "",
-	ban: "",
+	han: "",
 	officers: [
 		{
 			lastName: "",
@@ -12,7 +12,7 @@ let currentDistrict = {
 			lastNameKana: "",
 			firstNameKana: "",
 			role: "",
-			ban: "",
+			han: "",
 			tel: "",
 			email: "",
 			address: "",
@@ -54,19 +54,19 @@ function saveDistrictLocal() {
 	const dNameEl = document.getElementById('d-name');
 	if (!dNameEl) return;
 	currentDistrict.district = dNameEl.value.trim();
-	const dBanEl = document.getElementById('d-ban');
-	currentDistrict.ban = dBanEl ? dBanEl.value.trim() : "";
+	const dHanEl = document.getElementById('d-han');
+	currentDistrict.han = dHanEl ? dHanEl.value.trim() : "";
 
 	const officerBoxes = document.querySelectorAll('.officer-item-box');
 	if (officerBoxes.length > 0) {
 		const newOfficers = [];
-		officerBoxes.forEach(box => {
+		officerBoxes.forEach((box, idx) => {
 			const oLastName = box.querySelector(`[data-field="lastName"]`)?.value.trim() || "";
 			const oFirstName = box.querySelector(`[data-field="firstName"]`)?.value.trim() || "";
 			const oLastKana = box.querySelector(`[data-field="lastNameKana"]`)?.value.trim() || "";
 			const oFirstKana = box.querySelector(`[data-field="firstNameKana"]`)?.value.trim() || "";
 			const oRole = box.querySelector(`[data-field="role"]`)?.value || "";
-			const oBan = box.querySelector(`[data-field="ban"]`)?.value.trim() || "";
+			const oHan = box.querySelector(`[data-field="han"]`)?.value.trim() || "";
 			const oTel = box.querySelector(`[data-field="tel"]`)?.value.trim() || "";
 			const oEmail = box.querySelector(`[data-field="email"]`)?.value.trim() || "";
 			const oAddress = box.querySelector(`[data-field="address"]`)?.value.trim() || "";
@@ -77,13 +77,18 @@ function saveDistrictLocal() {
 			const oChildLastKana = box.querySelector(`[data-field="childLastNameKana"]`)?.value.trim() || "";
 			const oChildFirstKana = box.querySelector(`[data-field="childFirstNameKana"]`)?.value.trim() || "";
 
+			const titleEl = box.querySelector('.officer-item-title');
+			if (titleEl) {
+				titleEl.textContent = `校外役員 ${idx + 1}${oHan ? `（担当: ${oHan}）` : ''}`;
+			}
+
 			const obj = {
 				lastName: oLastName,
 				firstName: oFirstName,
 				lastNameKana: oLastKana,
 				firstNameKana: oFirstKana,
 				role: oRole,
-				ban: oBan,
+				han: oHan,
 				tel: oTel,
 				email: oEmail,
 				address: oAddress,
@@ -118,7 +123,7 @@ function saveDistrictLocal() {
 			lastNameKana: oLastKana,
 			firstNameKana: oFirstKana,
 			role: document.getElementById('o-role') ? document.getElementById('o-role').value : "",
-			ban: document.getElementById('o-ban') ? document.getElementById('o-ban').value.trim() : "",
+			han: document.getElementById('o-han') ? document.getElementById('o-han').value.trim() : "",
 			tel: document.getElementById('o-tel') ? document.getElementById('o-tel').value.trim() : "",
 			email: document.getElementById('o-email') ? document.getElementById('o-email').value.trim() : "",
 			address: oAddress,

@@ -11,20 +11,28 @@ function getAllSzParticipantsForSeat() {
 		{ key: "CUSTOM", label: "【自由入力】テキスト指定" }
 	];
 
-	// 校外役員
-	repState.districts.filter(d => d.selectedForPrint).forEach((d, idx) => {
-		const r = d.officer?.role ? `${d.officer.role} ` : "";
-		const officerName = getFullName(d.officer);
-		list.push({
-			key: `OFF_${d.district}`,
-			label: `[校外] ${d.district}：${r}${officerName}`,
-			org: `校外委員（${d.district}）`,
-			name: `${r}${officerName}`
+	// 校外役員（複数役員・同一地区別班データのキー重複防止）
+	repState.districts.forEach((d, dIdx) => {
+		if (!d.selectedForPrint) return;
+		const offList = (d.officers && d.officers.length > 0) ? d.officers : (d.officer ? [d.officer] : []);
+		offList.forEach((off, oIdx) => {
+			const r = off?.role ? `${off.role} ` : "";
+			const officerName = getFullName(off);
+			if (!officerName && !off?.role) return;
+			const hanStr = (off?.han || d.han || "").trim();
+			const distLabel = hanStr ? `${d.district}（${hanStr}）` : d.district;
+			list.push({
+				key: `OFF_${dIdx}_${oIdx}`,
+				label: `[校外] ${distLabel}：${r}${officerName}`,
+				org: `校外委員（${d.district}${hanStr ? ' ' + hanStr : ''}）`,
+				name: `${r}${officerName}`
+			});
 		});
 	});
 
-	// 自治会出席者
-	repState.districts.filter(d => d.selectedForPrint).forEach(d => {
+	// 自治会出席者（同一地区名の重複排除）
+	const uniqueNeighborDistricts = getUniqueNeighborhoodDistricts(repState.districts, true);
+	uniqueNeighborDistricts.forEach(({ d }) => {
 		(d.neighborhood || []).forEach((n, nIdx) => {
 			if (d.szNeighborChecks && d.szNeighborChecks[nIdx]) {
 				const nName = getFullName(n);

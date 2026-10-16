@@ -95,12 +95,6 @@ header h1 { margin: 0; font-size: 1.2rem; }
 .btn-card-toggle:hover {
 	background: #e2e8f0;
 }
-.btn-card-toggle::before {
-	content: "▲ 折りたたむ";
-}
-.card.is-collapsed .btn-card-toggle::before {
-	content: "▼ 展開する";
-}
 .collapse-all-bar {
 	display: flex;
 	gap: 8px;

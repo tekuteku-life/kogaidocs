@@ -5,8 +5,8 @@
 function renderDistrictForm() {
 	const dNameEl = document.getElementById('d-name');
 	if (dNameEl) dNameEl.value = currentDistrict.district || "";
-	const dBanEl = document.getElementById('d-ban');
-	if (dBanEl) dBanEl.value = currentDistrict.ban || "";
+	const dHanEl = document.getElementById('d-han');
+	if (dHanEl) dHanEl.value = currentDistrict.han || "";
 
 	renderOfficersList();
 	renderNeighborhoodTable();
@@ -31,7 +31,7 @@ function renderOfficersList() {
 		box.className = 'officer-item-box';
 		box.innerHTML = `
 			<div class="officer-item-header">
-				<span class="officer-item-title">校外役員 ${idx + 1}${off.ban ? `（担当: ${esc(off.ban)}）` : ''}</span>
+				<span class="officer-item-title">校外役員 ${idx + 1}${off.han ? `（担当: ${esc(off.han)}）` : ''}</span>
 				${currentDistrict.officers.length > 1 ? `<button type="button" class="btn btn-danger btn-xs" onclick="removeOfficer(${idx})">この役員を削除</button>` : ''}
 			</div>
 			<div class="grid-form">
@@ -48,7 +48,7 @@ function renderOfficersList() {
 				</div>
 				<div>
 					<label>担当班（班ごと・全体等の指定）</label>
-					<input type="text" data-field="ban" value="${esc(off.ban || '')}" placeholder="例：1班 / 全班" oninput="saveDistrictLocal()">
+					<input type="text" data-field="han" value="${esc(off.han || '')}" placeholder="例：1班 / 全班" oninput="saveDistrictLocal()">
 				</div>
 				<div>
 					<label>役員 氏名（姓 / 名）</label>
@@ -114,7 +114,7 @@ function addOfficer() {
 	saveDistrictLocal();
 	currentDistrict.officers.push({
 		lastName: "", firstName: "", lastNameKana: "", firstNameKana: "",
-		role: "校外委員", ban: "", tel: "", email: "", address: "",
+		role: "校外委員", han: "", tel: "", email: "", address: "",
 		childGrade: "", childClass: "", childLastName: "", childFirstName: "",
 		childLastNameKana: "", childFirstNameKana: ""
 	});
@@ -179,7 +179,7 @@ function renderStudentsTable() {
 				</select>
 			</td>
 			<td><input type="text" value="${esc(row.class || '')}" placeholder="1" oninput="updateS(${i},'class',this.value)"></td>
-			<td><input type="text" value="${esc(row.ban || '')}" placeholder="${esc(currentDistrict.ban || '1班')}" oninput="updateS(${i},'ban',this.value)"></td>
+			<td><input type="text" value="${esc(row.han || '')}" placeholder="${esc(currentDistrict.han || '1班')}" oninput="updateS(${i},'han',this.value)"></td>
 			<td>
 				<div class="name-field-box">
 					<div class="name-pair-grid">
@@ -248,7 +248,7 @@ function addStudentRow() {
 	currentDistrict.students.push({
 		grade: "1",
 		class: "",
-		ban: currentDistrict.ban || "",
+		han: currentDistrict.han || "",
 		lastName: "",
 		firstName: "",
 		lastNameKana: "",
@@ -274,8 +274,8 @@ function updateStudentSummaryText() {
 	const summaryEl = document.getElementById('district-student-summary');
 	if (!summaryEl) return;
 	const counts = getGradeCounts(currentDistrict.students);
-	const banLabel = currentDistrict.ban ? ` ${currentDistrict.ban}` : "";
-	const label = `${currentDistrict.district || "（地区未入力）"}${banLabel}`;
+	const hanLabel = currentDistrict.han ? ` ${currentDistrict.han}` : "";
+	const label = `${currentDistrict.district || "（地区未入力）"}${hanLabel}`;
 	summaryEl.textContent = `【${label} 学年別集計】： ${formatGradeCounts(counts)}`;
 }
 
@@ -285,7 +285,7 @@ function runDistrictYearUpdate() {
 	currentDistrict.officers = [
 		{
 			lastName: "", firstName: "", lastNameKana: "", firstNameKana: "",
-			role: "校外委員", ban: "", tel: "", email: "", address: "",
+			role: "校外委員", han: "", tel: "", email: "", address: "",
 			childGrade: "", childClass: "", childLastName: "", childFirstName: "",
 			childLastNameKana: "", childFirstNameKana: ""
 		}
@@ -300,7 +300,7 @@ function runDistrictYearUpdate() {
 			nextStudents.push({
 				grade: String(g + 1),
 				class: "",
-				ban: s.ban || "",
+				han: s.han || "",
 				lastName: s.lastName || "",
 				firstName: s.firstName || "",
 				lastNameKana: s.lastNameKana || "",
@@ -376,14 +376,14 @@ async function exportDistrictTxt() {
 
 	const encoded = await encryptPayload(JSON.stringify(currentDistrict), pass);
 	const dateStr = new Date().toISOString().slice(0,10);
-	const banPart = currentDistrict.ban ? `_${currentDistrict.ban}` : "";
+	const hanPart = currentDistrict.han ? `_${currentDistrict.han}` : "";
 	const content = [
-		`--- 校外委員会 地区データ (${currentDistrict.district}${currentDistrict.ban ? ' ' + currentDistrict.ban : ''} / 出力日:${dateStr}) ---`,
+		`--- 校外委員会 地区データ (${currentDistrict.district}${currentDistrict.han ? ' ' + currentDistrict.han : ''} / 出力日:${dateStr}) ---`,
 		`BEGIN_DATA:`,
 		encoded,
 		`:END_DATA`
 	].join('\n');
-	downloadTextFile(content, `校外地区データ_${currentDistrict.district}${banPart}_${dateStr}.txt`);
+	downloadTextFile(content, `校外地区データ_${currentDistrict.district}${hanPart}_${dateStr}.txt`);
 }
 
 async function loadDistrictTxt(e) {
@@ -405,14 +405,14 @@ async function loadDistrictTxt(e) {
 		(data.students || []).forEach(s => {
 			normalizeNameFields(s);
 			if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
-			if (s.ban === undefined) s.ban = data.ban || "";
+			if (s.han === undefined) s.han = data.han || "";
 		});
 		currentDistrict = data;
-		currentDistrict.ban = data.ban || "";
+		currentDistrict.han = data.han || "";
 		renderDistrictForm();
 		saveDistrictLocal();
-		const banMsg = currentDistrict.ban ? `（${currentDistrict.ban}）` : "";
-		alert(`「${data.district}${banMsg}」のデータを読み込みました。`);
+		const hanMsg = currentDistrict.han ? `（${currentDistrict.han}）` : "";
+		alert(`「${data.district}${hanMsg}」のデータを読み込みました。`);
 	} catch (err) {
 		alert("読み込みに失敗しました。パスワードが正しいか確認してください。");
 	}
