@@ -38,12 +38,12 @@
 		</div>
 
 		<!-- 1. 地区名・班名・校外役員情報 -->
-		<div class="card" id="card-d-officers">
+		<div class="card is-collapsed" id="card-d-officers">
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>👤 1. 地区名・班名・校外役員情報（担当役員・手紙受取用児童）</span>
 				<div class="flex-row" onclick="event.stopPropagation()">
 					<button type="button" class="btn btn-sm" onclick="addOfficer()">＋ 校外役員を追加</button>
-					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))">▲ 閉じる</span>
+					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))">▼ 開く</span>
 				</div>
 			</h2>
 			<div class="card-body">
@@ -53,8 +53,10 @@
 						<input type="text" id="d-name" placeholder="例：1丁目 / 〇〇自治会" oninput="saveDistrictLocal()">
 					</div>
 					<div>
-						<label>規定の班名（例：1班 / A班 ※省略可）</label>
-						<input type="text" id="d-han" placeholder="例：1班" oninput="saveDistrictLocal()">
+						<label>班名リスト（カンマまたは空白で区切って入力）</label>
+						<input type="text" id="d-han-list" placeholder="例：1班, 2班, 3班（または A班, B班）" oninput="onHanListInput(this.value)">
+						<input type="hidden" id="d-han">
+						<div class="help-text">※ここに登録した班名が児童名簿・校外役員の選択プルダウンに反映されます。</div>
 					</div>
 				</div>
 				<div id="officers-container"></div>
@@ -62,12 +64,12 @@
 		</div>
 
 		<!-- 2. 自治会役員名簿 -->
-		<div class="card" id="card-d-neighbors">
+		<div class="card is-collapsed" id="card-d-neighbors">
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>🏘️ 2. 自治会役員名簿（地区結びつき）</span>
 				<div class="flex-row" onclick="event.stopPropagation()">
 					<button type="button" class="btn btn-sm" onclick="addNeighborhoodRow()">＋ 行を追加</button>
-					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))">▲ 閉じる</span>
+					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))">▼ 開く</span>
 				</div>
 			</h2>
 			<div class="card-body">
@@ -93,13 +95,13 @@
 		</div>
 
 		<!-- 3. 児童名簿 -->
-		<div class="card" id="card-d-students">
+		<div class="card is-collapsed" id="card-d-students">
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>🎒 3. 児童名簿（班長・学年・住所順・集計付）</span>
 				<div class="flex-row" onclick="event.stopPropagation()">
 					<button type="button" class="btn btn-outline btn-sm" onclick="sortStudentsDesc()">🔽 班長・学年・住所順で並び替え</button>
 					<button type="button" class="btn btn-sm" onclick="addStudentRow()">＋ 児童を追加</button>
-					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))">▲ 閉じる</span>
+					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))">▼ 開く</span>
 				</div>
 			</h2>
 			<div class="card-body">
@@ -110,9 +112,9 @@
 							<tr>
 								<th style="width:7%">学年</th>
 								<th style="width:6%">組</th>
-								<th style="width:9%">班</th>
-								<th style="width:24%">児童氏名・ふりがな</th>
-								<th style="width:22%">住所（号棟-号室・番地等）</th>
+								<th style="width:11%">班</th>
+								<th style="width:23%">児童氏名・ふりがな</th>
+								<th style="width:21%">住所（号棟-号室・番地等）</th>
 								<th style="width:13%">電話番号</th>
 								<th style="width:11%">班長・副班長</th>
 								<th style="width:4%; text-align:center;">学区外</th>
@@ -122,15 +124,18 @@
 						<tbody id="students-tbody"></tbody>
 					</table>
 				</div>
-				<div id="district-student-summary" class="help-text" style="margin-top:8px; font-weight:bold; color:#0f172a;"></div>
+				<div class="flex-row" style="margin-top: 10px; justify-content: space-between;">
+					<button type="button" class="btn btn-sm" onclick="addStudentRow()">＋ 児童を追加</button>
+					<div id="district-student-summary" class="help-text" style="font-weight:bold; color:#0f172a; margin-top:0;"></div>
+				</div>
 			</div>
 		</div>
 
 		<!-- 4. 自地区帳票の選択印刷 -->
-		<div class="card" id="card-d-print">
+		<div class="card is-collapsed" id="card-d-print">
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>🖨️ 4. 自地区帳票の印刷・PDF出力（1枚ずつ出力）</span>
-				<span class="btn-card-toggle">▲ 閉じる</span>
+				<span class="btn-card-toggle">▼ 開く</span>
 			</h2>
 			<div class="card-body">
 				<div class="check-group-box" style="margin-bottom:12px; background:var(--primary-light); border-color:#bfdbfe;">
@@ -157,10 +162,10 @@
 		</div>
 
 		<!-- 5. ハタフロット連携 -->
-		<div class="card" id="card-d-hata">
+		<div class="card is-collapsed" id="card-d-hata">
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>🚩 5. ハタフロット用リスト連携</span>
-				<span class="btn-card-toggle">▲ 閉じる</span>
+				<span class="btn-card-toggle">▼ 開く</span>
 			</h2>
 			<div class="card-body">
 				<div class="grid-form">
@@ -184,10 +189,10 @@
 		</div>
 
 		<!-- 6. 提出・保存用ファイル(.txt)出力・読み込み・年度更新 -->
-		<div class="card" id="card-d-file">
+		<div class="card is-collapsed" id="card-d-file">
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>💾 6. 地区データの保存・読み込み・年度更新</span>
-				<span class="btn-card-toggle">▲ 閉じる</span>
+				<span class="btn-card-toggle">▼ 開く</span>
 			</h2>
 			<div class="card-body">
 				<div class="grid-form" style="align-items: end;">
@@ -234,10 +239,10 @@
 		</div>
 
 		<!-- 1. 全地区データの集約・代表統合ファイル管理 -->
-		<div class="card" id="card-rep-file">
+		<div class="card is-collapsed" id="card-rep-file">
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>📥 1. 各地区データの集約 ＆ 代表統合データの保存・引き継ぎ</span>
-				<span class="btn-card-toggle">▲ 閉じる</span>
+				<span class="btn-card-toggle">▼ 開く</span>
 			</h2>
 			<div class="card-body">
 				<div class="grid-form" style="align-items: end;">
@@ -285,14 +290,14 @@
 		</div>
 
 		<!-- 2. 読み込み済み地区一覧 ＆ 印刷対象の選択 -->
-		<div class="card" id="card-rep-districts">
+		<div class="card is-collapsed" id="card-rep-districts">
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>📊 2. 集約済み地区一覧（<span id="rep-count">0</span> 地区）＆ 印刷対象の個別選択</span>
 				<div class="flex-row" onclick="event.stopPropagation()">
 					<button type="button" class="btn btn-outline btn-sm" onclick="toggleAllDistrictChecks(true)">全地区を選択</button>
 					<button type="button" class="btn btn-outline btn-sm" onclick="toggleAllDistrictChecks(false)">全解除</button>
 					<button type="button" class="btn btn-danger btn-sm" onclick="clearAllRepDistricts()">全地区クリア</button>
-					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))">▲ 閉じる</span>
+					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))">▼ 開く</span>
 				</div>
 			</h2>
 			<div class="card-body">
@@ -320,10 +325,10 @@
 		</div>
 
 		<!-- 3. スクールゾーン協議会（スクゾ）出席者・関係者設定 -->
-		<div class="card" id="card-rep-sz">
+		<div class="card is-collapsed" id="card-rep-sz">
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>🚸 3. スクールゾーン協議会（スクゾ）出席者・関係者設定</span>
-				<span class="btn-card-toggle">▲ 閉じる</span>
+				<span class="btn-card-toggle">▼ 開く</span>
 			</h2>
 			<div class="card-body">
 				<h3>① 各地区の自治会役員からのスクゾ出席者選択（地区データから自動抽出）</h3>
@@ -358,12 +363,12 @@
 		</div>
 
 		<!-- 4. スクールゾーン協議会 座席表エディタ -->
-		<div class="card" id="card-rep-seat">
+		<div class="card is-collapsed" id="card-rep-seat">
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>💺 4. スクールゾーン協議会 座席表レイアウト設定</span>
 				<div class="flex-row" onclick="event.stopPropagation()">
 					<button type="button" class="btn btn-outline btn-sm" onclick="swapSeatWindowCorridor()">🔄 左右（窓側 ⇔ 廊下側）を入れ替え</button>
-					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))">▲ 閉じる</span>
+					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))">▼ 開く</span>
 				</div>
 			</h2>
 			<div class="card-body">
@@ -399,10 +404,10 @@
 		</div>
 
 		<!-- 5. チェック選択式 一括印刷パネル -->
-		<div class="card" id="card-rep-print">
+		<div class="card is-collapsed" id="card-rep-print">
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>🖨️ 5. 帳票の選択印刷・PDF出力（チェックを入れた帳票のみまとめて出力）</span>
-				<span class="btn-card-toggle">▲ 閉じる</span>
+				<span class="btn-card-toggle">▼ 開く</span>
 			</h2>
 			<div class="card-body">
 				<div class="help-text">

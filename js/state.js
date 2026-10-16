@@ -5,6 +5,7 @@
 let currentDistrict = {
 	district: "",
 	han: "",
+	hanList: [],
 	officers: [
 		{
 			lastName: "",
@@ -54,8 +55,15 @@ function saveDistrictLocal() {
 	const dNameEl = document.getElementById('d-name');
 	if (!dNameEl) return;
 	currentDistrict.district = dNameEl.value.trim();
-	const dHanEl = document.getElementById('d-han');
-	currentDistrict.han = dHanEl ? dHanEl.value.trim() : "";
+	const dHanListEl = document.getElementById('d-han-list');
+	if (dHanListEl) {
+		const rawList = dHanListEl.value.split(/[,、，\s\n]+/).map(s => s.trim()).filter(Boolean);
+		currentDistrict.hanList = Array.from(new Set(rawList));
+		currentDistrict.han = currentDistrict.hanList[0] || "";
+	} else {
+		const dHanEl = document.getElementById('d-han');
+		if (dHanEl) currentDistrict.han = dHanEl.value.trim();
+	}
 
 	const officerBoxes = document.querySelectorAll('.officer-item-box');
 	if (officerBoxes.length > 0) {

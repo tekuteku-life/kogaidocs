@@ -28,7 +28,9 @@ function updateHataPreview() {
 		const fullKana = getFullNameKana(s);
 
 		const rawAddr = (s.address || "").trim();
-		const numMatches = rawAddr.match(/\d+/g);
+		// 全角数字（０-９）を半角数字（0-9）に正規化
+		const normalizedAddr = rawAddr.replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+		const numMatches = normalizedAddr.match(/\d+/g);
 		const numAddr = numMatches ? numMatches.join('-') : rawAddr;
 
 		const defaultHan = (currentDistrict.han || "").trim();

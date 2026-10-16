@@ -113,6 +113,29 @@ function normalizeOfficerChildNames(officer) {
 }
 
 /**
+ * 地区データから有効な班名リスト（重複なし）を取得します
+ * @param {Object} district
+ * @returns {Array<string>}
+ */
+function getDistrictHanList(district) {
+	district = district || currentDistrict;
+	if (Array.isArray(district.hanList) && district.hanList.length > 0) {
+		return district.hanList.filter(Boolean);
+	}
+	const list = [];
+	if (district.han && district.han.trim()) list.push(district.han.trim());
+	(district.officers || []).forEach(o => {
+		const h = (o.han || "").trim();
+		if (h && h !== "全班" && !list.includes(h)) list.push(h);
+	});
+	(district.students || []).forEach(s => {
+		const h = (s.han || "").trim();
+		if (h && !list.includes(h)) list.push(h);
+	});
+	return list;
+}
+
+/**
  * 児童一覧から学年別の人数を集計します（学区外児童数もカウント）
  * @param {Array} students
  * @returns {Object}

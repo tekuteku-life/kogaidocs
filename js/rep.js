@@ -25,6 +25,7 @@ function upsertRepDistrict(d) {
 		if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
 	});
 
+	if (d.hanList === undefined) d.hanList = getDistrictHanList(d);
 	d.han = d.han || "";
 	const existingIdx = repState.districts.findIndex(x => x.district === d.district && (x.han || "") === d.han);
 	// 自治会役員の初期チェック（役職に「会長」が含まれる人をデフォルトON、いなければ先頭をON）

@@ -5,11 +5,30 @@
 function renderDistrictForm() {
 	const dNameEl = document.getElementById('d-name');
 	if (dNameEl) dNameEl.value = currentDistrict.district || "";
+	const dHanListEl = document.getElementById('d-han-list');
+	if (dHanListEl) {
+		if (!currentDistrict.hanList || !currentDistrict.hanList.length) {
+			currentDistrict.hanList = getDistrictHanList(currentDistrict);
+		}
+		dHanListEl.value = currentDistrict.hanList.join(', ');
+	}
 	const dHanEl = document.getElementById('d-han');
-	if (dHanEl) dHanEl.value = currentDistrict.han || "";
+	if (dHanEl) dHanEl.value = currentDistrict.han || (currentDistrict.hanList && currentDistrict.hanList[0]) || "";
 
 	renderOfficersList();
 	renderNeighborhoodTable();
+	renderStudentsTable();
+	updateHataPreview();
+}
+
+function onHanListInput(val) {
+	const rawList = val.split(/[,、，\s\n]+/).map(s => s.trim()).filter(Boolean);
+	currentDistrict.hanList = Array.from(new Set(rawList));
+	currentDistrict.han = currentDistrict.hanList[0] || "";
+	const dHanEl = document.getElementById('d-han');
+	if (dHanEl) dHanEl.value = currentDistrict.han;
+	saveDistrictLocal();
+	renderOfficersList();
 	renderStudentsTable();
 	updateHataPreview();
 }
@@ -22,6 +41,8 @@ function renderOfficersList() {
 	if (!currentDistrict.officers || currentDistrict.officers.length === 0) {
 		currentDistrict.officers = [currentDistrict.officer || {}];
 	}
+
+	const hanList = getDistrictHanList(currentDistrict);
 
 	currentDistrict.officers.forEach((off, idx) => {
 		normalizeNameFields(off);
@@ -47,8 +68,13 @@ function renderOfficersList() {
 					</select>
 				</div>
 				<div>
-					<label>担当班（班ごと・全体等の指定）</label>
-					<input type="text" data-field="han" value="${esc(off.han || '')}" placeholder="例：1班 / 全班" oninput="saveDistrictLocal()">
+					<label>担当班</label>
+					<select data-field="han" onchange="saveDistrictLocal()">
+						<option value="" ${!off.han ? 'selected' : ''}>全班・指定なし</option>
+						<option value="全班" ${off.han === '全班' ? 'selected' : ''}>全班</option>
+						${hanList.map(h => `<option value="${esc(h)}" ${off.han === h ? 'selected' : ''}>${esc(h)}</option>`).join('')}
+						${(off.han && off.han !== '全班' && !hanList.includes(off.han)) ? `<option value="${esc(off.han)}" selected>${esc(off.han)}</option>` : ''}
+					</select>
 				</div>
 				<div>
 					<label>役員 氏名（姓 / 名）</label>
@@ -167,6 +193,7 @@ function renderStudentsTable() {
 	const tbody = document.getElementById('students-tbody');
 	if (!tbody) return;
 	tbody.innerHTML = "";
+	const hanList = getDistrictHanList(currentDistrict);
 	currentDistrict.students.forEach((row, i) => {
 		normalizeNameFields(row);
 		const isLeader = row.leader === '班長' || row.leader === 'リーダー';
@@ -179,7 +206,13 @@ function renderStudentsTable() {
 				</select>
 			</td>
 			<td><input type="text" value="${esc(row.class || '')}" placeholder="1" oninput="updateS(${i},'class',this.value)"></td>
-			<td><input type="text" value="${esc(row.han || '')}" placeholder="${esc(currentDistrict.han || '1班')}" oninput="updateS(${i},'han',this.value)"></td>
+			<td>
+				<select onchange="updateS(${i},'han',this.value)">
+					<option value="" ${!row.han ? 'selected' : ''}>（未指定）</option>
+					${hanList.map(h => `<option value="${esc(h)}" ${row.han === h ? 'selected' : ''}>${esc(h)}</option>`).join('')}
+					${(row.han && !hanList.includes(row.han)) ? `<option value="${esc(row.han)}" selected>${esc(row.han)}</option>` : ''}
+				</select>
+			</td>
 			<td>
 				<div class="name-field-box">
 					<div class="name-pair-grid">
@@ -245,10 +278,22 @@ function removeS(idx) {
 }
 
 function addStudentRow() {
+	let defaultHan = "";
+	if (currentDistrict.students && currentDistrict.students.length > 0) {
+		const lastStudent = currentDistrict.students[currentDistrict.students.length - 1];
+		if (lastStudent && lastStudent.han) {
+			defaultHan = lastStudent.han;
+		}
+	}
+	if (!defaultHan) {
+		const hanList = getDistrictHanList(currentDistrict);
+		defaultHan = hanList[0] || currentDistrict.han || "";
+	}
+
 	currentDistrict.students.push({
 		grade: "1",
 		class: "",
-		han: currentDistrict.han || "",
+		han: defaultHan,
 		lastName: "",
 		firstName: "",
 		lastNameKana: "",
@@ -408,7 +453,8 @@ async function loadDistrictTxt(e) {
 			if (s.han === undefined) s.han = data.han || "";
 		});
 		currentDistrict = data;
-		currentDistrict.han = data.han || "";
+		currentDistrict.hanList = data.hanList || getDistrictHanList(data);
+		currentDistrict.han = data.han || (currentDistrict.hanList && currentDistrict.hanList[0]) || "";
 		renderDistrictForm();
 		saveDistrictLocal();
 		const hanMsg = currentDistrict.han ? `（${currentDistrict.han}）` : "";

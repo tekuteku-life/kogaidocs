@@ -29,6 +29,9 @@ window.addEventListener('DOMContentLoaded', () => {
 	if (currentDistrict.han === undefined) {
 		currentDistrict.han = "";
 	}
+	if (!currentDistrict.hanList || !Array.isArray(currentDistrict.hanList)) {
+		currentDistrict.hanList = getDistrictHanList(currentDistrict);
+	}
 
 	if (!currentDistrict.neighborhood || currentDistrict.neighborhood.length === 0) {
 		currentDistrict.neighborhood = [{ role: "会長", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "" }];
@@ -53,6 +56,7 @@ window.addEventListener('DOMContentLoaded', () => {
 	if (repState.districts && Array.isArray(repState.districts)) {
 		repState.districts.forEach(d => {
 			if (d.han === undefined) d.han = "";
+			if (d.hanList === undefined) d.hanList = getDistrictHanList(d);
 			if (!d.officers || !Array.isArray(d.officers) || d.officers.length === 0) {
 				d.officers = [d.officer || {}];
 			}
@@ -75,4 +79,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
 	renderDistrictForm();
 	renderRepAll();
+	setAllCardsCollapse(true, 'tab-district');
+	setAllCardsCollapse(true, 'tab-rep');
 });
