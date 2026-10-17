@@ -2,18 +2,26 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
-const CURRENT_APP_VERSION = "2.3.0";
+const CURRENT_APP_VERSION = "2.4.0";
 let deferredInstallPrompt = null;
 
 function switchTab(mode) {
 	const tabD = document.getElementById('tab-district');
 	const tabR = document.getElementById('tab-rep');
 	const tabN = document.getElementById('tab-neighbor');
+	const tabT = document.getElementById('tab-transfer');
 	if (tabD) tabD.style.display = mode === 'district' ? 'block' : 'none';
 	if (tabR) tabR.style.display = mode === 'rep' ? 'block' : 'none';
 	if (tabN) tabN.style.display = mode === 'neighbor' ? 'block' : 'none';
+	if (tabT) tabT.style.display = mode === 'transfer' ? 'block' : 'none';
+
 	const btns = document.querySelectorAll('.tab-btn');
-	if (btns.length >= 3) {
+	if (btns.length >= 4) {
+		btns[0].classList.toggle('active', mode === 'district');
+		btns[1].classList.toggle('active', mode === 'rep');
+		btns[2].classList.toggle('active', mode === 'neighbor');
+		btns[3].classList.toggle('active', mode === 'transfer');
+	} else if (btns.length >= 3) {
 		btns[0].classList.toggle('active', mode === 'district');
 		btns[1].classList.toggle('active', mode === 'rep');
 		btns[2].classList.toggle('active', mode === 'neighbor');
@@ -22,10 +30,18 @@ function switchTab(mode) {
 		btns[1].classList.toggle('active', mode === 'rep');
 	}
 
+	// モード選択状態の永続化
+	try {
+		localStorage.setItem('kogai_active_mode', mode);
+	} catch (e) {
+		console.warn("Failed to persist active mode", e);
+	}
+
 	// モード選択肢の動的折りたたみUX
 	const btnContainer = document.getElementById('mode-tab-buttons');
 	const badge = document.getElementById('mode-active-badge');
 	const badgeText = document.getElementById('mode-active-badge-text');
+	const activeBadge = document.getElementById('active-mode-badge');
 
 	if (btnContainer) {
 		btnContainer.style.display = 'none';
@@ -40,7 +56,37 @@ function switchTab(mode) {
 			badgeText.textContent = '② 校外代表モード ▼ [モード切替]';
 		} else if (mode === 'neighbor') {
 			badgeText.textContent = '③ 自治会役員名簿モード ▼ [モード切替]';
+		} else if (mode === 'transfer') {
+			badgeText.textContent = '④ 転入者モード ▼ [モード切替]';
 		}
+	}
+	if (activeBadge) {
+		if (mode === 'district') {
+			activeBadge.textContent = '地区役員モード';
+		} else if (mode === 'rep') {
+			activeBadge.textContent = '校外代表モード';
+		} else if (mode === 'neighbor') {
+			activeBadge.textContent = '自治会役員名簿';
+		} else if (mode === 'transfer') {
+			activeBadge.textContent = '転入者モード';
+		}
+	}
+}
+
+/**
+ * 直前のアクティブモードを復元します（ホワイトリスト検証）
+ */
+function restoreActiveMode() {
+	try {
+		const savedMode = localStorage.getItem('kogai_active_mode');
+		const whitelist = ['district', 'rep', 'neighbor', 'transfer'];
+		if (savedMode && whitelist.includes(savedMode)) {
+			switchTab(savedMode);
+		} else {
+			switchTab('district');
+		}
+	} catch (e) {
+		switchTab('district');
 	}
 }
 
@@ -186,9 +232,12 @@ async function handleWebAuthnUnlock(silent = false) {
 		renderDistrictForm();
 		renderRepAll();
 		if (typeof renderNeighborForm === 'function') renderNeighborForm();
+		if (typeof loadTransferLocal === 'function') await loadTransferLocal();
+		if (typeof renderTransferForm === 'function') renderTransferForm();
 		setAllCardsCollapse(true, 'tab-district');
 		setAllCardsCollapse(true, 'tab-rep');
 		setAllCardsCollapse(true, 'tab-neighbor');
+		setAllCardsCollapse(true, 'tab-transfer');
 		resetAutoLockTimer();
 	} catch (err) {
 		console.warn("WebAuthn unlock failed:", err);
@@ -220,9 +269,12 @@ async function handlePasswordUnlock() {
 		renderDistrictForm();
 		renderRepAll();
 		if (typeof renderNeighborForm === 'function') renderNeighborForm();
+		if (typeof loadTransferLocal === 'function') await loadTransferLocal();
+		if (typeof renderTransferForm === 'function') renderTransferForm();
 		setAllCardsCollapse(true, 'tab-district');
 		setAllCardsCollapse(true, 'tab-rep');
 		setAllCardsCollapse(true, 'tab-neighbor');
+		setAllCardsCollapse(true, 'tab-transfer');
 		resetAutoLockTimer();
 	} catch (err) {
 		console.warn("Password unlock failed:", err);
@@ -470,6 +522,7 @@ function clearMemoryAndDomForLock() {
 	if (typeof renderDistrictForm === 'function') renderDistrictForm();
 	if (typeof renderRepAll === 'function') renderRepAll();
 	if (typeof renderNeighborForm === 'function') renderNeighborForm();
+	if (typeof clearTransferForm === 'function') clearTransferForm();
 	const printArea = document.getElementById('print-area');
 	if (printArea) printArea.innerHTML = "";
 }
@@ -523,10 +576,22 @@ function handleImmediateLock() {
  */
 async function quickSetupEncryptionFromCard(inputId) {
 	const pEl = document.getElementById(inputId);
-	const password = pEl ? pEl.value : "";
+	const password = (pEl && pEl.value) ? pEl.value : (typeof inputId === 'string' ? inputId : "");
 	const v = validatePassword(password);
 	if (!v.valid) {
 		alert(v.message);
+		return;
+	}
+
+	// 既にストレージ暗号化が有効な場合、WebAuthn再登録を促さず既存暗号化ストレージに保存（一本化）
+	if (isStorageEncrypted() && isStorageUnlocked()) {
+		currentDistrict.savedFilePassword = password;
+		const optinEl = document.getElementById('d-save-password-optin');
+		if (optinEl) optinEl.checked = true;
+		const passEl = document.getElementById('d-pass');
+		if (passEl) passEl.value = password;
+		await saveDistrictLocal();
+		alert("ファイル保存用パスワードを暗号化ストレージに記憶しました。");
 		return;
 	}
 
@@ -538,6 +603,12 @@ async function quickSetupEncryptionFromCard(inputId) {
 
 	try {
 		const result = await setupStorageEncryption(password, enableBio);
+		currentDistrict.savedFilePassword = password;
+		const optinEl = document.getElementById('d-save-password-optin');
+		if (optinEl) optinEl.checked = true;
+		const passEl = document.getElementById('d-pass');
+		if (passEl) passEl.value = password;
+		await saveDistrictLocal();
 		alert(`このパスワードで端末内保存（LocalStorage）の暗号化を有効化しました！\n${result.biometric ? '生体認証の登録も完了しました。' : ''}`);
 		updateSecurityBadge('unlocked');
 	} catch (err) {
@@ -738,6 +809,15 @@ async function performAppUpdate() {
 		}
 	}
 
+	const saveTransferFn = (typeof global !== 'undefined' && global.saveTransferLocal) || (typeof saveTransferLocal === 'function' ? saveTransferLocal : null);
+	if (typeof saveTransferFn === 'function') {
+		try {
+			saveTransferFn();
+		} catch (e) {
+			console.warn("Failed to auto-save transfer before update:", e);
+		}
+	}
+
 	// A-2: Cache Storageの完全破棄
 	if (typeof caches !== 'undefined' && caches.keys) {
 		try {
@@ -809,11 +889,17 @@ window.addEventListener('DOMContentLoaded', async () => {
 		renderDistrictForm();
 		renderRepAll();
 		if (typeof renderNeighborForm === 'function') renderNeighborForm();
+		if (typeof loadTransferLocal === 'function') await loadTransferLocal();
+		if (typeof renderTransferForm === 'function') renderTransferForm();
 		setAllCardsCollapse(true, 'tab-district');
 		setAllCardsCollapse(true, 'tab-rep');
 		setAllCardsCollapse(true, 'tab-neighbor');
+		setAllCardsCollapse(true, 'tab-transfer');
 		resetAutoLockTimer();
 	}
+
+	// 直前選択モードの自動復元（A-3）
+	restoreActiveMode();
 
 	// 起動時オンライン自動バージョンチェック（1秒遅延して初期描画完了後に実行）
 	if (typeof navigator !== 'undefined' && navigator.onLine) {
@@ -827,6 +913,7 @@ if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		CURRENT_APP_VERSION,
 		switchTab,
+		restoreActiveMode,
 		toggleModeSelector,
 		shareAppUrl,
 		triggerPwaInstall,

@@ -739,3 +739,149 @@ test('district: additional branch booster for loadNeighborFileIntoDistrict, merg
 	assert(alertMsg.includes("失敗しました"));
 	assert.strictEqual(errorTarget.value, "");
 });
+
+test('district: openNeighborImportPanel toggles panel and expands collapsed card (Action Item A-2)', () => {
+	setupDomEnvironment();
+	const card = document.getElementById('card-d-neighbor');
+	const panel = document.getElementById('d-neighbor-import-panel');
+	if (!card || !panel) return;
+
+	// 初期状態で折りたたまれている
+	card.classList.add('is-collapsed');
+	panel.style.display = 'none';
+
+	districtLib.openNeighborImportPanel();
+
+	// カードの折りたたみが解除され、パネルが表示されること
+	assert.strictEqual(card.classList.contains('is-collapsed'), false);
+	assert.strictEqual(panel.style.display, 'block');
+});
+
+test('district: integrateTransferDataIntoDistrict imports children with han assignment and duplicate guard (Action Item A-1)', async () => {
+	setupDomEnvironment();
+	state.currentDistrict = createMockDistrict();
+	const initialStudentCount = state.currentDistrict.students.length;
+
+	const transferPayload = {
+		isTransferData: true,
+		version: 1,
+		children: [
+			{
+				id: 't_child_1',
+				lastName: '転入',
+				firstName: '春子',
+				lastNameKana: 'テンニュウ',
+				firstNameKana: 'ハルコ',
+				grade: '4',
+				className: '2',
+				address: '緑町3-4-5',
+				tel: '090-1111-2222'
+			}
+		]
+	};
+
+	// 班割当プロンプトで「2班」を指定
+	global.prompt = (msg, def) => '2班';
+	global.confirm = () => true;
+
+	const result = await districtLib.integrateTransferDataIntoDistrict(transferPayload, 'password123');
+	assert.strictEqual(result, true);
+	assert.strictEqual(state.currentDistrict.students.length, initialStudentCount + 1);
+
+	const added = state.currentDistrict.students.find(s => s.lastName === '転入');
+	assert.ok(added);
+	assert.strictEqual(added.firstName, '春子');
+	assert.strictEqual(added.han, '2班');
+	assert.strictEqual(added.grade, '4');
+	assert.strictEqual(added.className, '2');
+
+	// 重複検知テスト（同一児童を再統合）
+	let confirmCalled = false;
+	global.confirm = (msg) => {
+		confirmCalled = true;
+		assert.ok(msg.includes('重複') || msg.includes('既に存在'));
+		return false; // キャンセル
+	};
+	const cancelResult = await districtLib.integrateTransferDataIntoDistrict(transferPayload, 'password123');
+	assert.strictEqual(cancelResult, false);
+	assert.strictEqual(confirmCalled, true);
+	// 件数が増えていないこと（アトミックトランザクション保護）
+	assert.strictEqual(state.currentDistrict.students.length, initialStudentCount + 1);
+
+	// T-3: 複数児童統合時に2人目の班割当プロンプトでキャンセルした場合の全件ロールバック
+	const multiTransferPayload = {
+		isTransferData: true,
+		version: 1,
+		children: [
+			{ id: 't_m1', lastName: '複数A', firstName: '一郎', grade: '1', className: '1' },
+			{ id: 't_m2', lastName: '複数B', firstName: '二郎', grade: '3', className: '2' }
+		]
+	};
+	let promptCallCount = 0;
+	global.prompt = () => {
+		promptCallCount++;
+		if (promptCallCount === 1) return '1班';
+		return null; // 2人目でキャンセル
+	};
+	global.confirm = () => true;
+
+	const rollbackResult = await districtLib.integrateTransferDataIntoDistrict(multiTransferPayload, 'password123');
+	assert.strictEqual(rollbackResult, false);
+	// 1人目も追加されずに完全ロールバックされていること
+	assert.strictEqual(state.currentDistrict.students.length, initialStudentCount + 1);
+	assert.strictEqual(state.currentDistrict.students.some(s => s.lastName === '複数A'), false);
+
+	// T-4: 非転入データ（isTransferData が false または欠損）の拒絶
+	const nonTransferPayload = {
+		isTransferData: false,
+		district: 'テスト地区',
+		students: []
+	};
+	const rejectResult = await districtLib.integrateTransferDataIntoDistrict(nonTransferPayload, 'password123');
+	assert.strictEqual(rejectResult, false);
+});
+
+test('district: loadTransferFileIntoDistrict and loadPastedTransferTextIntoDistrict', async () => {
+	setupDomEnvironment();
+	state.currentDistrict = createMockDistrict();
+	const initialCount = state.currentDistrict.students.length;
+
+	const pass = 'TransferSec123!';
+	const transferPayload = {
+		isTransferData: true,
+		version: 1,
+		children: [
+			{
+				id: 't_c_2',
+				lastName: '秋山',
+				firstName: '太郎',
+				grade: '1',
+				className: '1',
+				address: '紅葉丘1-1',
+				tel: '080-3333-4444'
+			}
+		]
+	};
+
+	const encText = await cryptoLib.encryptPayload(JSON.stringify(transferPayload), pass);
+	document.getElementById('d-pass').value = pass;
+	global.prompt = (msg, def) => '1班';
+	global.confirm = () => true;
+
+	// ファイル読み込み
+	const fileTarget = {
+		files: [{ text: async () => `BEGIN_DATA:\n${encText}\n:END_DATA` }],
+		value: 'transfer.txt'
+	};
+	await districtLib.loadTransferFileIntoDistrict({ target: fileTarget });
+	assert.strictEqual(state.currentDistrict.students.length, initialCount + 1);
+
+	// クリップボード貼り付け読み込み
+	transferPayload.children[0].lastName = '冬木';
+	const encText2 = await cryptoLib.encryptPayload(JSON.stringify(transferPayload), pass);
+
+	await districtLib.loadPastedTransferTextIntoDistrict(encText2);
+	assert.strictEqual(state.currentDistrict.students.length, initialCount + 2);
+	const fuyuki = state.currentDistrict.students.find(s => s.lastName === '冬木');
+	assert.ok(fuyuki);
+});

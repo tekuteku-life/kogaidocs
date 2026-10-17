@@ -463,6 +463,142 @@ function addSzExternalRow() {
 	renderSeatEditor();
 }
 
+async function integrateTransferDataIntoRep(payload, password) {
+	if (!payload || !payload.isTransferData) {
+		alert("転入児童データではありません。");
+		return false;
+	}
+	const rawList = payload.children || payload.students || [];
+	if (!Array.isArray(rawList) || rawList.length === 0) {
+		alert("転入児童データに児童が含まれていません。");
+		return false;
+	}
+
+	const existingDistricts = (repState.districts || []).map(d => d.district).filter(Boolean);
+	const distPromptMsg = existingDistricts.length > 0
+		? `転入児童を統合する地区名を入力してください（既存地区: ${existingDistricts.join(', ')}）：`
+		: `転入児童を統合する地区名を入力してください：`;
+	const defaultDist = existingDistricts[0] || "1丁目";
+	const selectedDist = prompt(distPromptMsg, defaultDist);
+	if (!selectedDist || !selectedDist.trim()) {
+		return false;
+	}
+	const targetDistrictName = selectedDist.trim();
+
+	let targetDistrict = repState.districts.find(d => d.district === targetDistrictName);
+	const isNewDistrict = !targetDistrict;
+	if (isNewDistrict) {
+		targetDistrict = {
+			district: targetDistrictName,
+			han: "1班",
+			hanList: ["1班"],
+			selectedForPrint: true,
+			officers: [],
+			neighborhood: [],
+			students: []
+		};
+	}
+
+	const backupStudents = JSON.parse(JSON.stringify(targetDistrict.students || []));
+	const tempStudents = JSON.parse(JSON.stringify(targetDistrict.students || []));
+	const defaultHan = targetDistrict.han || (targetDistrict.hanList && targetDistrict.hanList[0]) || "1班";
+
+	for (const child of rawList) {
+		const normChild = {
+			id: child.id || ('s_' + Date.now() + Math.random().toString(36).slice(2, 6)),
+			lastName: (child.lastName || "").trim(),
+			firstName: (child.firstName || "").trim(),
+			lastNameKana: (child.lastNameKana || "").trim(),
+			firstNameKana: (child.firstNameKana || "").trim(),
+			grade: String(child.grade || "1"),
+			class: String(child.className || child.class || "1"),
+			className: String(child.className || child.class || "1"),
+			address: (child.address || "").trim(),
+			tel: (child.tel || "").trim(),
+			leader: "",
+			isOutOfDistrict: false
+		};
+
+		const promptMsg = `転入児童「${normChild.lastName} ${normChild.firstName}」（${normChild.grade}年${normChild.class}組）の所属班を入力してください：`;
+		const assignedHan = prompt(promptMsg, defaultHan);
+		if (assignedHan === null) {
+			targetDistrict.students = backupStudents;
+			return false;
+		}
+		normChild.han = (assignedHan || defaultHan).trim();
+
+		const duplicate = tempStudents.find(s =>
+			s.lastName === normChild.lastName &&
+			s.firstName === normChild.firstName &&
+			String(s.grade) === String(normChild.grade)
+		);
+		if (duplicate) {
+			const confirmMsg = `児童「${normChild.lastName} ${normChild.firstName}」（${normChild.grade}年生）は地区「${targetDistrictName}」に既に存在します。重複して統合しますか？`;
+			if (!confirm(confirmMsg)) {
+				targetDistrict.students = backupStudents;
+				return false;
+			}
+		}
+
+		tempStudents.push(normChild);
+	}
+
+	targetDistrict.students = tempStudents;
+	targetDistrict.students.sort(compareStudents);
+	if (isNewDistrict) {
+		repState.districts.push(targetDistrict);
+	}
+	renderRepAll();
+	if (typeof saveRepLocal === 'function') {
+		saveRepLocal();
+	}
+
+	alert(`${rawList.length}名の転入児童データを「${targetDistrictName}」へ統合しました。`);
+	return true;
+}
+
+async function loadTransferFileIntoRep(e) {
+	const file = e.target?.files?.[0];
+	if (!file) return;
+	const pass = document.getElementById('rep-pass')?.value || "";
+	try {
+		const text = await file.text();
+		let data;
+		try {
+			data = await parseTxtContent(text, pass);
+		} catch (err) {
+			const promptPass = prompt("転入児童データの復号パスワードを入力してください：");
+			if (!promptPass) { if (e.target) e.target.value = ""; return; }
+			data = await parseTxtContent(text, promptPass);
+		}
+		await integrateTransferDataIntoRep(data, pass);
+	} catch (err) {
+		alert("転入児童データの読み込みに失敗しました。パスワードをご確認ください。");
+	}
+	if (e.target) e.target.value = "";
+}
+
+async function loadPastedTransferTextIntoRep(text) {
+	const raw = (typeof text === 'string' ? text : (document.getElementById('rep-transfer-paste-box')?.value || "")).trim();
+	if (!raw) return;
+	let pass = document.getElementById('rep-pass')?.value || "";
+	try {
+		let data;
+		try {
+			data = await parseTxtContent(raw, pass);
+		} catch (err) {
+			const promptPass = prompt("転入児童データの復号パスワードを入力してください：");
+			if (!promptPass) return;
+			data = await parseTxtContent(raw, promptPass);
+		}
+		await integrateTransferDataIntoRep(data, pass);
+		const box = document.getElementById('rep-transfer-paste-box');
+		if (box) box.value = "";
+	} catch (err) {
+		alert("転入児童データの復号に失敗しました。パスワードをご確認ください。");
+	}
+}
+
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		renderRepAll,
@@ -482,7 +618,11 @@ if (typeof module !== 'undefined' && module.exports) {
 		renderSzExternalTable,
 		updateSzEx,
 		addSzExternalRow,
-		mergeNeighborDataIntoRep
+		mergeNeighborDataIntoRep,
+		integrateNeighborDataIntoRep: mergeNeighborDataIntoRep,
+		integrateTransferDataIntoRep,
+		loadTransferFileIntoRep,
+		loadPastedTransferTextIntoRep
 	};
 	Object.assign(global, module.exports);
 }

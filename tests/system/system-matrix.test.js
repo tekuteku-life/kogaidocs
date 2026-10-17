@@ -21,24 +21,34 @@ const neighbor = require('../../js/neighbor.js');
 test('system [画面遷移]: tab switching, modal display, and card folding controls', () => {
 	setupDomEnvironment();
 
-	// 1. Tab switching
+	// 1. Tab switching (4 modes)
 	const tabD = document.getElementById('tab-district');
 	const tabR = document.getElementById('tab-rep');
 	const tabN = document.getElementById('tab-neighbor');
+	const tabT = document.getElementById('tab-transfer');
 	app.switchTab('rep');
 	assert.strictEqual(tabD.style.display, 'none');
 	assert.strictEqual(tabR.style.display, 'block');
 	assert.strictEqual(tabN.style.display, 'none');
+	if (tabT) assert.strictEqual(tabT.style.display, 'none');
 
 	app.switchTab('neighbor');
 	assert.strictEqual(tabD.style.display, 'none');
 	assert.strictEqual(tabR.style.display, 'none');
 	assert.strictEqual(tabN.style.display, 'block');
+	if (tabT) assert.strictEqual(tabT.style.display, 'none');
+
+	app.switchTab('transfer');
+	assert.strictEqual(tabD.style.display, 'none');
+	assert.strictEqual(tabR.style.display, 'none');
+	assert.strictEqual(tabN.style.display, 'none');
+	if (tabT) assert.strictEqual(tabT.style.display, 'block');
 
 	app.switchTab('district');
 	assert.strictEqual(tabD.style.display, 'block');
 	assert.strictEqual(tabR.style.display, 'none');
 	assert.strictEqual(tabN.style.display, 'none');
+	if (tabT) assert.strictEqual(tabT.style.display, 'none');
 
 	// 2. Modals: Storage Unlock Modal
 	const unlockModal = document.getElementById('storage-lock-modal');
@@ -853,4 +863,104 @@ test('system [PWA強制アップデート]: startup online check, manual setting
 	alertMsg = '';
 	await app.checkAppVersion(true);
 	assert(alertMsg.includes('オフラインのためバージョンチェックを行えません'));
+});
+
+/* =========================================================================
+	機能18: 転入者モード E2E（入力・暗号化・提出リセット・地区・代表統合・帳票連動）
+========================================================================= */
+test('system [機能18]: 転入者モード E2E ライフサイクル', async () => {
+	setupDomEnvironment();
+	const transfer = require('../../js/transfer.js');
+
+	// 1. 転入家庭による児童入力
+	transfer.renderTransferForm();
+	transfer.updateTransferChild(0, 'lastName', '転入E2E');
+	transfer.updateTransferChild(0, 'firstName', '未来');
+	transfer.updateTransferChild(0, 'grade', '3');
+	transfer.updateTransferChild(0, 'className', '1');
+	transfer.updateTransferChild(0, 'address', '希望が丘7-8-9');
+	transfer.updateTransferChild(0, 'tel', '090-5555-4444');
+
+	// パスワード設定
+	const passInput = document.getElementById('transfer-export-pass');
+	const confirmInput = document.getElementById('transfer-export-pass-confirm');
+	passInput.value = 'E2ETransferPass123!';
+	confirmInput.value = 'E2ETransferPass123!';
+
+	// エクスポート
+	let exportedText = '';
+	utils.downloadTextFile = (content, filename) => {
+		exportedText = content;
+	};
+	global.downloadTextFile = utils.downloadTextFile;
+	const exportOk = await transfer.exportTransferTxt();
+	assert.strictEqual(exportOk, true);
+	assert.ok(exportedText.length > 50);
+
+	// 提出後ワンタップリセット（APPI消去）
+	global.confirm = () => true;
+	transfer.resetTransferForm();
+	assert.strictEqual(transfer.transferState.children[0].lastName, '');
+
+	// 2. 地区役員側での受入と名簿帳票出力連動
+	state.currentDistrict = createMockDistrict({
+		district: '希望地区',
+		han: '1班',
+		hanList: ['1班'],
+		students: []
+	});
+	document.getElementById('d-name').value = '希望地区';
+	document.getElementById('d-pass').value = 'E2ETransferPass123!';
+
+	global.prompt = (msg, def) => '1班';
+	await district.loadPastedTransferTextIntoDistrict(exportedText);
+
+	assert.strictEqual(state.currentDistrict.students.length, 1);
+	assert.strictEqual(state.currentDistrict.students[0].lastName, '転入E2E');
+	assert.strictEqual(state.currentDistrict.students[0].firstName, '未来');
+
+	// 児童名簿印刷プレビュー生成
+	const html = print.buildStudentPageHtml(state.currentDistrict, {
+		isDistrictWide: false,
+		isPublic: false
+	}, [state.currentDistrict]);
+	assert.ok(html.includes('転入E2E'));
+	assert.ok(html.includes('未来'));
+});
+
+/* =========================================================================
+	機能19: 「マージ」用語残存ゼロ検証 (C-8: 全コード・UI・ダイアログの日本語「マージ」完全排除)
+========================================================================= */
+test('system [機能19]: 全コードベースおよびUIにおける「マージ」文言の残存ゼロ検証 (C-8)', () => {
+	const fs = require('fs');
+	const path = require('path');
+
+	const targetFiles = [
+		'index.html',
+		'js/app.js',
+		'js/district.js',
+		'js/rep.js',
+		'js/neighbor.js',
+		'js/transfer.js',
+		'js/print.js',
+		'js/seat.js',
+		'js/hata.js',
+		'js/state.js',
+		'js/utils.js',
+		'js/crypto.js'
+	];
+
+	for (const relPath of targetFiles) {
+		const fullPath = path.resolve(__dirname, '../../', relPath);
+		if (!fs.existsSync(fullPath)) continue;
+		const content = fs.readFileSync(fullPath, 'utf-8');
+
+		// UI表示・ボタン・ダイアログ・コメント等における日本語「マージ」の残存をチェック
+		const matches = content.match(/マージ/g);
+		assert.strictEqual(
+			matches ? matches.length : 0,
+			0,
+			`File ${relPath} should not contain 'マージ'. Found ${matches ? matches.length : 0} occurrences.`
+		);
+	}
 });
