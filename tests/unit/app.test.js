@@ -638,3 +638,87 @@ test('app: performAppUpdate saves all states, clears caches, unregisters SW, and
 	assert.strictEqual(unregisterCalled, true);
 	assert(replacedLocation.includes('?_update='));
 });
+
+test('app: 4-tab switching, persistence in kogai_active_mode, and badge label sync (Action Item A-3)', () => {
+	setupDomEnvironment();
+	localStorage.clear();
+
+	const badge = document.getElementById('active-mode-badge');
+
+	// 1. Switch to transfer mode
+	app.switchTab('transfer');
+	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'transfer');
+	if (badge) assert(badge.textContent.includes('転入者'));
+
+	// 2. Switch to neighbor mode
+	app.switchTab('neighbor');
+	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'neighbor');
+	if (badge) assert(badge.textContent.includes('自治会'));
+
+	// 3. Switch to rep mode
+	app.switchTab('rep');
+	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'rep');
+	if (badge) assert(badge.textContent.includes('校外代表'));
+
+	// 4. Switch to district mode
+	app.switchTab('district');
+	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'district');
+	if (badge) assert(badge.textContent.includes('地区役員'));
+
+	// 5. Restore active mode on init with whitelist validation (A-3)
+	// 5a. Valid stored mode 'transfer'
+	localStorage.setItem('kogai_active_mode', 'transfer');
+	app.restoreActiveMode();
+	const tabTransfer = document.getElementById('tab-transfer');
+	if (tabTransfer) assert.strictEqual(tabTransfer.style.display, 'block');
+
+	// 5b. Invalid/unknown mode falls back to 'district'
+	localStorage.setItem('kogai_active_mode', 'malicious_tab<script>');
+	app.restoreActiveMode();
+	const tabDistrict = document.getElementById('tab-district');
+	assert.strictEqual(tabDistrict.style.display, 'block');
+});
+
+test('app: performAppUpdate saves transfer state with error isolation (Action Item A-4)', async () => {
+	setupDomEnvironment();
+	let transferSaved = false;
+	state.saveTransferLocal = () => { transferSaved = true; };
+
+	global.caches = {
+		keys: async () => [],
+		delete: async () => true
+	};
+	navigator.serviceWorker.getRegistrations = async () => [];
+	window.location.replace = () => {};
+
+	await app.performAppUpdate();
+	assert.strictEqual(transferSaved, true);
+});
+
+test('app: WebAuthn unification - quickSetupEncryptionFromCard suppresses credentials.create when storage encryption is already active', async () => {
+	setupDomEnvironment();
+	localStorage.clear();
+
+	// ストレージ暗号化が有効な状態をセットアップ
+	await cryptoLib.setupStorageEncryption('MasterPassword123!', false);
+	assert.strictEqual(cryptoLib.isStorageEncrypted(), true);
+	assert.strictEqual(cryptoLib.isStorageUnlocked(), true);
+
+	let credentialsCreateCalled = false;
+	const origCreate = navigator.credentials.create;
+	navigator.credentials.create = async (options) => {
+		credentialsCreateCalled = true;
+		return origCreate.call(navigator.credentials, options);
+	};
+
+	try {
+		// カード側からのパスワード記憶要求
+		await app.quickSetupEncryptionFromCard('DistrictFilePass123!');
+		// 既存暗号化ストレージがあるため、再度のWebAuthn登録プロンプトは呼ばれない
+		assert.strictEqual(credentialsCreateCalled, false);
+		// 暗号化ストレージに保存されていること
+		assert.strictEqual(state.currentDistrict.savedFilePassword, 'DistrictFilePass123!');
+	} finally {
+		navigator.credentials.create = origCreate;
+	}
+});

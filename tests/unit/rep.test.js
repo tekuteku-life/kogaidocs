@@ -805,3 +805,141 @@ test('rep: exhaustive branch coverage for all edge cases and permutations', asyn
 	assert(exTbody.innerHTML.includes('<input type="checkbox" '));
 	assert(!exTbody.innerHTML.includes('<input type="checkbox" checked'));
 });
+
+test('rep: integrateTransferDataIntoRep integrates children into selected district with duplicate guard (Action Item A-1)', async () => {
+	setupDomEnvironment();
+	state.repState = {
+		districts: [
+			{
+				district: '1丁目',
+				han: '1班',
+				selectedForPrint: true,
+				officers: [],
+				students: [
+					{
+						id: 's1',
+						lastName: '山田',
+						firstName: '太郎',
+						grade: '2',
+						className: '1',
+						han: '1班'
+					}
+				]
+			}
+		],
+		seatConfig: { cols: 4, rows: 5, cells: {} },
+		szExternals: []
+	};
+
+	const transferPayload = {
+		isTransferData: true,
+		version: 1,
+		children: [
+			{
+				id: 't_rep_1',
+				lastName: '転入',
+				firstName: '次郎',
+				lastNameKana: 'テンニュウ',
+				firstNameKana: 'ジロウ',
+				grade: '5',
+				className: '2',
+				address: '1丁目5番地',
+				tel: '03-5555-6666'
+			}
+		]
+	};
+
+	// 地区選択プロンプトで「1丁目」、班割当で「2班」
+	let promptCount = 0;
+	global.prompt = (msg, def) => {
+		promptCount++;
+		if (promptCount === 1) return '1丁目';
+		return '2班';
+	};
+	global.confirm = () => true;
+
+	const result = await rep.integrateTransferDataIntoRep(transferPayload, 'pass123');
+	assert.strictEqual(result, true);
+
+	const targetDistrict = state.repState.districts.find(d => d.district === '1丁目');
+	assert.ok(targetDistrict);
+	assert.strictEqual(targetDistrict.students.length, 2);
+
+	const added = targetDistrict.students.find(s => s.lastName === '転入');
+	assert.ok(added);
+	assert.strictEqual(added.firstName, '次郎');
+	assert.strictEqual(added.han, '2班');
+	assert.strictEqual(added.grade, '5');
+
+	// 重複検知テスト
+	promptCount = 0;
+	let confirmWarnCalled = false;
+	global.confirm = (msg) => {
+		confirmWarnCalled = true;
+		assert.ok(msg.includes('重複') || msg.includes('既に存在'));
+		return false; // キャンセル
+	};
+	const cancelResult = await rep.integrateTransferDataIntoRep(transferPayload, 'pass123');
+	assert.strictEqual(cancelResult, false);
+	assert.strictEqual(confirmWarnCalled, true);
+	assert.strictEqual(targetDistrict.students.length, 2); // 人数不変
+});
+
+test('rep: loadTransferFileIntoRep and loadPastedTransferTextIntoRep', async () => {
+	setupDomEnvironment();
+	state.repState = {
+		districts: [
+			{
+				district: '中央地区',
+				han: '1班',
+				selectedForPrint: true,
+				officers: [],
+				students: []
+			}
+		],
+		seatConfig: { cols: 4, rows: 5, cells: {} }
+	};
+
+	const pass = 'RepTransfer123!';
+	const transferPayload = {
+		isTransferData: true,
+		version: 1,
+		children: [
+			{
+				id: 't_c_rep_file',
+				lastName: '鈴木',
+				firstName: '一郎',
+				grade: '3',
+				className: '1',
+				address: '中央1-2',
+				tel: '090-4444-5555'
+			}
+		]
+	};
+
+	const encText = await cryptoLib.encryptPayload(JSON.stringify(transferPayload), pass);
+	document.getElementById('rep-pass').value = pass;
+
+	let promptIndex = 0;
+	global.prompt = () => {
+		promptIndex++;
+		if (promptIndex % 2 === 1) return '中央地区';
+		return '1班';
+	};
+	global.confirm = () => true;
+
+	// ファイル読込
+	const fileTarget = {
+		files: [{ text: async () => `BEGIN_DATA:\n${encText}\n:END_DATA` }],
+		value: 'transfer_rep.txt'
+	};
+	await rep.loadTransferFileIntoRep({ target: fileTarget });
+	const dist = state.repState.districts.find(d => d.district === '中央地区');
+	assert.strictEqual(dist.students.length, 1);
+
+	// クリップボード読込
+	transferPayload.children[0].lastName = '高橋';
+	const encText2 = await cryptoLib.encryptPayload(JSON.stringify(transferPayload), pass);
+	await rep.loadPastedTransferTextIntoRep(encText2);
+	assert.strictEqual(dist.students.length, 2);
+});

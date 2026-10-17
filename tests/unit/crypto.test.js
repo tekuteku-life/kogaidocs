@@ -288,3 +288,27 @@ test('crypto: loadStorageDecrypted handles plain and invalid entries', async () 
 	await cryptoLib.saveStorageData('err_key', { willFail: true });
 });
 
+test('crypto: deterministic WEBAUTHN_USER_ID prevents infinite duplicate passkey registrations in 1Password', async () => {
+	assert.ok(cryptoLib.WEBAUTHN_USER_ID, 'WEBAUTHN_USER_ID must be defined');
+	const expected = new Uint8Array([107, 111, 103, 97, 105, 100, 111, 99, 115]); // "kogaidocs"
+	assert.deepStrictEqual(cryptoLib.WEBAUTHN_USER_ID, expected);
+
+	let passedCreateOptions = null;
+	const origCreate = navigator.credentials.create;
+	navigator.credentials.create = async (options) => {
+		passedCreateOptions = options;
+		return origCreate.call(navigator.credentials, options);
+	};
+
+	try {
+		const dummyKey = new Uint8Array(32);
+		const prfRes = await cryptoLib.registerWebAuthnPrf(dummyKey);
+		assert.ok(passedCreateOptions);
+		assert.ok(passedCreateOptions.publicKey);
+		assert.deepStrictEqual(passedCreateOptions.publicKey.user.id, expected);
+		assert.strictEqual(passedCreateOptions.publicKey.user.name, 'kogaidocs-user');
+	} finally {
+		navigator.credentials.create = origCreate;
+	}
+});
+

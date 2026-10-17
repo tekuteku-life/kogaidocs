@@ -128,3 +128,25 @@ test('state: saveDistrictLocal enforces hard guard removing savedFilePassword wh
 	const rawStored = JSON.parse(localStorage.getItem('kogai_district_v2') || '{}');
 	assert.strictEqual(rawStored.savedFilePassword, undefined);
 });
+
+test('state: transferState initialization and saveTransferLocal', async () => {
+	setupDomEnvironment();
+	assert.ok(state.transferState, 'transferState must be initialized');
+	assert.ok(Array.isArray(state.transferState.children));
+
+	state.transferState.children = [
+		{
+			id: 'c_test_state',
+			lastName: '状態テスト',
+			firstName: '太郎',
+			grade: '2',
+			className: '1',
+			address: '本町1-1',
+			tel: '090-0000-1111'
+		}
+	];
+
+	await state.saveTransferLocal();
+	const raw = JSON.parse(localStorage.getItem('kogai_transfer_v2') || '{}');
+	assert.equal(raw.children[0].lastName, '状態テスト');
+});

@@ -55,6 +55,23 @@ let neighborState = {
 	neighborhood: []
 };
 
+let transferState = {
+	children: [
+		{
+			id: 'c_' + Date.now(),
+			lastName: "",
+			firstName: "",
+			lastNameKana: "",
+			firstNameKana: "",
+			grade: "1",
+			className: "1",
+			address: "",
+			tel: ""
+		}
+	],
+	memo: ""
+};
+
 function saveDistrictLocal() {
 	const dNameEl = document.getElementById('d-name');
 	if (!dNameEl) return;
@@ -153,13 +170,19 @@ function saveNeighborLocal() {
 	return saveStorageData('kogai_neighbor_v2', neighborState);
 }
 
+function saveTransferLocal() {
+	return saveStorageData('kogai_transfer_v2', transferState);
+}
+
 if (typeof module !== 'undefined' && module.exports) {
 	global.currentDistrict = currentDistrict;
 	global.repState = repState;
 	global.neighborState = neighborState;
+	global.transferState = transferState;
 	global.saveDistrictLocal = saveDistrictLocal;
 	global.saveRepLocal = saveRepLocal;
 	global.saveNeighborLocal = saveNeighborLocal;
+	global.saveTransferLocal = saveTransferLocal;
 	module.exports = {
 		get currentDistrict() { return global.currentDistrict !== undefined ? global.currentDistrict : currentDistrict; },
 		set currentDistrict(v) { currentDistrict = v; global.currentDistrict = v; },
@@ -167,12 +190,16 @@ if (typeof module !== 'undefined' && module.exports) {
 		set repState(v) { repState = v; global.repState = v; },
 		get neighborState() { return global.neighborState !== undefined ? global.neighborState : neighborState; },
 		set neighborState(v) { neighborState = v; global.neighborState = v; },
+		get transferState() { return global.transferState !== undefined ? global.transferState : transferState; },
+		set transferState(v) { transferState = v; global.transferState = v; },
 		get saveDistrictLocal() { return global.saveDistrictLocal !== undefined ? global.saveDistrictLocal : saveDistrictLocal; },
 		set saveDistrictLocal(fn) { global.saveDistrictLocal = fn; },
 		get saveRepLocal() { return global.saveRepLocal !== undefined ? global.saveRepLocal : saveRepLocal; },
 		set saveRepLocal(fn) { global.saveRepLocal = fn; },
 		get saveNeighborLocal() { return global.saveNeighborLocal !== undefined ? global.saveNeighborLocal : saveNeighborLocal; },
-		set saveNeighborLocal(fn) { global.saveNeighborLocal = fn; }
+		set saveNeighborLocal(fn) { global.saveNeighborLocal = fn; },
+		get saveTransferLocal() { return global.saveTransferLocal !== undefined ? global.saveTransferLocal : saveTransferLocal; },
+		set saveTransferLocal(fn) { global.saveTransferLocal = fn; }
 	};
 	global.state = module.exports;
 }

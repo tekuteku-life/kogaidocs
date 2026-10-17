@@ -2258,6 +2258,9 @@ test('branch-booster: app.js PWA version check and forced update branch coverage
 	delete global.caches;
 	delete navigator.serviceWorker;
 	await app.performAppUpdate();
+	global.saveDistrictLocal = state.saveDistrictLocal;
+	global.saveRepLocal = state.saveRepLocal;
+	global.saveNeighborLocal = state.saveNeighborLocal;
 
 	// 12. DOMContentLoaded: startup online check timer execution (lines 816-819)
 	setupDomEnvironment();
@@ -2273,4 +2276,1433 @@ test('branch-booster: app.js PWA version check and forced update branch coverage
 	await new Promise(r => origSetTimeout(r, 20));
 	global.setTimeout = origSetTimeout;
 	assert.strictEqual(timerScheduled, true);
+});
+
+test('branch-booster: app.js active mode persistence error and startup edge cases', async () => {
+	setupDomEnvironment();
+
+	// 1. localStorage.setItem exception in switchTab
+	const origSetItem = localStorage.setItem;
+	localStorage.setItem = () => { throw new Error('QuotaExceeded'); };
+	app.switchTab('neighbor');
+	localStorage.setItem = origSetItem;
+
+	// 2. localStorage.getItem exception in restoreActiveMode
+	const origGetItem = localStorage.getItem;
+	localStorage.getItem = () => { throw new Error('AccessDenied'); };
+	app.restoreActiveMode();
+	localStorage.getItem = origGetItem;
+
+	// 3. saveTransferLocal exception in performAppUpdate
+	global.saveTransferLocal = () => { throw new Error('Simulated saveTransferLocal failure'); };
+	await app.performAppUpdate();
+	delete global.saveTransferLocal;
+	global.saveDistrictLocal = state.saveDistrictLocal;
+	global.saveRepLocal = state.saveRepLocal;
+	global.saveNeighborLocal = state.saveNeighborLocal;
+
+	// 4. btns.length === 2 branch in switchTab
+	const origQuerySelectorAll = document.querySelectorAll;
+	document.querySelectorAll = (sel) => {
+		if (sel === '.tab-btn') {
+			return [
+				{ classList: { toggle: () => {} } },
+				{ classList: { toggle: () => {} } }
+			];
+		}
+		return origQuerySelectorAll.call(document, sel);
+	};
+	app.switchTab('rep');
+	document.querySelectorAll = origQuerySelectorAll;
+
+	// 5. checkAppVersion cancel with statusEl
+	const statusEl = document.getElementById('version-check-status');
+	if (statusEl) {
+		global.confirm = () => false;
+		global.fetch = async () => ({ ok: true, json: async () => ({ version: '9.9.9' }) });
+		navigator.onLine = true;
+		await app.checkAppVersion(true);
+		assert(statusEl.textContent.includes('キャンセル'));
+	}
+});
+
+test('branch-booster: district.js transfer integration edge cases and prompt pass', async () => {
+	setupDomEnvironment();
+	state.currentDistrict = createMockDistrict({ district: 'テスト地区', han: '1班', hanList: ['1班'], students: [] });
+
+	// 1. integrateTransferDataIntoDistrict with null or empty payload
+	assert.strictEqual(await district.integrateTransferDataIntoDistrict(null), false);
+	assert.strictEqual(await district.integrateTransferDataIntoDistrict({ isTransferData: true, children: [] }), false);
+
+	// 2. openNeighborImportPanel with scrollIntoView mock
+	const panel = document.getElementById('d-neighbor-import-panel');
+	let scrolled = false;
+	panel.scrollIntoView = () => { scrolled = true; };
+	district.openNeighborImportPanel();
+	assert.strictEqual(scrolled, true);
+
+	// 3. loadTransferFileIntoDistrict with prompt password success and cancel
+	const transferPayload = {
+		isTransferData: true,
+		children: [
+			{ lastName: '加藤', firstName: '健', grade: '4', className: '1組' },
+			{ lastName: '佐藤', firstName: '健', grade: '4', className: '', class: '' }
+		]
+	};
+	const encryptedTxt = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(transferPayload), 'CorrectPass123!')}\n:END_DATA`;
+
+	// Duplicate check and cancel rollback
+	state.currentDistrict.students = [{ lastName: '加藤', firstName: '健', grade: '4', han: '1班' }];
+	global.prompt = () => '1班';
+	global.confirm = () => false; // User cancels duplicate merge
+	assert.strictEqual(await district.integrateTransferDataIntoDistrict(transferPayload, 'CorrectPass123!'), false);
+	assert.strictEqual(state.currentDistrict.students.length, 1);
+
+	// Han prompt cancel rollback
+	global.prompt = () => null; // Cancel han prompt
+	assert.strictEqual(await district.integrateTransferDataIntoDistrict(transferPayload, 'CorrectPass123!'), false);
+
+	// Han prompt empty (fallback to defaultHan)
+	state.currentDistrict.students = [];
+	global.confirm = () => true;
+	global.prompt = () => ''; // Empty han -> fallback
+	assert.strictEqual(await district.integrateTransferDataIntoDistrict(transferPayload, 'CorrectPass123!'), true);
+	assert.strictEqual(state.currentDistrict.students.length, 2);
+
+	// File load with prompt password success
+	state.currentDistrict.students = [];
+	document.getElementById('d-pass').value = 'WrongPass1234!';
+	global.prompt = (msg) => {
+		if (msg.includes('復号パスワード')) return 'CorrectPass123!';
+		return '1班';
+	};
+	await district.loadTransferFileIntoDistrict({
+		target: { files: [{ text: async () => encryptedTxt }], value: 'test.txt' }
+	});
+	assert.strictEqual(state.currentDistrict.students.length, 2);
+
+	// Wrong password in input, prompt returns null (cancelled)
+	global.prompt = () => null;
+	await district.loadTransferFileIntoDistrict({
+		target: { files: [{ text: async () => encryptedTxt }], value: 'test.txt' }
+	});
+
+	// Wrong password in input, prompt returns wrong password (fails)
+	global.prompt = () => 'StillWrongPass!';
+	await district.loadTransferFileIntoDistrict({
+		target: { files: [{ text: async () => encryptedTxt }], value: 'test.txt' }
+	});
+
+	// 4. loadPastedTransferTextIntoDistrict without args (reads from d-transfer-paste-box)
+	const pasteBox = document.getElementById('d-transfer-paste-box');
+	pasteBox.value = encryptedTxt;
+	global.prompt = (msg) => {
+		if (msg.includes('復号パスワード')) return 'CorrectPass123!';
+		return '1班';
+	};
+	await district.loadPastedTransferTextIntoDistrict();
+
+	// loadPastedTransferTextIntoDistrict empty text
+	pasteBox.value = '';
+	await district.loadPastedTransferTextIntoDistrict();
+
+	// loadPastedTransferTextIntoDistrict with prompt cancel and prompt wrong
+	pasteBox.value = encryptedTxt;
+	document.getElementById('d-pass').value = 'WrongPass1234!';
+	global.prompt = () => null;
+	await district.loadPastedTransferTextIntoDistrict(encryptedTxt);
+
+	global.prompt = () => 'StillWrongPass!';
+	await district.loadPastedTransferTextIntoDistrict(encryptedTxt);
+});
+
+test('branch-booster: rep.js transfer integration edge cases, rollbacks, and prompt pass', async () => {
+	setupDomEnvironment();
+	state.repState = { districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: {} } };
+
+	// 1. integrateTransferDataIntoRep with null or empty payload
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(null), false);
+	assert.strictEqual(await rep.integrateTransferDataIntoRep({ isTransferData: true, children: [] }), false);
+
+	// 2. prompt cancelled when choosing district
+	const transferPayload = {
+		isTransferData: true,
+		children: [
+			{ lastName: '高橋', firstName: '優', grade: '2', className: '2組' },
+			{ lastName: '高橋', firstName: '明', grade: '5', className: '', class: '' }
+		]
+	};
+	global.prompt = () => null; // cancelled
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(transferPayload), false);
+
+	// 3. New district created when district does not exist in repState.districts
+	global.prompt = (msg) => {
+		if (msg.includes('地区名')) return '新規転入地区';
+		return '1班';
+	};
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(transferPayload), true);
+	assert.strictEqual(state.repState.districts.length, 1);
+	assert.strictEqual(state.repState.districts[0].district, '新規転入地区');
+	assert.strictEqual(state.repState.districts[0].students.length, 2);
+
+	// 4. Duplicate child warning confirmation cancelled -> rollback
+	global.confirm = () => false; // User cancels merge on duplicate warning
+	global.prompt = (msg) => {
+		if (msg.includes('地区名')) return '新規転入地区';
+		return '1班';
+	};
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(transferPayload), false);
+	assert.strictEqual(state.repState.districts[0].students.length, 2);
+
+	// 5. Han prompt cancelled -> rollback
+	global.prompt = (msg) => {
+		if (msg.includes('地区名')) return '新規転入地区';
+		return null; // Cancel han prompt
+	};
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(transferPayload), false);
+	assert.strictEqual(state.repState.districts[0].students.length, 2);
+
+	// 6. loadTransferFileIntoRep and loadPastedTransferTextIntoRep with prompt pass, cancel, and fail
+	const encryptedTxt = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(transferPayload), 'RepPass123456!')}\n:END_DATA`;
+	document.getElementById('rep-pass').value = 'WrongPass1234!';
+
+	// prompt returns correct password
+	global.confirm = () => true;
+	global.prompt = (msg) => {
+		if (msg.includes('復号パスワード')) return 'RepPass123456!';
+		if (msg.includes('地区名')) return '新規転入地区';
+		return '1班';
+	};
+	await rep.loadTransferFileIntoRep({
+		target: { files: [{ text: async () => encryptedTxt }], value: 'rep_transfer.txt' }
+	});
+
+	// prompt cancelled
+	global.prompt = (msg) => {
+		if (msg.includes('復号パスワード')) return null;
+		return '1班';
+	};
+	await rep.loadTransferFileIntoRep({
+		target: { files: [{ text: async () => encryptedTxt }], value: 'rep_transfer.txt' }
+	});
+
+	// prompt fails
+	global.prompt = (msg) => {
+		if (msg.includes('復号パスワード')) return 'StillWrongPass!';
+		return '1班';
+	};
+	await rep.loadTransferFileIntoRep({
+		target: { files: [{ text: async () => encryptedTxt }], value: 'rep_transfer.txt' }
+	});
+
+	// loadPastedTransferTextIntoRep from DOM box and prompt flow
+	const repPasteBox = document.getElementById('rep-transfer-paste-box');
+	repPasteBox.value = encryptedTxt;
+	global.prompt = (msg) => {
+		if (msg.includes('復号パスワード')) return 'RepPass123456!';
+		if (msg.includes('地区名')) return '新規転入地区';
+		return '1班';
+	};
+	await rep.loadPastedTransferTextIntoRep();
+
+	// empty text
+	repPasteBox.value = '';
+	await rep.loadPastedTransferTextIntoRep();
+
+	// prompt cancel and fail
+	global.prompt = (msg) => null;
+	await rep.loadPastedTransferTextIntoRep(encryptedTxt);
+
+	global.prompt = (msg) => 'StillWrongPass!';
+	await rep.loadPastedTransferTextIntoRep(encryptedTxt);
+});
+
+test('branch-booster: state.js password opt-out branch and transfer getters/setters', () => {
+	setupDomEnvironment();
+	state.currentDistrict = createMockDistrict({ district: 'オプトアウト地区' });
+
+	// saveDistrictLocal: storage encrypted, but optinEl is unchecked (opt-out of saving password)
+	global.isStorageEncrypted = () => true;
+	global.isStorageUnlocked = () => true;
+	state.currentDistrict.savedFilePassword = 'ShouldBeDeleted123!';
+	const optinEl = document.getElementById('d-save-pass-optin');
+	if (optinEl) optinEl.checked = false;
+	state.saveDistrictLocal();
+	assert.strictEqual(state.currentDistrict.savedFilePassword, undefined);
+
+	// transferState & saveTransferLocal getters and setters
+	delete global.transferState;
+	delete global.saveTransferLocal;
+	assert.ok(state.transferState);
+	assert.ok(typeof state.saveTransferLocal === 'function');
+
+	state.transferState = { children: [{ lastName: 'ゲッターテスト' }] };
+	assert.strictEqual(state.transferState.children[0].lastName, 'ゲッターテスト');
+
+	let fnCalled = false;
+	state.saveTransferLocal = () => { fnCalled = true; };
+	state.saveTransferLocal();
+	assert.strictEqual(fnCalled, true);
+});
+
+test('branch-booster: app.js tab cycling and mode badge coverage', () => {
+	setupDomEnvironment();
+	app.switchTab('neighbor');
+	app.switchTab('transfer');
+	app.switchTab('district');
+	app.switchTab('rep');
+});
+
+test('branch-booster: district.js transfer and neighbor branch completion', async () => {
+	setupDomEnvironment();
+	state.currentDistrict = createMockDistrict({ district: '既存地区A', han: '', hanList: [], students: [] });
+
+	// mergeNeighborDataIntoDistrict: dName !== curName confirm cancel and confirm proceed
+	global.confirm = () => false;
+	district.mergeNeighborDataIntoDistrict({ district: '別自治会名', neighborhood: [{ role: '会長', lastName: 'テスト' }] });
+
+	global.confirm = () => true;
+	district.mergeNeighborDataIntoDistrict({ district: '別自治会名', neighborhood: [{ role: '会長', lastName: 'テスト' }] });
+
+	// integrateTransferDataIntoDistrict: existing child duplicate confirm proceed
+	state.currentDistrict.students = [{ id: 's1', lastName: '重複', firstName: '太郎', grade: '3', han: '1班' }];
+	global.prompt = () => '1班';
+	global.confirm = () => true; // proceed with duplicate
+	await district.integrateTransferDataIntoDistrict({
+		isTransferData: true,
+		children: [{ lastName: '重複', firstName: '太郎', grade: '3' }] // missing id and className/class
+	}, 'pass');
+	assert.strictEqual(state.currentDistrict.students.length, 2);
+
+	// loadTransferFileIntoDistrict: empty files array
+	await district.loadTransferFileIntoDistrict({ target: { files: [] } });
+});
+
+test('branch-booster: rep.js transfer and district branch completion', async () => {
+	setupDomEnvironment();
+	// 1. integrateTransferDataIntoRep when district already exists (isNewDistrict = false)
+	state.repState = {
+		districts: [
+			createMockDistrict({ district: '既存代表地区', han: 'A班', hanList: ['A班'], students: [] })
+		],
+		szExternals: [],
+		seatConfig: { cols: 4, rows: 5, cells: {} }
+	};
+
+	global.prompt = (msg) => {
+		if (msg.includes('地区名')) return '既存代表地区';
+		return ''; // empty han -> defaultHan
+	};
+	global.confirm = () => true;
+
+	const payload = {
+		isTransferData: true,
+		children: [{ lastName: '既存', firstName: '子', grade: '1' }] // no id, no className
+	};
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(payload), true);
+	assert.strictEqual(state.repState.districts[0].students.length, 1);
+	assert.strictEqual(state.repState.districts[0].students[0].han, 'A班');
+
+	// Duplicate child in existing district -> confirm proceed
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(payload), true);
+	assert.strictEqual(state.repState.districts[0].students.length, 2);
+
+	// loadTransferFileIntoRep: empty files array
+	await rep.loadTransferFileIntoRep({ target: { files: [] } });
+});
+
+test('branch-booster: final push for app, district, and rep >= 95% branch coverage', async () => {
+	setupDomEnvironment();
+
+	// 1. app.js: badge text and immediate lock
+	app.switchTab('neighbor');
+	const bText = document.getElementById('mode-active-badge-text');
+	if (bText) assert(bText.textContent.includes('自治会'));
+
+	app.switchTab('transfer');
+	if (bText) assert(bText.textContent.includes('転入者'));
+
+	app.handleImmediateLock();
+
+	// 2. district.js: empty neighbor file, empty neighbor paste text, and year update with han
+	await district.loadNeighborFileIntoDistrict({ target: { files: [] } });
+	const nPasteBox = document.getElementById('neighbor-paste-box');
+	if (nPasteBox) nPasteBox.value = '';
+	await district.loadPastedNeighborTextIntoDistrict();
+
+	state.currentDistrict = createMockDistrict({ district: '班付地区', han: '東班', officers: [], neighborhood: [] });
+	global.confirm = () => true;
+	district.runDistrictYearUpdate();
+
+	// 3. rep.js: loadRepMasterTxt & loadPastedTextToRep with single district payload
+	state.repState = { districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: {} } };
+	const singleDistPayload = createMockDistrict({ district: '単一地区インポート', han: '南班', students: [] });
+	const singleDistEncrypted = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(singleDistPayload), 'MasterPass123!')}\n:END_DATA`;
+
+	document.getElementById('rep-pass').value = 'MasterPass123!';
+	await rep.loadRepMasterTxt({
+		target: { files: [{ text: async () => singleDistEncrypted }], value: 'single.txt' }
+	});
+	assert.strictEqual(state.repState.districts.length, 1);
+	assert.strictEqual(state.repState.districts[0].district, '単一地区インポート');
+
+	const rPasteBox = document.getElementById('rep-paste-box');
+	if (rPasteBox) rPasteBox.value = singleDistEncrypted;
+	await rep.loadPastedTextToRep();
+	assert.strictEqual(state.repState.districts.length, 1);
+
+	// exportRepMasterTxt invalid and mismatch passwords
+	document.getElementById('rep-pass').value = 'Short';
+	document.getElementById('rep-pass-confirm').value = 'Short';
+	await rep.exportRepMasterTxt();
+
+	document.getElementById('rep-pass').value = 'ValidPass1234!';
+	document.getElementById('rep-pass-confirm').value = 'MismatchPass123!';
+	await rep.exportRepMasterTxt();
+
+	// toggleSzNeighbor with invalid index
+	rep.toggleSzNeighbor(999, 999, true);
+	rep.toggleAllDistrictChecks(false);
+
+	// 4. precise app.js branches
+	const p1 = document.getElementById('modal-set-pass') || document.createElement('input');
+	p1.id = 'modal-set-pass';
+	document.body.appendChild(p1);
+	const p2 = document.getElementById('modal-set-pass-confirm') || document.createElement('input');
+	p2.id = 'modal-set-pass-confirm';
+	document.body.appendChild(p2);
+
+	p1.value = 'short';
+	p2.value = 'short';
+	await app.handleEnableEncryptionSubmit();
+
+	p1.value = 'ValidPass1234!';
+	p2.value = 'MismatchPass123!';
+	await app.handleEnableEncryptionSubmit();
+
+	// 5. precise district.js branches
+	state.currentDistrict = createMockDistrict({ district: '' });
+	await district.exportDistrictTxt();
+
+	state.currentDistrict = createMockDistrict({ district: 'テスト地区' });
+	document.getElementById('d-pass').value = 'short';
+	document.getElementById('d-pass-confirm').value = 'short';
+	await district.exportDistrictTxt();
+
+	document.getElementById('d-pass').value = 'ValidPass1234!';
+	document.getElementById('d-pass-confirm').value = 'MismatchPass123!';
+	await district.exportDistrictTxt();
+
+	district.toggleCard(null);
+	district.setAllCardsCollapse(true, 'nonexistent-container');
+
+	// 6. precise rep.js branches
+	rep.mergeNeighborDataIntoRep(null);
+	await rep.loadMultipleDistrictFiles({ target: { files: [] } });
+
+	const box = document.getElementById('rep-paste-box');
+	if (box) box.value = '';
+	await rep.loadPastedTextToRep();
+
+	state.currentDistrict = createMockDistrict({ district: '' });
+	rep.addCurrentDistrictToRep();
+
+	global.confirm = () => false;
+	rep.clearAllRepDistricts();
+
+	state.repState = { districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: {} } };
+	rep.renderRepDistrictsTable();
+	rep.renderSzNeighborhoodSelector();
+
+	// Single district without han or role
+	state.repState = {
+		districts: [
+			createMockDistrict({
+				district: '無班無役職',
+				han: '',
+				officers: [{ role: '', lastName: '役員' }],
+				neighborhood: [],
+				students: []
+			})
+		],
+		szExternals: [],
+		seatConfig: { cols: 4, rows: 5, cells: {} }
+	};
+	rep.renderRepDistrictsTable();
+	rep.renderSzNeighborhoodSelector();
+
+	// 7. district.js: loadPastedNeighborTextIntoDistrict with prompt password success, cancel, and fail
+	const neighborPayload = {
+		district: 'プロンプト自治会',
+		neighborhood: [{ role: '会長', lastName: '山田', firstName: '太郎' }]
+	};
+	const encNeighborTxt = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(neighborPayload), 'NeighborPass123!')}\n:END_DATA`;
+
+	const nBox = document.getElementById('neighbor-paste-box');
+	if (nBox) nBox.value = encNeighborTxt;
+	document.getElementById('neighbor-import-pass').value = 'WrongPass!';
+
+	global.prompt = (msg) => {
+		if (msg && msg.includes('パスワード')) return 'NeighborPass123!';
+		return null;
+	};
+	global.confirm = () => true;
+	await district.loadPastedNeighborTextIntoDistrict();
+
+	// cancel prompt
+	if (nBox) nBox.value = encNeighborTxt;
+	global.prompt = () => null;
+	await district.loadPastedNeighborTextIntoDistrict();
+
+	// wrong prompt
+	if (nBox) nBox.value = encNeighborTxt;
+	global.prompt = () => 'StillWrongPass!';
+	await district.loadPastedNeighborTextIntoDistrict();
+
+	// toggleCard with and without is-collapsed
+	const sampleCard = document.createElement('div');
+	sampleCard.className = 'card is-collapsed';
+	const toggleBtn = document.createElement('span');
+	toggleBtn.className = 'btn-card-toggle';
+	sampleCard.appendChild(toggleBtn);
+	district.toggleCard(sampleCard);
+	district.toggleCard(sampleCard);
+
+	// setAllCardsCollapse with mock container
+	const tabDist = document.getElementById('tab-district');
+	if (tabDist) {
+		district.setAllCardsCollapse(true, 'tab-district');
+		district.setAllCardsCollapse(false, 'tab-district');
+	}
+
+	// 8. rep.js: loadMultipleDistrictFiles with mixed master file
+	const masterPayload = {
+		districts: [
+			createMockDistrict({
+				district: 'マスター内地区',
+				han: '1班',
+				officers: [{ role: '校外委員', lastName: '小林', childGrade: '3', childClass: '2' }],
+				students: []
+			})
+		],
+		szExternals: [],
+		seatConfig: { cols: 4, rows: 5, cells: {} }
+	};
+	const encMasterTxt = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(masterPayload), 'MasterPass123!')}\n:END_DATA`;
+
+	document.getElementById('rep-pass').value = 'MasterPass123!';
+	await rep.loadMultipleDistrictFiles({
+		target: {
+			files: [
+				{ text: async () => encMasterTxt, name: 'master.txt' }
+			]
+		}
+	});
+	assert.strictEqual(state.repState.districts.length, 1);
+	assert.strictEqual(state.repState.districts[0].district, 'マスター内地区');
+
+	// loadPastedTextToRep with neighbor payload
+	if (box) box.value = encNeighborTxt;
+	document.getElementById('rep-pass').value = 'NeighborPass123!';
+	await rep.loadPastedTextToRep();
+
+	// renderRepDistrictsTable with officer childGrade and childClass
+	rep.renderRepDistrictsTable();
+
+	// 9. app.js: DOMContentLoaded timers coverage
+	navigator.serviceWorker.register = () => Promise.reject(new Error('SW failed'));
+	window.dispatchEvent('DOMContentLoaded');
+
+	// 10. district.js: loadDistrictTxt with neighbor file and unlisted han in officers/students
+	const encNeighborFile = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(neighborPayload), 'DistrictPass123!')}\n:END_DATA`;
+	document.getElementById('d-pass').value = 'DistrictPass123!';
+	await district.loadDistrictTxt({
+		target: { files: [{ text: async () => encNeighborFile }], value: 'neighbor.txt' }
+	});
+
+	state.currentDistrict = createMockDistrict({
+		district: '異端班地区',
+		han: '主班',
+		hanList: ['主班'],
+		officers: [{ role: '役員', lastName: '山田', han: '別班' }],
+		students: [{ lastName: '児童', firstName: '子', han: '別班' }]
+	});
+	district.renderDistrictForm();
+	district.addStudentRow(); // existing student defaultHan inheritance
+
+	// 11. rep.js: upsertRepDistrict placeholder and neighbor protection
+	state.repState = { districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: {} } };
+	// Step A: neighbor file arrives first (placeholder created via mergeNeighborDataIntoRep)
+	rep.mergeNeighborDataIntoRep({
+		district: '先行自治会地区',
+		neighborhood: [{ role: '会長', lastName: '先行会長' }]
+	});
+	assert.strictEqual(state.repState.districts.length, 1);
+
+	// Step B: subsequent district file arrives without valid neighbors (neighbors protected)
+	rep.upsertRepDistrict({
+		district: '先行自治会地区',
+		han: '1班',
+		officers: [{ role: '役員', lastName: '後続役員' }],
+		students: [{ lastName: '児童', firstName: '後続' }],
+		neighborhood: []
+	});
+	assert.strictEqual(state.repState.districts.length, 1);
+	assert.strictEqual(state.repState.districts[0].neighborhood[0].lastName, '先行会長');
+
+	// Step C: loadMultipleDistrictFiles with password error ng > 0
+	await rep.loadMultipleDistrictFiles({
+		target: {
+			files: [
+				{ text: async () => 'INVALID_CIPHERTEXT', name: 'corrupted.txt' }
+			]
+		}
+	});
+
+	// Step D: upsertRepDistrict with d.officers empty
+	rep.upsertRepDistrict({
+		district: '空役員地区',
+		officers: [],
+		students: []
+	});
+});
+
+test('branch-booster: district.js and rep.js 95%+ branch coverage enhancements', async () => {
+	setupDomEnvironment();
+
+	// Smart prompt handler for multi-step prompts
+	const smartPrompt = (msg) => {
+		if (msg && msg.includes('復号パスワード')) return 'CorrectPromptPass1!';
+		if (msg && msg.includes('地区名')) return '受入地区';
+		if (msg && msg.includes('所属班')) return '1班';
+		return '1班';
+	};
+
+	// --- 1. district.js exhaustive branches ---
+	// 1-A: Form rendering with various han values and remove officer button
+	state.currentDistrict = createMockDistrict({
+		district: '班網羅地区',
+		han: '',
+		hanList: ['1班', '2班'],
+		officers: [
+			{ role: '代表', han: '', lastName: '未指定役員' },
+			{ role: '副代表', han: '全班', lastName: '全班役員' },
+			{ role: '校外委員', han: '未登録班', lastName: '未登録班役員' }
+		],
+		students: [
+			{ lastName: '未指定児童', han: '' },
+			{ lastName: '未登録班児童', han: '未知班' }
+		]
+	});
+	district.renderDistrictForm();
+	const officerHtml = document.getElementById('officers-container').innerHTML;
+	assert(officerHtml.includes('全班・指定なし'));
+	assert(officerHtml.includes('未登録班'));
+
+	// Test removeOfficer when > 1 officer
+	assert.strictEqual(state.currentDistrict.officers.length, 3);
+	district.removeOfficer(2);
+	assert.strictEqual(state.currentDistrict.officers.length, 2);
+
+	// Test addStudentRow when currentDistrict.students is empty (fallback to han / hanList[0])
+	state.currentDistrict.students = [];
+	district.addStudentRow();
+	assert.strictEqual(state.currentDistrict.students.length, 1);
+	assert.strictEqual(state.currentDistrict.students[0].han, '1班');
+
+	// 1-B: loadDistrictTxt when data.han is undefined and data.hanList has elements
+	const dHanFallbackData = {
+		district: '班フォールバック地区',
+		hanList: ['自動1班', '自動2班'],
+		officers: [{ role: '役員', lastName: '山田', han: '自動1班' }],
+		students: [{ lastName: '児童', firstName: '太郎' }] // s.han is undefined
+	};
+	const encHanFallback = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(dHanFallbackData), 'DistPass123!')}\n:END_DATA`;
+	document.getElementById('d-pass').value = 'DistPass123!';
+	await district.loadDistrictTxt({
+		target: { files: [{ text: async () => encHanFallback }], value: 'fallback.txt' }
+	});
+	assert.strictEqual(state.currentDistrict.han, '自動1班');
+
+	// 1-C: mergeNeighborDataIntoDistrict edge cases
+	district.mergeNeighborDataIntoDistrict(null); // null guard
+	global.confirm = () => false; // User cancels district mismatch
+	district.mergeNeighborDataIntoDistrict({ district: '全く別地区', neighborhood: [{ role: '会長' }] });
+
+	// 1-D: integrateTransferDataIntoDistrict edge cases
+	// (i) Invalid payload guards
+	assert.strictEqual(await district.integrateTransferDataIntoDistrict(null), false);
+	assert.strictEqual(await district.integrateTransferDataIntoDistrict({ isTransferData: false }), false);
+	assert.strictEqual(await district.integrateTransferDataIntoDistrict({ isTransferData: true, children: [] }), false);
+
+	// (ii) Prompt cancel on han assignment (triggers rollback)
+	const singleChildPayload = {
+		isTransferData: true,
+		children: [{ grade: 2, class: 1, lastName: 'キャンセル児', firstName: '太郎', address: 'A', tel: '00' }]
+	};
+	global.prompt = () => null; // cancel han assignment
+	assert.strictEqual(await district.integrateTransferDataIntoDistrict(singleChildPayload), false);
+
+	// (iii) Duplicate child detection with confirm = false (rollback)
+	state.currentDistrict.students.push({
+		id: 'dup_1',
+		lastName: '重複児',
+		firstName: '花子',
+		grade: '3',
+		class: '1',
+		han: '1班'
+	});
+	const dupChildPayload = {
+		isTransferData: true,
+		children: [{ grade: 3, class: 1, lastName: '重複児', firstName: '花子', address: 'B', tel: '11' }]
+	};
+	global.prompt = () => '1班';
+	global.confirm = () => false; // User rejects duplicate
+	assert.strictEqual(await district.integrateTransferDataIntoDistrict(dupChildPayload), false);
+
+	// (iv) Duplicate child detection with confirm = true (accept duplicate)
+	global.confirm = () => true;
+	assert.strictEqual(await district.integrateTransferDataIntoDistrict(dupChildPayload), true);
+
+	// 1-E: loadTransferFileIntoDistrict edge cases
+	// (i) Empty files
+	await district.loadTransferFileIntoDistrict({ target: { files: [] } });
+
+	const transferPayload = {
+		isTransferData: true,
+		children: [
+			{ grade: 3, class: 1, lastName: '転入', firstName: '花子', lastNameKana: 'てんにゅう', firstNameKana: 'はなこ', address: '1-2-3', tel: '090-9999-8888' }
+		]
+	};
+	const encTransferTxt = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(transferPayload), 'CorrectPromptPass1!')}\n:END_DATA`;
+
+	// (ii) Password mismatch in input, resolved via prompt
+	document.getElementById('d-pass').value = 'WrongPass123!';
+	global.prompt = smartPrompt;
+	global.confirm = () => true;
+	await district.loadTransferFileIntoDistrict({
+		target: { files: [{ text: async () => encTransferTxt }], value: 'transfer.txt' }
+	});
+	assert(state.currentDistrict.students.some(s => s.lastName === '転入'));
+
+	// (iii) Password mismatch and prompt cancelled
+	document.getElementById('d-pass').value = 'WrongPass123!';
+	global.prompt = () => null;
+	const dummyTarget = { files: [{ text: async () => encTransferTxt }], value: 'transfer.txt' };
+	await district.loadTransferFileIntoDistrict({ target: dummyTarget });
+	assert.strictEqual(dummyTarget.value, '');
+
+	// (iv) File corrupted completely
+	document.getElementById('d-pass').value = 'WrongPass123!';
+	global.prompt = () => 'StillWrong!';
+	await district.loadTransferFileIntoDistrict({
+		target: { files: [{ text: async () => 'INVALID_PAYLOAD' }], value: 'corrupt.txt' }
+	});
+
+	// 1-F: loadPastedTransferTextIntoDistrict edge cases
+	// (i) Empty input
+	document.getElementById('d-transfer-paste-box').value = '   ';
+	await district.loadPastedTransferTextIntoDistrict();
+
+	// (ii) Resolved via prompt
+	document.getElementById('d-pass').value = 'WrongPass123!';
+	global.prompt = smartPrompt;
+	document.getElementById('d-transfer-paste-box').value = encTransferTxt;
+	await district.loadPastedTransferTextIntoDistrict();
+
+	// (iii) Cancelled via prompt
+	document.getElementById('d-pass').value = 'WrongPass123!';
+	global.prompt = () => '';
+	document.getElementById('d-transfer-paste-box').value = encTransferTxt;
+	await district.loadPastedTransferTextIntoDistrict();
+
+	// (iv) Corrupted text
+	document.getElementById('d-pass').value = 'WrongPass123!';
+	global.prompt = () => 'WrongAgain';
+	document.getElementById('d-transfer-paste-box').value = 'CORRUPTED';
+	await district.loadPastedTransferTextIntoDistrict();
+
+
+	// --- 2. rep.js exhaustive branches ---
+	// 2-A: upsertRepDistrict selectedForPrint false, existing szNeighborChecks, and placeholder replacement
+	state.repState = { districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: {} } };
+
+	// Create placeholder district (empty students and officers)
+	state.repState.districts.push({
+		district: '置換対象地区',
+		han: '',
+		students: [],
+		officers: [],
+		neighborhood: [{ role: '会長', lastName: '既存会長' }]
+	});
+	// Replace placeholder with incoming district
+	rep.upsertRepDistrict({
+		district: '置換対象地区',
+		han: '',
+		students: [{ lastName: '新入児童' }],
+		officers: [{ lastName: '新任役員' }],
+		neighborhood: [] // should protect 既存会長
+	});
+	assert.strictEqual(state.repState.districts.length, 1);
+	assert.strictEqual(state.repState.districts[0].neighborhood[0].lastName, '既存会長');
+
+	// selectedForPrint: false and custom szNeighborChecks preserved
+	state.repState.districts[0].selectedForPrint = false;
+	state.repState.districts[0].szNeighborChecks = { 0: false };
+	rep.upsertRepDistrict({
+		district: '置換対象地区',
+		han: '',
+		neighborhood: [{ role: '会長', lastName: '既存会長' }],
+		students: [{ lastName: '更新児童' }]
+	});
+	assert.strictEqual(state.repState.districts[0].selectedForPrint, false);
+	assert.strictEqual(state.repState.districts[0].szNeighborChecks[0], false);
+
+	// 2-B: loadMultipleDistrictFiles with master file included in files
+	const repMasterMixed = {
+		districts: [
+			{
+				district: '代表混在地区A',
+				han: undefined, // tests s.han fallback to d.han || ""
+				officer: { role: '役員', lastName: '旧役員' }, // tests d.officer fallback when d.officers empty
+				officers: [],
+				neighborhood: [{ role: '自治会長', lastName: '混在会長' }],
+				students: [{ lastName: '混在児', isOutOfDistrict: undefined }] // s.han undefined
+			}
+		],
+		szExternals: [{ role: '来賓', lastName: '来賓氏名' }]
+	};
+	const encRepMasterMixed = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(repMasterMixed), 'MultiPass123!')}\n:END_DATA`;
+
+	// Empty files in loadMultipleDistrictFiles
+	await rep.loadMultipleDistrictFiles({ target: { files: [] } });
+
+	// Process mixed master file in loadMultipleDistrictFiles
+	document.getElementById('rep-pass').value = 'MultiPass123!';
+	await rep.loadMultipleDistrictFiles({
+		target: {
+			files: [
+				{ text: async () => encRepMasterMixed, name: 'master_mixed.txt' }
+			]
+		}
+	});
+	assert(state.repState.districts.some(d => d.district === '代表混在地区A'));
+
+	// 2-C: loadRepMasterTxt edge cases (missing szExternals, seatConfig, d.han undefined, empty officers)
+	const repMasterSparse = {
+		districts: [
+			{
+				district: '疎マスター地区',
+				han: undefined,
+				officer: { role: '役員', lastName: '疎役員' },
+				officers: undefined,
+				students: [{ lastName: '疎児' }]
+			}
+		]
+	};
+	const encRepMasterSparse = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(repMasterSparse), 'SparsePass123!')}\n:END_DATA`;
+
+	// Empty file in loadRepMasterTxt
+	await rep.loadRepMasterTxt({ target: { files: [] } });
+
+	document.getElementById('rep-pass').value = 'SparsePass123!';
+	await rep.loadRepMasterTxt({
+		target: {
+			files: [
+				{ text: async () => encRepMasterSparse }
+			]
+		}
+	});
+	assert.strictEqual(state.repState.districts[0].district, '疎マスター地区');
+	assert(state.repState.seatConfig);
+	assert.strictEqual(state.repState.szExternals.length, 0);
+
+	// 2-D: integrateTransferDataIntoRep edge cases
+	// (i) Invalid payload guards
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(null), false);
+	assert.strictEqual(await rep.integrateTransferDataIntoRep({ isTransferData: false }), false);
+	assert.strictEqual(await rep.integrateTransferDataIntoRep({ isTransferData: true, children: [] }), false);
+
+	// (ii) District prompt cancelled
+	global.prompt = () => null;
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(transferPayload), false);
+
+	// (iii) Han prompt cancelled (triggers rollback)
+	global.prompt = (msg) => {
+		if (msg && msg.includes('地区名')) return '受入地区';
+		return null; // cancel han
+	};
+	state.repState.districts = [{ district: '受入地区', han: '1班', hanList: ['1班'], students: [], officers: [] }];
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(transferPayload), false);
+
+	// (iv) Duplicate child with confirm = false (triggers rollback)
+	state.repState.districts = [{
+		district: '受入地区',
+		han: '1班',
+		hanList: ['1班'],
+		students: [{ lastName: '転入', firstName: '花子', grade: '3' }],
+		officers: []
+	}];
+	global.prompt = smartPrompt;
+	global.confirm = () => false;
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(transferPayload), false);
+
+	// (v) Duplicate child with confirm = true (accept duplicate)
+	global.confirm = () => true;
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(transferPayload), true);
+
+	// 2-E: loadTransferFileIntoRep and loadPastedTransferTextIntoRep edge cases
+	// (i) Empty files
+	await rep.loadTransferFileIntoRep({ target: { files: [] } });
+
+	// (ii) Password mismatch in rep-pass, resolved via prompt
+	document.getElementById('rep-pass').value = 'WrongRepPass!';
+	global.prompt = smartPrompt;
+	global.confirm = () => true;
+	state.repState.districts = [{
+		district: '受入地区',
+		hanList: ['1班'],
+		students: [],
+		officers: []
+	}];
+	await rep.loadTransferFileIntoRep({
+		target: { files: [{ text: async () => encTransferTxt }], value: 'rep_transfer.txt' }
+	});
+	assert(state.repState.districts.some(d => d.students.some(s => s.lastName === '転入')));
+
+	// (iii) Password mismatch and prompt cancelled
+	document.getElementById('rep-pass').value = 'WrongRepPass!';
+	global.prompt = () => null;
+	const repDummyTarget = { files: [{ text: async () => encTransferTxt }], value: 'rep_transfer.txt' };
+	await rep.loadTransferFileIntoRep({ target: repDummyTarget });
+	assert.strictEqual(repDummyTarget.value, '');
+
+	// (iv) Corrupted transfer file for rep
+	document.getElementById('rep-pass').value = 'WrongRepPass!';
+	global.prompt = () => 'StillWrong';
+	await rep.loadTransferFileIntoRep({
+		target: { files: [{ text: async () => 'INVALID_PAYLOAD' }], value: 'corrupt.txt' }
+	});
+
+	// (v) loadPastedTransferTextIntoRep edge cases
+	// Empty paste box
+	document.getElementById('rep-transfer-paste-box').value = '   ';
+	await rep.loadPastedTransferTextIntoRep();
+
+	// Password prompt resolved
+	document.getElementById('rep-pass').value = 'WrongRepPass!';
+	global.prompt = smartPrompt;
+	document.getElementById('rep-transfer-paste-box').value = encTransferTxt;
+	await rep.loadPastedTransferTextIntoRep();
+
+	// Password prompt cancelled
+	document.getElementById('rep-pass').value = 'WrongRepPass!';
+	global.prompt = () => '';
+	document.getElementById('rep-transfer-paste-box').value = encTransferTxt;
+	await rep.loadPastedTransferTextIntoRep();
+
+	// Corrupted paste text
+	document.getElementById('rep-pass').value = 'WrongRepPass!';
+	global.prompt = () => 'StillWrong';
+	document.getElementById('rep-transfer-paste-box').value = 'CORRUPTED';
+	await rep.loadPastedTransferTextIntoRep();
+
+
+	// --- 3. district.js remaining branches (neighbor file/paste & card toggles) ---
+	const encNeighborData = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify({ isNeighborhoodData: true, district: '近隣地区', neighborhood: [{ role: '会長', lastName: '近隣会長' }] }), 'NeighborPass999!')}\n:END_DATA`;
+
+	// 3-A: loadNeighborFileIntoDistrict edge cases
+	await district.loadNeighborFileIntoDistrict({ target: { files: [] } }); // empty file
+	document.getElementById('d-pass').value = 'WrongPass!';
+	global.prompt = () => 'NeighborPass999!';
+	await district.loadNeighborFileIntoDistrict({
+		target: { files: [{ text: async () => encNeighborData }], value: 'n.txt' }
+	});
+	global.prompt = () => null; // prompt cancel
+	await district.loadNeighborFileIntoDistrict({
+		target: { files: [{ text: async () => encNeighborData }], value: 'n.txt' }
+	});
+	global.prompt = () => 'StillWrong'; // corrupted/wrong pass
+	await district.loadNeighborFileIntoDistrict({
+		target: { files: [{ text: async () => 'INVALID' }], value: 'corrupt.txt' }
+	});
+
+	// 3-B: loadPastedNeighborTextIntoDistrict edge cases
+	const dNeighborBox = document.getElementById('d-neighbor-paste-box');
+	if (dNeighborBox) dNeighborBox.value = '   ';
+	await district.loadPastedNeighborTextIntoDistrict(); // empty
+	if (dNeighborBox) dNeighborBox.value = encNeighborData;
+	global.prompt = () => 'NeighborPass999!';
+	await district.loadPastedNeighborTextIntoDistrict(); // prompt resolved
+	if (dNeighborBox) dNeighborBox.value = encNeighborData;
+	global.prompt = () => '';
+	await district.loadPastedNeighborTextIntoDistrict(); // prompt cancelled
+	if (dNeighborBox) dNeighborBox.value = 'CORRUPTED';
+	global.prompt = () => 'StillWrong';
+	await district.loadPastedNeighborTextIntoDistrict(); // corrupt
+
+	// 3-C: openNeighborImportPanel, toggleCard, and setAllCardsCollapse
+	district.openNeighborImportPanel();
+	district.toggleCard(null); // null guard
+	const dummyCard = document.createElement('div');
+	dummyCard.className = 'card is-collapsed';
+	const dummyToggleBtn = document.createElement('button');
+	dummyToggleBtn.className = 'btn-card-toggle';
+	dummyCard.appendChild(dummyToggleBtn);
+	district.toggleCard(dummyCard); // expand
+	assert(!dummyCard.classList.contains('is-collapsed'));
+	district.toggleCard(dummyCard); // collapse
+	assert(dummyCard.classList.contains('is-collapsed'));
+	district.setAllCardsCollapse(true, 'non-existent-container'); // null guard
+
+
+	// --- 4. rep.js remaining branches (validateRepPasswords, toggleSzNeighbor, single district load) ---
+	// 4-A: validateRepPasswords branch matrix
+	document.getElementById('rep-pass').value = '';
+	document.getElementById('rep-pass-confirm').value = '';
+	rep.validateRepPasswords(); // empty pass & confirm
+	document.getElementById('rep-pass').value = 'short';
+	rep.validateRepPasswords(); // invalid short pass
+	document.getElementById('rep-pass').value = 'ValidPassword123!';
+	document.getElementById('rep-pass-confirm').value = '';
+	rep.validateRepPasswords(); // valid pass, empty confirm
+	document.getElementById('rep-pass-confirm').value = 'MismatchPassword123!';
+	rep.validateRepPasswords(); // mismatch
+	document.getElementById('rep-pass-confirm').value = 'ValidPassword123!';
+	rep.validateRepPasswords(); // match
+
+	// 4-B: loadPastedTextToRep with single district (with & without han)
+	const singleDistWithHan = { district: '単独有班地区', han: 'A班', students: [], officers: [] };
+	const encSingleWithHan = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(singleDistWithHan), 'SinglePass123!')}\n:END_DATA`;
+	document.getElementById('rep-pass').value = 'SinglePass123!';
+	document.getElementById('rep-paste-box').value = encSingleWithHan;
+	await rep.loadPastedTextToRep();
+
+	const singleDistNoHan = { district: '単独無班地区', han: '', students: [], officers: [] };
+	const encSingleNoHan = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(singleDistNoHan), 'SinglePass123!')}\n:END_DATA`;
+	document.getElementById('rep-paste-box').value = encSingleNoHan;
+	await rep.loadPastedTextToRep();
+
+	// 4-C: addCurrentDistrictToRep empty district name guard
+	state.currentDistrict = { district: '', students: [], officers: [] };
+	rep.addCurrentDistrictToRep();
+
+	// 4-D: toggleSzNeighbor edge cases
+	rep.toggleSzNeighbor(999, 0, true); // out of range index
+	state.repState.districts = [{ district: 'チェック地区', szNeighborChecks: undefined }];
+	rep.toggleSzNeighbor(0, 0, true); // initialize szNeighborChecks
+
+
+	// --- 5. app.js remaining branches (switchTab buttons, toggleModeSelector, share, badge) ---
+	// 5-A: switchTab button count branches and fallback modes
+	const originalTabButtons = document.querySelectorAll('.tab-btn');
+	// Create mock container with 2 buttons
+	const mockTwoButtons = [document.createElement('button'), document.createElement('button')];
+	mockTwoButtons[0].classList.add('tab-btn');
+	mockTwoButtons[1].classList.add('tab-btn');
+	const origQuerySelectorAll = document.querySelectorAll;
+	document.querySelectorAll = (sel) => sel === '.tab-btn' ? mockTwoButtons : origQuerySelectorAll.call(document, sel);
+	app.switchTab('rep');
+	// Create mock container with 3 buttons
+	const mockThreeButtons = [document.createElement('button'), document.createElement('button'), document.createElement('button')];
+	mockThreeButtons.forEach(b => b.classList.add('tab-btn'));
+	document.querySelectorAll = (sel) => sel === '.tab-btn' ? mockThreeButtons : origQuerySelectorAll.call(document, sel);
+	app.switchTab('neighbor');
+	document.querySelectorAll = origQuerySelectorAll; // restore
+
+	// switchTab with custom/unrecognized mode
+	app.switchTab('custom_unknown');
+
+	// 5-B: toggleModeSelector branches
+	const modeButtons = document.getElementById('mode-tab-buttons');
+	if (modeButtons) {
+		modeButtons.style.display = 'flex'; // currently expanded
+		app.toggleModeSelector(); // should collapse
+		assert.strictEqual(modeButtons.style.display, 'none');
+		app.toggleModeSelector(); // should expand
+		assert.strictEqual(modeButtons.style.display, 'flex');
+	}
+
+	// 5-C: shareAppUrl branches (navigator.share error not AbortError, and clipboard fallback)
+	const origShare = navigator.share;
+	navigator.share = () => Promise.reject(new Error('Unknown share error'));
+	const origWriteText = navigator.clipboard && navigator.clipboard.writeText;
+	if (navigator.clipboard) navigator.clipboard.writeText = () => Promise.resolve();
+	await app.shareAppUrl();
+	// clipboard throwing error -> fallback to prompt
+	if (navigator.clipboard) navigator.clipboard.writeText = () => Promise.reject(new Error('Clipboard denied'));
+	await app.shareAppUrl();
+	navigator.share = origShare;
+	if (navigator.clipboard) navigator.clipboard.writeText = origWriteText;
+
+	// 5-D: updateSecurityBadge branches
+	app.updateSecurityBadge('locked');
+	app.updateSecurityBadge('unencrypted');
+	// Mock auth meta for biometric badge branch
+	const origGetAuthMeta = state.getStorageAuthMeta;
+	state.getStorageAuthMeta = () => ({ webauthn: true });
+	app.updateSecurityBadge('unlocked');
+	state.getStorageAuthMeta = () => ({ webauthn: false });
+	app.updateSecurityBadge('unlocked');
+	state.getStorageAuthMeta = origGetAuthMeta;
+
+	// 5-E: performAppUpdate error resilience & location fallback
+	const origSaveDistrictLocal = global.saveDistrictLocal;
+	const origSaveRepLocal = global.saveRepLocal;
+	global.saveDistrictLocal = () => { throw new Error('District save failed'); };
+	global.saveRepLocal = () => { throw new Error('Rep save failed'); };
+	if (typeof global.caches === 'undefined') {
+		global.caches = { keys: () => Promise.resolve([]) };
+	}
+	const origCachesKeys = global.caches.keys;
+	global.caches.keys = () => Promise.reject(new Error('Cache keys error'));
+	const origGetRegs = navigator.serviceWorker.getRegistrations;
+	navigator.serviceWorker.getRegistrations = () => Promise.reject(new Error('SW regs error'));
+
+	// Test without window.location.replace
+	const origReplace = window.location.replace;
+	delete window.location.replace;
+	await app.performAppUpdate();
+
+	// Restore
+	global.saveDistrictLocal = origSaveDistrictLocal;
+	global.saveRepLocal = origSaveRepLocal;
+	global.caches.keys = origCachesKeys;
+	navigator.serviceWorker.getRegistrations = origGetRegs;
+	window.location.replace = origReplace;
+
+
+	// --- 6. district.js exhaustive booster to reach 95%+ ---
+	// 6-A: validateDistrictPasswords branch permutations
+	document.getElementById('d-pass').value = '';
+	document.getElementById('d-pass-confirm').value = '';
+	district.validateDistrictPasswords(); // empty
+	document.getElementById('d-pass').value = 'short';
+	district.validateDistrictPasswords(); // invalid short
+	document.getElementById('d-pass').value = 'DistrictPassValid1!';
+	document.getElementById('d-pass-confirm').value = '';
+	district.validateDistrictPasswords(); // empty confirm
+	document.getElementById('d-pass-confirm').value = 'DifferentPass123!';
+	district.validateDistrictPasswords(); // mismatch
+	document.getElementById('d-pass-confirm').value = 'DistrictPassValid1!';
+	district.validateDistrictPasswords(); // match
+
+	// 6-B: exportDistrictTxt password validation errors
+	document.getElementById('d-pass').value = 'short';
+	await district.exportDistrictTxt();
+	document.getElementById('d-pass').value = 'DistrictPassValid1!';
+	document.getElementById('d-pass-confirm').value = 'MismatchPass123!';
+	await district.exportDistrictTxt();
+
+	// 6-C: shareDistrictData validation errors and formats
+	document.getElementById('d-pass').value = 'short';
+	await district.shareDistrictData('line');
+	document.getElementById('d-pass').value = 'DistrictPassValid1!';
+	document.getElementById('d-pass-confirm').value = 'DistrictPassValid1!';
+	await district.shareDistrictData('mail');
+	await district.shareDistrictData('share');
+	await district.shareDistrictData('copy');
+
+	// 6-D: Neighborhood and Student CRUD in district.js
+	state.currentDistrict = createMockDistrict({
+		district: '編集地区',
+		neighborhood: [{ role: '会長', lastName: '町内会長', tel: '111' }],
+		students: [{ lastName: '児童A', grade: '1', class: '1', han: '1班' }]
+	});
+	district.updateN(0, 'lastName', '変更会長');
+	assert.strictEqual(state.currentDistrict.neighborhood[0].lastName, '変更会長');
+	district.addNeighborhoodRow();
+	assert.strictEqual(state.currentDistrict.neighborhood.length, 2);
+	district.removeN(1);
+	assert.strictEqual(state.currentDistrict.neighborhood.length, 1);
+
+	district.updateS(0, 'lastName', '変更児童');
+	assert.strictEqual(state.currentDistrict.students[0].lastName, '変更児童');
+	district.addStudentRow();
+	assert.strictEqual(state.currentDistrict.students.length, 2);
+	district.removeS(1);
+	assert.strictEqual(state.currentDistrict.students.length, 1);
+
+	// Student summary text and sort
+	district.updateStudentSummaryText();
+	district.sortStudentsDesc();
+	state.currentDistrict.students = [];
+	district.updateStudentSummaryText(); // empty summary branch
+
+	// District year update cancel & confirm
+	global.confirm = () => false;
+	district.runDistrictYearUpdate();
+	global.confirm = () => true;
+	district.runDistrictYearUpdate();
+
+
+	// --- 7. rep.js exhaustive booster to reach 95%+ ---
+	// 7-A: exportRepMasterTxt password mismatch and errors
+	document.getElementById('rep-pass').value = 'short';
+	await rep.exportRepMasterTxt();
+	document.getElementById('rep-pass').value = 'RepPassValid123!';
+	document.getElementById('rep-pass-confirm').value = 'Mismatch!';
+	await rep.exportRepMasterTxt();
+
+	// 7-B: toggleAllDistrictChecks with forceState
+	state.repState = {
+		districts: [
+			{ district: 'D1', selectedForPrint: true, students: [], officers: [] },
+			{ district: 'D2', selectedForPrint: false, students: [], officers: [] }
+		],
+		szExternals: [],
+		seatConfig: { cols: 4, rows: 5, cells: {} }
+	};
+	rep.toggleAllDistrictChecks(true); // force all true
+	assert(state.repState.districts.every(d => d.selectedForPrint === true));
+	rep.toggleAllDistrictChecks(false); // force all false
+	assert(state.repState.districts.every(d => d.selectedForPrint === false));
+
+	// 7-C: clearAllRepDistricts cancel and confirm
+	global.confirm = () => false;
+	rep.clearAllRepDistricts();
+	assert.strictEqual(state.repState.districts.length, 2);
+	global.confirm = () => true;
+	rep.clearAllRepDistricts();
+	assert.strictEqual(state.repState.districts.length, 0);
+
+	// 7-D: SzExternals table and seat interactions
+	rep.addSzExternalRow();
+	assert.strictEqual(state.repState.szExternals.length, 1);
+	rep.updateSzEx(0, 'lastName', '新外部参加者');
+	assert.strictEqual(state.repState.szExternals[0].lastName, '新外部参加者');
+	rep.renderSzExternalTable();
+
+	// 7-E: mergeNeighborDataIntoRep edge cases
+	rep.mergeNeighborDataIntoRep(null); // null guard
+	rep.mergeNeighborDataIntoRep({ neighborhood: [] }); // empty neighborhood guard
+	// Incoming neighborhood without existing district (creates placeholder)
+	rep.mergeNeighborDataIntoRep({
+		district: '新規プレースホルダー地区',
+		neighborhood: [{ role: '会長', lastName: '新会長' }]
+	});
+	assert(state.repState.districts.some(d => d.district === '新規プレースホルダー地区'));
+	// Incoming neighborhood with existing district
+	rep.mergeNeighborDataIntoRep({
+		district: '新規プレースホルダー地区',
+		neighborhood: [{ role: '副会長', lastName: '新副会長' }]
+	});
+
+	// 7-F: runRepYearUpdate cancel and confirm
+	global.confirm = () => false;
+	rep.runRepYearUpdate();
+	global.confirm = () => true;
+	rep.runRepYearUpdate();
+
+	// 7-G: rep.js integrateTransferDataIntoRep new district & empty han fallback
+	state.repState.districts = []; // empty districts tests distPromptMsg without existingDistricts
+	const richChildPayload = {
+		isTransferData: true,
+		children: [
+			{ id: 'pre_id_123', grade: '4', className: '2', lastName: '新設地区児童', firstName: '健太', address: '町3', tel: '22' }
+		]
+	};
+	global.prompt = (msg) => {
+		if (msg && msg.includes('地区名')) return '完全新設地区';
+		if (msg && msg.includes('所属班')) return ''; // empty han triggers defaultHan fallback
+		return '';
+	};
+	global.confirm = () => true;
+	assert.strictEqual(await rep.integrateTransferDataIntoRep(richChildPayload), true);
+	assert(state.repState.districts.some(d => d.district === '完全新設地区'));
+	const createdDist = state.repState.districts.find(d => d.district === '完全新設地区');
+	assert.strictEqual(createdDist.students[0].han, '1班');
+
+	// 7-H: loadPastedTransferTextIntoRep with string argument directly
+	const encDirectTransfer = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(richChildPayload), 'DirectPass123!')}\n:END_DATA`;
+	document.getElementById('rep-pass').value = 'DirectPass123!';
+	global.prompt = (msg) => {
+		if (msg && msg.includes('地区名')) return '完全新設地区';
+		if (msg && msg.includes('所属班')) return '2班';
+		return 'DirectPass123!';
+	};
+	await rep.loadPastedTransferTextIntoRep(encDirectTransfer);
+
+	// 7-I: toggleAllDistrictChecks without arguments (toggles based on allChecked)
+	rep.toggleAllDistrictChecks(); // toggles from true to false or vice versa
+
+	// 7-J: loadMultipleDistrictFiles with 100% ok (ng === 0)
+	const cleanSingleDist = { district: '成功地区', han: '1班', students: [], officers: [] };
+	const encCleanDist = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(cleanSingleDist), 'CleanPass123!')}\n:END_DATA`;
+	document.getElementById('rep-pass').value = 'CleanPass123!';
+	await rep.loadMultipleDistrictFiles({
+		target: { files: [{ text: async () => encCleanDist, name: 'ok.txt' }] }
+	});
+
+	// 7-K: loadPastedTextToRep with neighborhood data missing district name
+	const encAnonNeighbor = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify({ isNeighborhoodData: true, district: '', neighborhood: [{ role: '役員' }] }), 'CleanPass123!')}\n:END_DATA`;
+	document.getElementById('rep-paste-box').value = encAnonNeighbor;
+	await rep.loadPastedTextToRep();
+
+
+	// --- 8. app.js exhaustive modal & version boosters ---
+	// 8-A: openStorageSettingsModal and closeStorageSettingsModal
+	app.openStorageSettingsModal();
+	app.closeStorageSettingsModal();
+
+	// 8-B: validateModalPasswords
+	document.getElementById('modal-enable-pass').value = '';
+	document.getElementById('modal-enable-confirm').value = '';
+	app.validateModalPasswords();
+	document.getElementById('modal-enable-pass').value = 'short';
+	app.validateModalPasswords();
+	document.getElementById('modal-enable-pass').value = 'ValidPassModal123!';
+	document.getElementById('modal-enable-confirm').value = '';
+	app.validateModalPasswords();
+	document.getElementById('modal-enable-confirm').value = 'Mismatch!';
+	app.validateModalPasswords();
+	document.getElementById('modal-enable-confirm').value = 'ValidPassModal123!';
+	app.validateModalPasswords();
+
+	// 8-C: handleImmediateLock
+	app.handleImmediateLock();
+
+	// 8-D: handlePasswordUnlock
+	document.getElementById('modal-unlock-pass').value = '';
+	await app.handlePasswordUnlock(); // empty pass
+	document.getElementById('modal-unlock-pass').value = 'WrongUnlockPass!';
+	await app.handlePasswordUnlock(); // wrong pass
+
+	// 8-E: checkAppVersion permutations
+	// (i) Offline manual check
+	const origOnLine = navigator.onLine;
+	navigator.onLine = false;
+	await app.checkAppVersion(true);
+	// (ii) Offline auto check (silently returns)
+	await app.checkAppVersion(false);
+	navigator.onLine = true;
+
+	// (iii) Online same version manual check
+	global.fetch = () => Promise.resolve({
+		ok: true,
+		json: () => Promise.resolve({ version: app.CURRENT_APP_VERSION })
+	});
+	await app.checkAppVersion(true);
+
+	// (iv) Online newer version with user cancel
+	global.fetch = () => Promise.resolve({
+		ok: true,
+		json: () => Promise.resolve({ version: '99.0.0' })
+	});
+	global.confirm = () => false;
+	await app.checkAppVersion(true);
+
+	// (v) Online newer version with user accept
+	global.confirm = () => true;
+	// Mock performAppUpdate to avoid full reload during test
+	const origPerform = app.performAppUpdate;
+	app.performAppUpdate = () => Promise.resolve();
+	await app.checkAppVersion(false);
+	app.performAppUpdate = origPerform;
+	navigator.onLine = origOnLine;
+
+
+	// --- 9. Precision Micro-Branch Boosters for app.js, district.js, and rep.js ---
+	// 9-A: app.js typeof function guard false branches
+	const savedLoadTransfer = global.loadTransferLocal;
+	const savedRenderTransfer = global.renderTransferForm;
+	const savedSaveTransfer = global.saveTransferLocal;
+	delete global.loadTransferLocal;
+	delete global.renderTransferForm;
+	delete global.saveTransferLocal;
+
+	await app.handleWebAuthnUnlock(true);
+	await app.handlePasswordUnlock();
+	app.handleImmediateLock();
+	app.handleResetStorageConfirm();
+	await app.loadAppDataFromStorage();
+	await app.performAppUpdate();
+
+	// toggleModeSelector without btnContainer
+	const btnContainerEl = document.getElementById('mode-tab-buttons');
+	if (btnContainerEl) {
+		btnContainerEl.id = 'temp-btn-container';
+		app.toggleModeSelector();
+		btnContainerEl.id = 'mode-tab-buttons';
+	}
+
+	// Restore transfer globals
+	global.loadTransferLocal = savedLoadTransfer;
+	global.renderTransferForm = savedRenderTransfer;
+	global.saveTransferLocal = savedSaveTransfer;
+
+	// 9-B: district.js precision branches
+	// Empty han list input -> empty han string
+	district.onHanListInput("");
+
+	// validateDistrictPasswords when passEl is missing
+	const dPassElement = document.getElementById('d-pass');
+	if (dPassElement) {
+		dPassElement.id = 'temp-d-pass';
+		district.validateDistrictPasswords();
+		await district.loadTransferFileIntoDistrict({ target: { files: [{ text: async () => 'INV' }] } });
+		await district.loadPastedTransferTextIntoDistrict('INV');
+		await district.loadNeighborFileIntoDistrict({ target: { files: [{ text: async () => 'INV' }] } });
+		dPassElement.id = 'd-pass';
+	}
+
+	// Array-only neighborhood data
+	district.mergeNeighborDataIntoDistrict([{ role: '役職', lastName: '姓' }]);
+
+	// Overwrite existing neighbor with same role & name
+	state.currentDistrict.neighborhood = [{ role: '会長', lastName: '同名役員', tel: '000' }];
+	district.mergeNeighborDataIntoDistrict({
+		district: state.currentDistrict.district,
+		neighborhood: [{ role: '会長', lastName: '同名役員', tel: '999' }]
+	});
+	assert.strictEqual(state.currentDistrict.neighborhood[0].tel, '999');
+
+	// Transfer data using 'students' key
+	global.prompt = () => '1班';
+	global.confirm = () => true;
+	await district.integrateTransferDataIntoDistrict({
+		isTransferData: true,
+		students: [{ lastName: '児童S' }]
+	});
+
+	// Transfer data with mismatched district name (cancel & accept)
+	state.currentDistrict.district = '現地区A';
+	global.confirm = () => false;
+	await district.integrateTransferDataIntoDistrict({
+		isTransferData: true,
+		district: '異地区B',
+		children: [{ lastName: '児童B' }]
+	});
+	global.confirm = () => true;
+	await district.integrateTransferDataIntoDistrict({
+		isTransferData: true,
+		district: '異地区B',
+		children: [{ lastName: '児童B' }]
+	});
+
+	// 9-C: rep.js precision branches
+	// incomingHasNeighbors with firstName only and role only
+	rep.upsertRepDistrict({ district: '名のみ地区', neighborhood: [{ firstName: '名のみ' }] });
+	rep.upsertRepDistrict({ district: '役職のみ地区', neighborhood: [{ role: '役職のみ' }] });
+
+	// rep-pass missing element branches
+	const repPassElement = document.getElementById('rep-pass');
+	if (repPassElement) {
+		repPassElement.id = 'temp-rep-pass';
+		rep.validateRepPasswords();
+		await rep.loadPastedTextToRep();
+		await rep.loadTransferFileIntoRep({ target: { files: [{ text: async () => 'INV' }] } });
+		await rep.loadPastedTransferTextIntoRep('INV');
+		repPassElement.id = 'rep-pass';
+	}
+
+	// Transfer data in rep using 'students' key and minimal/empty child fields
+	global.prompt = (msg) => {
+		if (msg && msg.includes('地区名')) return '名のみ地区';
+		return '1班';
+	};
+	await rep.integrateTransferDataIntoRep({
+		isTransferData: true,
+		students: [{}]
+	});
 });

@@ -47,7 +47,7 @@ function getAllSzParticipantsForSeat() {
 	});
 
 	// 外部関係者
-	repState.szExternals.forEach((ex, exIdx) => {
+	(repState.szExternals || []).forEach((ex, exIdx) => {
 		if (ex.attend) {
 			const exName = getFullName(ex);
 			list.push({

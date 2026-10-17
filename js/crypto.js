@@ -4,6 +4,7 @@
 
 let activeStorageKey = null;
 const STORAGE_AUTH_KEY = 'kogai_auth_meta';
+const WEBAUTHN_USER_ID = new Uint8Array([107, 111, 103, 97, 105, 100, 111, 99, 115]); // "kogaidocs"
 
 /**
  * パスワードとソルトからAES-GCM用の暗号鍵を導出します（PBKDF2 10万回）
@@ -209,16 +210,15 @@ async function registerWebAuthnPrf(rawMasterKey) {
 	}
 	const prfSalt = crypto.getRandomValues(new Uint8Array(32));
 	const challenge = crypto.getRandomValues(new Uint8Array(32));
-	const userId = crypto.getRandomValues(new Uint8Array(16));
 
 	const createOptions = {
 		publicKey: {
 			challenge,
 			rp: { name: "kogaidocs - 校外委員名簿管理システム" },
 			user: {
-				id: userId,
-				name: "kogaidocs",
-				displayName: "校外委員会役員"
+				id: WEBAUTHN_USER_ID,
+				name: "kogaidocs-user",
+				displayName: "PTA校外委員会 名簿管理"
 			},
 			pubKeyCredParams: [
 				{ type: "public-key", alg: -7 },  // ES256
@@ -511,6 +511,7 @@ async function loadStorageDecrypted(storageKey) {
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		STORAGE_AUTH_KEY,
+		WEBAUTHN_USER_ID,
 		deriveKey,
 		encryptPayload,
 		decryptPayload,

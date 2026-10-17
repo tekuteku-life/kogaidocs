@@ -601,7 +601,7 @@ function mergeNeighborDataIntoDistrict(data) {
 	const curName = (currentDistrict.district || "").trim();
 
 	if (dName && curName && dName !== curName) {
-		const ok = confirm(`自治会名「${dName}」が現在の地区名「${curName}」と異なりますが、この地区の自治会役員名簿としてマージしますか？\n（キャンセルした場合はマージされません）`);
+		const ok = confirm(`自治会名「${dName}」が現在の地区名「${curName}」と異なりますが、この地区の自治会役員名簿として統合しますか？\n（キャンセルした場合は統合されません）`);
 		if (!ok) return;
 	} else if (dName && !curName) {
 		currentDistrict.district = dName;
@@ -613,7 +613,132 @@ function mergeNeighborDataIntoDistrict(data) {
 	currentDistrict.neighborhood.forEach(normalizeNameFields);
 	saveDistrictLocal();
 	renderNeighborhoodTable();
-	alert(`自治会役員データ「${dName || curName}」（${currentDistrict.neighborhood.length}名）をマージしました。`);
+	alert(`自治会役員データ「${dName || curName}」（${currentDistrict.neighborhood.length}名）を統合しました。`);
+}
+
+function openNeighborImportPanel() {
+	const card = document.getElementById('card-d-neighbor');
+	const panel = document.getElementById('d-neighbor-import-panel');
+	if (card) {
+		card.classList.remove('is-collapsed');
+		const toggleBtn = card.querySelector('.btn-card-toggle');
+		if (toggleBtn) toggleBtn.textContent = '▲ 閉じる';
+	}
+	if (panel) {
+		panel.style.display = 'block';
+		if (panel.scrollIntoView) {
+			panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+		}
+	}
+}
+
+async function integrateTransferDataIntoDistrict(payload, password) {
+	if (!payload || !payload.isTransferData) {
+		alert("転入児童データではありません。");
+		return false;
+	}
+	const rawList = payload.children || payload.students || [];
+	if (!Array.isArray(rawList) || rawList.length === 0) {
+		alert("転入児童データに児童が含まれていません。");
+		return false;
+	}
+
+	const backupStudents = JSON.parse(JSON.stringify(currentDistrict.students || []));
+	const tempStudents = JSON.parse(JSON.stringify(currentDistrict.students || []));
+	const defaultHan = currentDistrict.han || (currentDistrict.hanList && currentDistrict.hanList[0]) || "1班";
+
+	for (const child of rawList) {
+		const normChild = {
+			id: child.id || ('s_' + Date.now() + Math.random().toString(36).slice(2, 6)),
+			lastName: (child.lastName || "").trim(),
+			firstName: (child.firstName || "").trim(),
+			lastNameKana: (child.lastNameKana || "").trim(),
+			firstNameKana: (child.firstNameKana || "").trim(),
+			grade: String(child.grade || "1"),
+			class: String(child.className || child.class || "1"),
+			className: String(child.className || child.class || "1"),
+			address: (child.address || "").trim(),
+			tel: (child.tel || "").trim(),
+			leader: "",
+			isOutOfDistrict: false
+		};
+
+		const promptMsg = `転入児童「${normChild.lastName} ${normChild.firstName}」（${normChild.grade}年${normChild.class}組）の所属班を入力してください：`;
+		const assignedHan = prompt(promptMsg, defaultHan);
+		if (assignedHan === null) {
+			currentDistrict.students = backupStudents;
+			return false;
+		}
+		normChild.han = (assignedHan || defaultHan).trim();
+
+		const duplicate = tempStudents.find(s =>
+			s.lastName === normChild.lastName &&
+			s.firstName === normChild.firstName &&
+			String(s.grade) === String(normChild.grade)
+		);
+		if (duplicate) {
+			const confirmMsg = `児童「${normChild.lastName} ${normChild.firstName}」（${normChild.grade}年生）は既に「${duplicate.han}」に存在します。重複して統合しますか？`;
+			if (!confirm(confirmMsg)) {
+				currentDistrict.students = backupStudents;
+				return false;
+			}
+		}
+
+		tempStudents.push(normChild);
+	}
+
+	currentDistrict.students = tempStudents;
+	currentDistrict.students.sort(compareStudents);
+	renderStudentsTable();
+	updateStudentSummaryText();
+	if (typeof saveDistrictLocal === 'function') {
+		saveDistrictLocal();
+	}
+
+	alert(`${rawList.length}名の転入児童データを統合しました。`);
+	return true;
+}
+
+async function loadTransferFileIntoDistrict(e) {
+	const file = e.target?.files?.[0];
+	if (!file) return;
+	const pass = document.getElementById('d-pass')?.value || "";
+	try {
+		const text = await file.text();
+		let data;
+		try {
+			data = await parseTxtContent(text, pass);
+		} catch (err) {
+			const promptPass = prompt("転入児童データの復号パスワードを入力してください：");
+			if (!promptPass) { if (e.target) e.target.value = ""; return; }
+			data = await parseTxtContent(text, promptPass);
+		}
+		await integrateTransferDataIntoDistrict(data, pass);
+	} catch (err) {
+		alert("転入児童データの読み込みに失敗しました。パスワードをご確認ください。");
+	}
+	if (e.target) e.target.value = "";
+}
+
+async function loadPastedTransferTextIntoDistrict(text) {
+	const raw = (typeof text === 'string' ? text : (document.getElementById('d-transfer-paste-box')?.value || "")).trim();
+	if (!raw) return;
+	let pass = document.getElementById('d-pass')?.value || "";
+	try {
+		let data;
+		try {
+			data = await parseTxtContent(raw, pass);
+		} catch (err) {
+			const promptPass = prompt("転入児童データの復号パスワードを入力してください：");
+			if (!promptPass) return;
+			data = await parseTxtContent(raw, promptPass);
+		}
+		await integrateTransferDataIntoDistrict(data, pass);
+		const box = document.getElementById('d-transfer-paste-box');
+		if (box) box.value = "";
+	} catch (err) {
+		alert("転入児童データの復号に失敗しました。パスワードをご確認ください。");
+	}
 }
 
 async function loadNeighborFileIntoDistrict(e) {
@@ -703,6 +828,11 @@ if (typeof module !== 'undefined' && module.exports) {
 		shareDistrictData,
 		loadDistrictTxt,
 		mergeNeighborDataIntoDistrict,
+		integrateNeighborDataIntoDistrict: mergeNeighborDataIntoDistrict,
+		openNeighborImportPanel,
+		integrateTransferDataIntoDistrict,
+		loadTransferFileIntoDistrict,
+		loadPastedTransferTextIntoDistrict,
 		loadNeighborFileIntoDistrict,
 		loadPastedNeighborTextIntoDistrict,
 		toggleCard,
