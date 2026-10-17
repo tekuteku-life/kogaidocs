@@ -302,6 +302,13 @@ async function loadTransferLocal() {
 	renderTransferForm();
 }
 
+// 転入者画面用URLを共有します
+async function shareTransferAppUrl() {
+	if (typeof shareAppUrl === 'function') {
+		return shareAppUrl('transfer');
+	}
+}
+
 if (typeof module !== 'undefined' && module.exports) {
 	global.transferState = transferState;
 	global.renderTransferForm = renderTransferForm;
@@ -315,6 +322,7 @@ if (typeof module !== 'undefined' && module.exports) {
 	global.clearTransferForm = clearTransferForm;
 	global.saveTransferLocal = saveTransferLocal;
 	global.loadTransferLocal = loadTransferLocal;
+	global.shareTransferAppUrl = shareTransferAppUrl;
 
 	module.exports = {
 		get transferState() { return (typeof transferState !== 'undefined' && transferState) ? transferState : (global.transferState || (typeof state !== 'undefined' ? state.transferState : null)); },
@@ -329,6 +337,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		resetTransferForm,
 		clearTransferForm,
 		saveTransferLocal,
-		loadTransferLocal
+		loadTransferLocal,
+		shareTransferAppUrl
 	};
 }

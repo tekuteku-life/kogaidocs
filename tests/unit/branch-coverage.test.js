@@ -3706,3 +3706,270 @@ test('branch-booster: district.js and rep.js 95%+ branch coverage enhancements',
 		students: [{}]
 	});
 });
+
+test('branch-booster: v2.5.0 features full line and branch coverage booster', async () => {
+	setupDomEnvironment();
+
+	// 1. district.js: scrollIntoView branch in toggleTransferImportPanel
+	const tPanel = document.getElementById('d-transfer-import-panel');
+	let tScrolled = false;
+	tPanel.style.display = 'none';
+	tPanel.scrollIntoView = () => { tScrolled = true; };
+	district.toggleTransferImportPanel();
+	assert.strictEqual(tScrolled, true);
+
+	// scrollIntoView not defined branches
+	delete tPanel.scrollIntoView;
+	tPanel.style.display = 'none';
+	district.toggleTransferImportPanel();
+	assert.strictEqual(tPanel.style.display, 'block');
+
+	const nPanel = document.getElementById('d-neighbor-import-panel');
+	delete nPanel.scrollIntoView;
+	nPanel.style.display = 'none';
+	district.openNeighborImportPanel();
+	assert.strictEqual(nPanel.style.display, 'block');
+
+	// Null element branches for toggle functions
+	const origGetEl = document.getElementById;
+	document.getElementById = (id) => {
+		if (id === 'card-d-students' || id === 'd-transfer-import-panel' || id === 'btn-toggle-transfer-import') return null;
+		if (id === 'card-d-neighbor' || id === 'd-neighbor-import-panel' || id === 'btn-toggle-neighbor-import') return null;
+		return origGetEl.call(document, id);
+	};
+	district.toggleTransferImportPanel();
+	district.openNeighborImportPanel();
+	document.getElementById = origGetEl;
+
+	// 2. app.js: switchTab history sync catch block and empty origin/pathname
+	const origReplaceState = window.history.replaceState;
+	window.history.replaceState = () => { throw new Error('Simulated replaceState error'); };
+	app.switchTab('rep'); // covers catch block lines 49-50
+
+	const origLocation = window.location;
+	delete window.location.origin;
+	delete window.location.pathname;
+	window.history.replaceState = origReplaceState;
+	app.switchTab('neighbor'); // covers fallback newUrl: `?mode=${mode}`
+
+	// restoreActiveMode branches
+	window.location.search = '';
+	// catch block coverage: lines 115-116
+	const origSearchDesc = Object.getOwnPropertyDescriptor(window.location, 'search');
+	Object.defineProperty(window.location, 'search', {
+		get: () => { throw new Error('Simulated location error'); },
+		configurable: true
+	});
+	app.restoreActiveMode(); // triggers catch block lines 115-116
+	if (origSearchDesc) {
+		Object.defineProperty(window.location, 'search', origSearchDesc);
+	} else {
+		delete window.location.search;
+		window.location.search = '';
+	}
+
+	// queryMode unknown fallback to savedMode / district
+	window.location.search = '?mode=unknown_tab';
+	localStorage.setItem('kogai_active_mode', 'invalid_saved');
+	app.restoreActiveMode(); // falls to switchTab('district')
+
+	// numerical aliases '1', '2', '3', '4'
+	['1', '2', '3', '4'].forEach(alias => {
+		window.location.search = `?mode=${alias}`;
+		app.restoreActiveMode();
+	});
+
+	// window.location missing search property
+	delete window.location.search;
+	app.restoreActiveMode();
+	window.location.search = '';
+
+	// shareAppUrl: clipboard.writeText error catch block and prompt fallback
+	navigator.clipboard = {
+		writeText: async () => { throw new Error('Clipboard error'); }
+	};
+	delete navigator.share;
+	promptMsg = '';
+	global.prompt = window.prompt = (m) => { promptMsg = m; };
+	await app.shareAppUrl(); // triggers clipboard error catch and prompt fallback
+	assert(promptMsg.includes('URL'));
+
+	// shareAppUrl non-AbortError branch (falls back to clipboard)
+	navigator.share = async () => { throw new Error('Other error'); };
+	let clipWritten = '';
+	navigator.clipboard.writeText = async (t) => { clipWritten = t; };
+	await app.shareAppUrl('transfer');
+	assert(clipWritten.includes('mode=transfer'));
+
+	// shareAppUrl prompt undefined branch
+	delete global.prompt;
+	delete window.prompt;
+	navigator.clipboard.writeText = async () => { throw new Error('Clipboard fail'); };
+	await app.shareAppUrl(); // prompt is undefined, completes silently
+	global.prompt = window.prompt = (m, def) => def || '';
+
+	// shareAppUrl empty origin/pathname fallback
+	delete window.location.origin;
+	delete window.location.pathname;
+	delete window.location.href;
+	await app.shareAppUrl('district');
+
+	// app.js switchTab tab-btn length branches (>=3, >=2, <2)
+	const origQuerySelectorAll = document.querySelectorAll;
+	document.querySelectorAll = (sel) => {
+		if (sel === '.tab-btn') {
+			return [
+				{ classList: { toggle: () => {} } },
+				{ classList: { toggle: () => {} } },
+				{ classList: { toggle: () => {} } }
+			]; // length 3
+		}
+		return origQuerySelectorAll.call(document, sel);
+	};
+	app.switchTab('rep');
+
+	document.querySelectorAll = (sel) => {
+		if (sel === '.tab-btn') {
+			return [
+				{ classList: { toggle: () => {} } },
+				{ classList: { toggle: () => {} } }
+			]; // length 2
+		}
+		return origQuerySelectorAll.call(document, sel);
+	};
+	app.switchTab('neighbor');
+
+	document.querySelectorAll = (sel) => {
+		if (sel === '.tab-btn') {
+			return [
+				{ classList: { toggle: () => {} } }
+			]; // length 1
+		}
+		return origQuerySelectorAll.call(document, sel);
+	};
+	app.switchTab('transfer');
+	document.querySelectorAll = origQuerySelectorAll;
+
+	// switchTab without replaceState function
+	const savedReplaceState = window.history.replaceState;
+	delete window.history.replaceState;
+	app.switchTab('district');
+	window.history.replaceState = savedReplaceState;
+
+	// shareAppUrl with origin and pathname but no href
+	window.location.origin = 'https://example.com';
+	window.location.pathname = '/kogaidocs/';
+	delete window.location.href;
+	localStorage.setItem('kogai_active_mode', 'rep');
+	let shareObjRep = null;
+	navigator.share = async (d) => { shareObjRep = d; };
+	await app.shareAppUrl();
+	assert(shareObjRep.url.includes('/kogaidocs/'));
+
+	// triggerPwaInstall branches via beforeinstallprompt event
+	let pwaPromptCalled = false;
+	const mockPromptEvent = {
+		preventDefault: () => {},
+		prompt: () => { pwaPromptCalled = true; },
+		userChoice: Promise.resolve({ outcome: 'accepted' })
+	};
+	const pwaBtn = document.getElementById('pwa-install-btn');
+	if (window.listeners && window.listeners['beforeinstallprompt']) {
+		window.listeners['beforeinstallprompt'].forEach(fn => fn(mockPromptEvent));
+	}
+	if (pwaBtn) assert.strictEqual(pwaBtn.style.display, 'inline-flex');
+	app.triggerPwaInstall();
+	assert.strictEqual(pwaPromptCalled, true);
+	await Promise.resolve();
+	await Promise.resolve();
+	if (pwaBtn) assert.strictEqual(pwaBtn.style.display, 'none');
+
+	// DOMContentLoaded coverage (unencrypted & encrypted)
+	if (window.listeners && window.listeners['DOMContentLoaded']) {
+		for (const fn of window.listeners['DOMContentLoaded']) {
+			await fn();
+		}
+	}
+	await cryptoLib.setupStorageEncryption('DomMasterPass123!', false);
+	localStorage.setItem('kogai_auth_meta', JSON.stringify({ webauthn: true }));
+	const origIsWebAuthn = global.isWebAuthnAvailable;
+	global.isWebAuthnAvailable = () => true;
+	if (window.listeners && window.listeners['DOMContentLoaded']) {
+		for (const fn of window.listeners['DOMContentLoaded']) {
+			await fn();
+		}
+	}
+	global.isWebAuthnAvailable = origIsWebAuthn;
+
+	// Insecure origin DOMContentLoaded branch
+	window.location.protocol = 'http:';
+	window.location.hostname = 'insecure-example.com';
+	if (window.listeners && window.listeners['DOMContentLoaded']) {
+		for (const fn of window.listeners['DOMContentLoaded']) {
+			await fn();
+		}
+	}
+	window.location.protocol = 'https:';
+	window.location.hostname = 'localhost';
+
+	app.clearMemoryAndDomForLock();
+
+	// 3. rep.js: exportSingleDistrictFromRep edge cases
+	state.repState = {
+		districts: [
+			{
+				district: 'テスト1',
+				han: '1班',
+				hanList: null, // hanList fallback
+				officers: [],
+				neighborhood: [],
+				students: []
+			},
+			{
+				district: '', // empty district
+				han: '',
+				hanList: [],
+				officers: [],
+				neighborhood: [],
+				students: []
+			}
+		],
+		seatConfig: { cols: 4, rows: 5, cells: {} },
+		szExternals: []
+	};
+
+	// 3a. Invalid password alert (lines 626-628)
+	let alertMsg = '';
+	global.alert = (m) => { alertMsg = m; };
+	const resWeak = await rep.exportSingleDistrictFromRep(0, 'weak', 'download');
+	assert.strictEqual(resWeak, false);
+	assert(alertMsg.includes('保存パスワードエラー'));
+
+	// 3b. encryptPayload error catch (lines 685-687)
+	const origEncrypt = global.encryptPayload;
+	global.encryptPayload = async () => { throw new Error('Simulated rep encryption failure'); };
+	const resErr = await rep.exportSingleDistrictFromRep(0, 'ValidPass123456!', 'download');
+	assert.strictEqual(resErr, false);
+	assert(alertMsg.includes('切り出し出力に失敗'));
+	global.encryptPayload = origEncrypt;
+
+	// 3c. copy mode without clipboard (return false)
+	delete navigator.clipboard;
+	const resCopyNoClip = await rep.exportSingleDistrictFromRep(0, 'ValidPass123456!', 'copy');
+	assert.strictEqual(resCopyNoClip, false);
+
+	// 3d. mail mode with window.open fallback (window.location is null)
+	let openedMailUrl = '';
+	window.open = (u) => { openedMailUrl = u; };
+	const savedLoc = window.location;
+	delete window.location;
+	const resMailFallback = await rep.exportSingleDistrictFromRep(0, 'ValidPass123456!', 'mail');
+	assert.strictEqual(resMailFallback, true);
+	assert(openedMailUrl.includes('mailto:'));
+	window.location = savedLoc;
+
+	// 3e. district index 1 with empty district and hanList
+	global.downloadTextFile = () => {};
+	const resEmptyDist = await rep.exportSingleDistrictFromRep(1, 'ValidPass123456!', 'download');
+	assert.strictEqual(resEmptyDist, true);
+});

@@ -943,3 +943,85 @@ test('rep: loadTransferFileIntoRep and loadPastedTransferTextIntoRep', async () 
 	await rep.loadPastedTransferTextIntoRep(encText2);
 	assert.strictEqual(dist.students.length, 2);
 });
+
+test('rep: exportSingleDistrictFromRep extracts single district with deep clone, PoLP security, and password flexibility (Action Item A-1)', async () => {
+	setupDomEnvironment();
+	state.repState = {
+		districts: [
+			createMockDistrict({ district: '1丁目', han: '1班' }),
+			createMockDistrict({ district: '2丁目', han: '2班' })
+		],
+		szExternals: [{ role: '校長', lastName: '学校', firstName: '一郎' }],
+		seatConfig: { cols: 4, rows: 5, cells: {} }
+	};
+	// 2地区存在することを確認
+	assert.strictEqual(state.repState.districts.length, 2);
+	const targetDistrict = state.repState.districts[0]; // 1丁目
+	const pass = 'SplitExportPass123!';
+
+	let downloadedFileName = '';
+	let downloadedContent = '';
+	global.downloadTextFile = (content, name) => {
+		downloadedContent = content;
+		downloadedFileName = name;
+	};
+
+	// 1. Download mode
+	const resDownload = await rep.exportSingleDistrictFromRep(0, pass, 'download');
+	assert.strictEqual(resDownload, true);
+	assert(downloadedFileName.includes('1丁目'));
+	assert(downloadedContent.includes('BEGIN_DATA:'));
+
+	// 復号検証: 単一地区データ構造であり、他地区（2丁目）やrepState固有メタデータが含まれないこと（PoLP）
+	const match = downloadedContent.match(/BEGIN_DATA:\n([\s\S]+?)\n:END_DATA/);
+	assert.ok(match);
+	const decryptedJson = await cryptoLib.decryptPayload(match[1], pass);
+	const parsedData = JSON.parse(decryptedJson);
+	assert.strictEqual(parsedData.district, '1丁目');
+	assert.ok(Array.isArray(parsedData.students));
+	assert.ok(Array.isArray(parsedData.officers));
+	assert.ok(Array.isArray(parsedData.neighborhood));
+	assert.ok(Array.isArray(parsedData.hanList));
+	assert.strictEqual(parsedData.districts, undefined); // 他地区集約配列は含まれない
+	assert.strictEqual(parsedData.szExternals, undefined);
+	assert.strictEqual(parsedData.seatConfig, undefined);
+
+	// 2. Copy mode (クリップボードコピー)
+	let lastCopied = '';
+	navigator.clipboard.writeText = async (txt) => { lastCopied = txt; };
+	const resCopy = await rep.exportSingleDistrictFromRep(0, pass, 'copy');
+	assert.strictEqual(resCopy, true);
+	assert(lastCopied.includes('BEGIN_DATA:'));
+
+	// 3. Line mode
+	let openedUrl = '';
+	window.open = (url) => { openedUrl = url; };
+	const resLine = await rep.exportSingleDistrictFromRep(0, pass, 'line');
+	assert.strictEqual(resLine, true);
+	assert(openedUrl.includes('line.me'));
+
+	// 4. Mail mode
+	let locationHref = '';
+	window.location.href = '';
+	const resMail = await rep.exportSingleDistrictFromRep(0, pass, 'mail');
+	assert.strictEqual(resMail, true);
+
+	// 5. Password prompt flexibility when pass not passed (Action Item A-1)
+	global.prompt = (msg, def) => 'PromptPass12345!';
+	document.getElementById('rep-pass').value = '';
+	downloadedContent = '';
+	await rep.exportSingleDistrictFromRep(0, null, 'download');
+	assert(downloadedContent.includes('BEGIN_DATA:'));
+	const match2 = downloadedContent.match(/BEGIN_DATA:\n([\s\S]+?)\n:END_DATA/);
+	const decrypted2 = await cryptoLib.decryptPayload(match2[1], 'PromptPass12345!');
+	assert.strictEqual(JSON.parse(decrypted2).district, '1丁目');
+
+	// 6. Invalid password or cancellation
+	global.prompt = () => null; // Cancel
+	const resCancel = await rep.exportSingleDistrictFromRep(0, null, 'download');
+	assert.strictEqual(resCancel, false);
+
+	// 7. Invalid index
+	const resInvalid = await rep.exportSingleDistrictFromRep(999, pass, 'download');
+	assert.strictEqual(resInvalid, false);
+});

@@ -185,3 +185,131 @@ test('integration: Pattern C - Transfer Copy Text -> Direct Rep Integration', as
 	assert.strictEqual(dist.students[0].han, '2班');
 });
 
+test('integration: Pattern E - School Route: Transfer Export -> Rep Direct Import -> Rep Split-Export -> District Load', async () => {
+	setupDomEnvironment();
+	const pass = 'PatternEPass123!@#';
+
+	// Step 1: 転入家庭が転入者モードで入力・暗号化出力
+	transfer.transferState = {
+		children: [
+			{
+				id: 't_c_e1',
+				lastName: '転入生',
+				firstName: '翔太',
+				lastNameKana: 'テンニュウセイ',
+				firstNameKana: 'ショウタ',
+				grade: '4',
+				className: '2',
+				address: '東町5-1',
+				tel: '090-5555-6666'
+			}
+		]
+	};
+	document.getElementById('transfer-export-pass').value = pass;
+	document.getElementById('transfer-export-pass-confirm').value = pass;
+
+	let exportedTransferFile = null;
+	utils.downloadTextFile = (content, filename) => {
+		exportedTransferFile = { content, filename };
+	};
+	global.downloadTextFile = utils.downloadTextFile;
+
+	await transfer.exportTransferTxt();
+	assert.ok(exportedTransferFile);
+
+	// Step 2: 校外代表が代表モードで取り込み、東地区・1班に割り当て
+	state.repState = {
+		districts: [
+			{
+				district: '東地区',
+				han: '1班',
+				hanList: ['1班', '2班'],
+				selectedForPrint: true,
+				officers: [{ role: '校外委員', lastName: '山田', firstName: '太郎', han: '1班' }],
+				neighborhood: [{ role: '会長', lastName: '佐藤', firstName: '一郎' }],
+				students: [
+					{ grade: '6', class: '1', han: '1班', lastName: '既存東', firstName: '健太', leader: '班長', isOutOfDistrict: false }
+				]
+			},
+			{
+				district: '西地区',
+				han: '1班',
+				hanList: ['1班'],
+				selectedForPrint: true,
+				officers: [],
+				neighborhood: [],
+				students: []
+			}
+		],
+		seatConfig: { cols: 4, rows: 5, cells: {} }
+	};
+	document.getElementById('rep-pass').value = pass;
+
+	let promptCount = 0;
+	global.prompt = (msg, def) => {
+		promptCount++;
+		if (promptCount === 1) return '東地区';
+		return '1班';
+	};
+	global.confirm = () => true;
+
+	await rep.loadTransferFileIntoRep({
+		target: {
+			files: [{ text: async () => exportedTransferFile.content }],
+			value: exportedTransferFile.filename
+		}
+	});
+
+	// 東地区に転入生が追加され、計2名になっていること
+	const higashiInRep = state.repState.districts.find(d => d.district === '東地区');
+	assert.strictEqual(higashiInRep.students.length, 2);
+	const addedShota = higashiInRep.students.find(s => s.firstName === '翔太');
+	assert.ok(addedShota);
+	assert.strictEqual(addedShota.han, '1班');
+
+	// Step 3: 代表モードから「東地区」の地区データを切り出し出力（Split-Export）
+	let exportedDistrictFile = null;
+	utils.downloadTextFile = (content, filename) => {
+		exportedDistrictFile = { content, filename };
+	};
+	global.downloadTextFile = utils.downloadTextFile;
+
+	const splitSuccess = await rep.exportSingleDistrictFromRep(0, pass, 'download');
+	assert.strictEqual(splitSuccess, true);
+	assert.ok(exportedDistrictFile);
+	assert.ok(exportedDistrictFile.filename.includes('地区データ_東地区'));
+
+	// Step 4: 地区役員が「東地区」を地区役員モード（タブ①）で受入
+	state.currentDistrict = {
+		district: '東地区',
+		han: '1班',
+		hanList: ['1班', '2班'],
+		officers: [{ role: '校外委員', lastName: '山田', firstName: '太郎', han: '1班' }],
+		neighborhood: [{ role: '会長', lastName: '佐藤', firstName: '一郎' }],
+		students: [
+			{ grade: '6', class: '1', han: '1班', lastName: '既存東', firstName: '健太', leader: '班長', isOutOfDistrict: false }
+		]
+	};
+	document.getElementById('d-pass').value = pass;
+	global.confirm = () => true; // 上書き承認
+
+	await districtLib.loadDistrictTxt({
+		target: {
+			files: [{ text: async () => exportedDistrictFile.content }],
+			value: exportedDistrictFile.filename
+		}
+	});
+
+	// Step 5: 地区役員モードの名簿に転入生が反映されていること
+	assert.strictEqual(state.currentDistrict.district, '東地区');
+	assert.strictEqual(state.currentDistrict.students.length, 2);
+	const shotaInDistrict = state.currentDistrict.students.find(s => s.firstName === '翔太');
+	assert.ok(shotaInDistrict);
+	assert.strictEqual(shotaInDistrict.grade, '4');
+	assert.strictEqual(shotaInDistrict.han, '1班');
+	assert.strictEqual(shotaInDistrict.address, '東町5-1');
+	// 既存役員・自治会も保持されていること
+	assert.strictEqual(state.currentDistrict.officers[0].lastName, '山田');
+	assert.strictEqual(state.currentDistrict.neighborhood[0].lastName, '佐藤');
+});
+

@@ -93,8 +93,7 @@
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>🏘️ 2. 自治会役員名簿（地区結びつき）</span>
 				<div class="flex-row" onclick="event.stopPropagation()">
-					<button type="button" class="btn btn-outline btn-sm" id="btn-open-neighbor-panel" onclick="openNeighborImportPanel()">📥 自治会データを統合</button>
-					<button type="button" class="btn btn-sm" onclick="addNeighborhoodRow()">＋ 行を追加</button>
+					<button type="button" class="btn btn-outline btn-sm" id="btn-toggle-neighbor-import" aria-expanded="false" onclick="openNeighborImportPanel()">📥 自治会データを統合 ▼</button>
 					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))">▼ 開く</span>
 				</div>
 			</h2>
@@ -102,7 +101,7 @@
 				<div class="help-text" style="margin-bottom: 8px;">
 					※自治会役員は班名には無関係で、地区名と結びつきます。スクールゾーン協議会出席者抽出等の基礎情報となります。
 				</div>
-				<div id="d-neighbor-import-panel" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+				<div id="d-neighbor-import-panel" style="display: none; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
 					<div style="font-weight: bold; font-size: 0.9rem; margin-bottom: 8px; color: #1e293b;">📥 自治会役員データの統合（取り込み）</div>
 					<div style="display: flex; flex-direction: column; gap: 10px;">
 						<div>
@@ -121,6 +120,9 @@
 						</div>
 					</div>
 				</div>
+				<div class="flex-row" style="margin-bottom: 8px; justify-content: flex-start;">
+					<button type="button" class="btn btn-sm" id="btn-add-neighbor-top" onclick="addNeighborhoodRow()">＋ 行を追加</button>
+				</div>
 				<div class="table-scroll-hint">👉 左右にスクロールして全項目を確認・入力できます</div>
 				<div class="table-scroll">
 					<table class="edit-table" id="neighborhood-table">
@@ -136,6 +138,9 @@
 						<tbody id="neighborhood-tbody"></tbody>
 					</table>
 				</div>
+				<div class="flex-row" style="margin-top: 10px; justify-content: flex-start;">
+					<button type="button" class="btn btn-sm" id="btn-add-neighbor-bottom" onclick="addNeighborhoodRow()">＋ 行を追加</button>
+				</div>
 			</div>
 		</div>
 
@@ -144,13 +149,12 @@
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
 				<span>🎒 3. 児童名簿（班長・学年・住所順・集計付）</span>
 				<div class="flex-row" onclick="event.stopPropagation()">
-					<button type="button" class="btn btn-outline btn-sm" onclick="sortStudentsDesc()">🔽 班長・学年・住所順で並び替え</button>
-					<button type="button" class="btn btn-sm" onclick="addStudentRow()">＋ 児童を追加</button>
+					<button type="button" class="btn btn-outline btn-sm" id="btn-toggle-transfer-import" aria-expanded="false" onclick="toggleTransferImportPanel()">📥 転入児童データを統合 ▼</button>
 					<span class="btn-card-toggle" onclick="toggleCard(this.closest('.card'))">▼ 開く</span>
 				</div>
 			</h2>
 			<div class="card-body">
-				<div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;">
+				<div id="d-transfer-import-panel" style="display: none; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;">
 					<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
 						<span style="font-weight: bold; font-size: 0.9rem; color: #166534;">📥 転入児童データの取り込み（統合）</span>
 						<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
@@ -165,6 +169,10 @@
 						<textarea id="d-transfer-paste-box" rows="2" placeholder="転入者から受け取った暗号化テキストを貼り付けてください" style="width: 100%; font-size: 0.85rem; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box;"></textarea>
 						<button type="button" class="btn btn-sm" style="margin-top: 4px;" onclick="loadPastedTransferTextIntoDistrict()">📥 貼り付けて統合を実行</button>
 					</div>
+				</div>
+				<div class="flex-row" style="margin-bottom: 8px; justify-content: flex-start; gap: 8px; flex-wrap: wrap;">
+					<button type="button" class="btn btn-outline btn-sm" id="btn-sort-students-top" onclick="sortStudentsDesc()">🔽 班長・学年・住所順で並び替え</button>
+					<button type="button" class="btn btn-sm" id="btn-add-student-top" onclick="addStudentRow()">＋ 児童を追加</button>
 				</div>
 				<div class="table-scroll-hint">👉 左右にスクロールして全項目を確認・入力できます</div>
 				<div class="table-scroll">
@@ -185,8 +193,8 @@
 						<tbody id="students-tbody"></tbody>
 					</table>
 				</div>
-				<div class="flex-row" style="margin-top: 10px; justify-content: space-between;">
-					<button type="button" class="btn btn-sm" onclick="addStudentRow()">＋ 児童を追加</button>
+				<div class="flex-row" style="margin-top: 10px; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+					<button type="button" class="btn btn-sm" id="btn-add-student-bottom" onclick="addStudentRow()">＋ 児童を追加</button>
 					<div id="district-student-summary" class="help-text" style="font-weight:bold; color:#0f172a; margin-top:0;"></div>
 				</div>
 			</div>
@@ -256,48 +264,76 @@
 				<span class="btn-card-toggle">▼ 開く</span>
 			</h2>
 			<div class="card-body">
-				<div class="grid-form" style="align-items: end;">
-					<div>
-						<label>共通パスワード（保存・暗号化用／必須）</label>
-						<div class="pass-input-group">
-							<input type="password" id="d-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateDistrictPasswords();">
-							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('d-pass', this)" title="表示/非表示">👁️</button>
+				<!-- ① パスワード設定・端末記憶 -->
+				<div id="sec-d-pass" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; margin-bottom: 14px;">
+					<div style="font-weight: bold; font-size: 0.95rem; margin-bottom: 8px; color: #1e293b;">① ファイル保護パスワード設定・端末記憶</div>
+					<div class="grid-form" style="align-items: start;">
+						<div>
+							<label>共通パスワード（保存・暗号化用／必須）</label>
+							<div class="pass-input-group">
+								<input type="password" id="d-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateDistrictPasswords();">
+								<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('d-pass', this)" title="表示/非表示">👁️</button>
+							</div>
+						</div>
+						<div>
+							<label>確認用パスワード（二度入力）</label>
+							<div class="pass-input-group">
+								<input type="password" id="d-pass-confirm" placeholder="もう一度入力" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateDistrictPasswords();">
+								<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('d-pass-confirm', this)" title="表示/非表示">👁️</button>
+							</div>
 						</div>
 					</div>
-					<div>
-						<label>確認用パスワード（二度入力）</label>
-						<div class="pass-input-group">
-							<input type="password" id="d-pass-confirm" placeholder="もう一度入力" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateDistrictPasswords();">
-							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('d-pass-confirm', this)" title="表示/非表示">👁️</button>
-						</div>
+					<div id="d-pass-match-msg" class="pass-feedback-msg" style="margin-top: 6px;"></div>
+					<div style="margin-top: 8px;">
+						<label style="font-weight: normal; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem;">
+							<input type="checkbox" id="d-save-password-optin" onchange="saveDistrictLocal()">
+							<span>☑ このパスワードを端末内に安全に記憶する（生体認証/端末暗号化で保護）</span>
+						</label>
 					</div>
-					<div>
-						<label>保存済み地区ファイル(.txt)を読み込む</label>
-						<input type="file" id="d-file-in" accept=".txt" onchange="loadDistrictTxt(event)">
+					<div style="margin-top: 6px;">
+						<button type="button" class="btn btn-sm btn-outline" onclick="quickSetupEncryptionFromCard('d-pass')">🛡️ このパスワードでブラウザ内データ（LocalStorage）も暗号化保護する</button>
 					</div>
 				</div>
-				<div id="d-pass-match-msg" class="pass-feedback-msg" style="margin-top: 6px;"></div>
-				<div style="margin-top: 6px;">
-					<label style="font-weight: normal; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem;">
-						<input type="checkbox" id="d-save-password-optin" onchange="saveDistrictLocal()">
-						<span>☑ このパスワードを端末内に安全に記憶する（生体認証/端末暗号化で保護）</span>
-					</label>
+
+				<!-- ② 地区データの保存・外部共有 -->
+				<div id="sec-d-save-share" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 12px; margin-bottom: 14px;">
+					<div style="font-weight: bold; font-size: 0.95rem; margin-bottom: 8px; color: #166534;">② 地区データの保存・出力・外部共有</div>
+					<div class="flex-row" style="margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+						<button type="button" class="btn btn-primary" id="btn-save-district-file" onclick="exportDistrictTxt()">💾 提出・保存用ファイル(.txt)出力</button>
+					</div>
+					<div class="share-buttons-grid" style="margin-top: 8px;">
+						<button type="button" class="btn btn-secondary btn-sm" id="btn-share-district-line" onclick="shareDistrictData('line')">💬 LINEで送る</button>
+						<button type="button" class="btn btn-secondary btn-sm" id="btn-share-district-mail" onclick="shareDistrictData('email')">✉️ メールで送る</button>
+						<button type="button" class="btn btn-secondary btn-sm" id="btn-share-district-web" onclick="shareDistrictData('share')">📲 アプリ連携で共有</button>
+						<button type="button" class="btn btn-secondary btn-sm" id="btn-copy-district-text" onclick="shareDistrictData('copy')">📋 暗号化テキストコピー</button>
+					</div>
 				</div>
-				<div style="margin-top: 6px;">
-					<button type="button" class="btn btn-sm btn-outline" onclick="quickSetupEncryptionFromCard('d-pass')">🛡️ このパスワードでブラウザ内データ（LocalStorage）も暗号化保護する</button>
+
+				<!-- ③ 地区データの読み込み・復元 -->
+				<div id="sec-d-load" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 12px; margin-bottom: 14px;">
+					<div style="font-weight: bold; font-size: 0.95rem; margin-bottom: 8px; color: #1e40af;">③ 地区データの読み込み・復元</div>
+					<div class="flex-row" style="align-items: center; flex-wrap: wrap; gap: 8px;">
+						<label class="btn btn-outline-primary btn-sm" style="cursor: pointer; margin-bottom: 0;">
+							📁 ファイルから読み込み
+							<input type="file" id="d-file-in" accept=".txt" style="display:none;" onchange="loadDistrictTxt(event)">
+						</label>
+						<button type="button" class="btn btn-outline btn-sm" id="btn-load-district-paste" onclick="const p = document.getElementById('d-paste-panel'); p.style.display = p.style.display === 'none' ? 'block' : 'none';">📋 テキスト貼付で読み込み</button>
+					</div>
+					<div id="d-paste-panel" style="display: none; margin-top: 8px; border-top: 1px dashed #bfdbfe; padding-top: 8px;">
+						<textarea id="d-paste-box" rows="2" placeholder="暗号化テキスト（BEGIN_DATA: ...）を貼り付けてください" style="width: 100%; font-size: 0.85rem; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box;"></textarea>
+						<button type="button" class="btn btn-sm" style="margin-top: 4px;" onclick="loadPastedTextToDistrict()">📥 貼り付けて復元を実行</button>
+					</div>
 				</div>
-				<div class="flex-row" style="margin-top: 12px;">
-					<button type="button" class="btn" onclick="exportDistrictTxt()">💾 提出・保存用ファイル(.txt)出力</button>
-					<button type="button" class="btn btn-danger" onclick="runDistrictYearUpdate()">🔄 年度更新（新年度化）</button>
-				</div>
-				<div class="share-buttons-grid" style="margin-top: 10px;">
-					<button type="button" class="btn btn-secondary btn-sm" onclick="shareDistrictData('share')">📲 アプリ連携で共有</button>
-					<button type="button" class="btn btn-secondary btn-sm" onclick="shareDistrictData('line')">💬 LINEで送る</button>
-					<button type="button" class="btn btn-secondary btn-sm" onclick="shareDistrictData('email')">✉️ メールで送る</button>
-					<button type="button" class="btn btn-secondary btn-sm" onclick="shareDistrictData('copy')">📋 暗号化テキストコピー</button>
-				</div>
-				<div class="help-text">
-					※セキュリティ保護のため、保存時のパスワードは<strong>半角英数大文字・小文字・記号の最低12文字以上</strong>が必須です。「年度更新」を押すと校外役員・自治会役員一覧および記憶されたファイルパスワードがクリアされ、児童の6年生が削除、1〜5年生が+1学年されます。
+
+				<!-- ④ 年度更新（新年度化） -->
+				<div id="sec-d-year" style="background: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; padding: 12px;">
+					<div style="font-weight: bold; font-size: 0.95rem; margin-bottom: 8px; color: #9f1239;">④ 年度更新（新年度化）</div>
+					<div>
+						<button type="button" class="btn btn-danger" id="btn-district-year-update" onclick="runDistrictYearUpdate()">🔄 年度更新（新年度化）</button>
+					</div>
+					<div class="help-text" style="color: #64748b; margin-top: 6px;">
+						※セキュリティ保護のため、保存時のパスワードは<strong>半角英数大文字・小文字・記号の最低12文字以上</strong>が必須です。「年度更新」を押すと校外役員・自治会役員一覧および記憶されたファイルパスワードがクリアされ、児童の6年生が削除、1〜5年生が+1学年されます。
+					</div>
 				</div>
 			</div>
 		</div>
@@ -402,13 +438,13 @@
 					<table class="edit-table" id="rep-districts-table">
 						<thead>
 							<tr>
-								<th style="width:10%; text-align:center;">印刷対象</th>
-								<th style="width:18%">地区名</th>
-								<th style="width:20%">校外役員氏名（役職）</th>
-								<th style="width:22%">連絡用児童（学年・組・氏名）</th>
-								<th style="width:12%">児童数</th>
-								<th style="width:12%">自治会役員数</th>
-								<th style="width:6%; text-align:center;">除外</th>
+								<th style="width:8%; text-align:center;">印刷対象</th>
+								<th style="width:16%">地区名</th>
+								<th style="width:18%">校外役員氏名（役職）</th>
+								<th style="width:20%">連絡用児童（学年・組・氏名）</th>
+								<th style="width:10%">児童数</th>
+								<th style="width:10%">自治会役員数</th>
+								<th style="width:18%; text-align:center;">操作</th>
 							</tr>
 						</thead>
 						<tbody id="rep-districts-tbody">
@@ -711,8 +747,11 @@
 			<h2>🎒 転入児童・家庭情報入力（校外委員会 提出用）</h2>
 			<div class="help-text" style="line-height: 1.6;">
 				新しく学校や地区へ転入されたご家庭用の入力画面です。<br>
-				お子様の学年・組・氏名・住所・連絡先を入力し、暗号化してファイルまたはテキストで校外委員会の地区役員・代表役員へご提出ください。<br>
+				お子様の学年・組・氏名・住所・連絡先を入力し、暗号化してファイルまたはテキストで指定された提出先へご提出ください。<br>
 				<span style="color: var(--primary); font-weight: bold;">※入力された個人情報は外部サーバーに送信されることは一切ありません。端末内および提出ファイルは高度に暗号化されます。</span>
+			</div>
+			<div style="margin-top: 10px;">
+				<button type="button" class="btn btn-outline btn-sm" id="btn-share-transfer-url" onclick="shareAppUrl('transfer')">🔗 転入者用入力URLを共有（LINE・メール案内用）</button>
 			</div>
 		</div>
 
@@ -735,7 +774,7 @@
 			<h2>🔒 2. 暗号化と提出</h2>
 			<div class="help-text" style="margin-bottom: 12px;">
 				提出用ファイルを安全に保護するため、12文字以上の暗号化パスワードを設定してください。<br>
-				設定したパスワードは、ファイルをお渡しする役員の方へ別途（口頭、電話、別メッセージ等で）お伝えください。
+				設定したパスワードは、提出先の方へ別途（口頭、電話、別メッセージ等で）お伝えください。
 			</div>
 			<div class="form-group" style="margin-bottom: 12px;">
 				<label>暗号化パスワード（12文字以上） <span style="color:var(--danger)">*</span></label>

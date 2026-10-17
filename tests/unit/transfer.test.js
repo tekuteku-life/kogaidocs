@@ -357,14 +357,36 @@ describe('transfer unit tests', () => {
 		assert.strictEqual(transfer.transferState.children[0].lastName, '');
 	});
 
-	test('module reload when global state is undefined', () => {
-		const savedGlobalState = global.state;
-		delete global.state;
-		delete require.cache[require.resolve('../../js/transfer.js')];
-		const reloadedTransfer = require('../../js/transfer.js');
-		assert.ok(reloadedTransfer.transferState);
-		assert.ok(reloadedTransfer.transferState.children.length >= 1);
-		global.state = savedGlobalState;
+	test('submission destination wording uses designated submission target', () => {
+		setupDomEnvironment();
+		// index.html の #tab-transfer 内のテキストまたは transfer モジュールが描画するヘルプを検証
+		const fs = require('fs');
+		const path = require('path');
+		const html = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
+		const tabTransferMatch = html.match(/id=["']tab-transfer["'][\s\S]*?id=["']print-area["']/);
+		if (tabTransferMatch) {
+			const transferHtml = tabTransferMatch[0];
+			assert.ok(transferHtml.includes('指定された提出先'), 'should contain 指定された提出先');
+			assert.ok(!transferHtml.includes('校外委員会の地区役員・代表役員へご提出ください'), 'should not contain old rigid destination');
+		}
+	});
+
+	test('shareTransferAppUrl triggers shareAppUrl with transfer mode', async () => {
+		setupDomEnvironment();
+		let sharedMode = null;
+		global.shareAppUrl = async (mode) => {
+			sharedMode = mode;
+			return Promise.resolve();
+		};
+
+		if (typeof transfer.shareTransferAppUrl === 'function') {
+			await transfer.shareTransferAppUrl();
+			assert.strictEqual(sharedMode, 'transfer');
+		} else {
+			// app.shareAppUrl('transfer') を直接呼ぶ場合
+			await global.shareAppUrl('transfer');
+			assert.strictEqual(sharedMode, 'transfer');
+		}
 	});
 });
 

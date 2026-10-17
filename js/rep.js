@@ -344,7 +344,10 @@ function renderRepDistrictsTable() {
 				<td>${childInfo}</td>
 				<td>${c.total} 名</td>
 				<td>${validN} 名</td>
-				<td style="text-align:center;"><button class="btn btn-danger btn-sm" onclick="repState.districts.splice(${i},1);saveRepLocal();renderRepAll();">×</button></td>
+				<td style="text-align:center; white-space:nowrap;">
+					<button type="button" class="btn btn-outline btn-xs" onclick="exportSingleDistrictFromRep(${i})" title="この地区のデータを暗号化して切り出し出力します">📤 切り出し</button>
+					<button type="button" class="btn btn-danger btn-xs" onclick="repState.districts.splice(${i},1);saveRepLocal();renderRepAll();">×</button>
+				</td>
 			</tr>
 		`;
 	}).join('');
@@ -599,6 +602,91 @@ async function loadPastedTransferTextIntoRep(text) {
 	}
 }
 
+async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = 'download') {
+	if (typeof index !== 'number' || index < 0 || !repState.districts || index >= repState.districts.length) {
+		return false;
+	}
+	const src = repState.districts[index];
+	if (!src) return false;
+
+	let pass = explicitPass;
+	if (!pass) {
+		const passInput = document.getElementById('rep-pass');
+		pass = passInput ? passInput.value : '';
+	}
+	if (!pass) {
+		pass = prompt(`地区「${src.district || ''}」の切り出し出力用パスワードを入力してください：`);
+	}
+	if (!pass) {
+		return false;
+	}
+
+	const chk = validatePassword(pass);
+	if (!chk.valid) {
+		alert("【保存パスワードエラー】\n" + chk.message);
+		return false;
+	}
+
+	const singleDistrict = {
+		district: src.district || "",
+		han: src.han || "",
+		hanList: src.hanList ? JSON.parse(JSON.stringify(src.hanList)) : (src.han ? [src.han] : []),
+		officers: src.officers ? JSON.parse(JSON.stringify(src.officers)) : [],
+		neighborhood: src.neighborhood ? JSON.parse(JSON.stringify(src.neighborhood)) : [],
+		students: src.students ? JSON.parse(JSON.stringify(src.students)) : []
+	};
+
+	try {
+		const encoded = await encryptPayload(JSON.stringify(singleDistrict), pass);
+		const dateStr = new Date().toISOString().slice(0, 10);
+		const hanPart = singleDistrict.han ? `_${singleDistrict.han}` : "";
+		const fileName = `校外地区データ_${singleDistrict.district}${hanPart}_${dateStr}.txt`;
+		const content = [
+			`--- 校外委員会 地区データ (${singleDistrict.district}${singleDistrict.han ? ' ' + singleDistrict.han : ''} / 出力日:${dateStr}) ---`,
+			`BEGIN_DATA:`,
+			encoded,
+			`:END_DATA\n`
+		].join('\n');
+
+		if (explicitMode === 'copy') {
+			if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+				await navigator.clipboard.writeText(content);
+				alert(`「${singleDistrict.district}」の暗号化データをクリップボードにコピーしました。`);
+				return true;
+			}
+			return false;
+		}
+
+		if (explicitMode === 'line') {
+			const lineUrl = 'https://line.me/R/msg/text/?' + encodeURIComponent(content);
+			if (typeof window !== 'undefined' && typeof window.open === 'function') {
+				window.open(lineUrl);
+			}
+			return true;
+		}
+
+		if (explicitMode === 'mail') {
+			const subject = `【校外委員会】地区データ_${singleDistrict.district}${hanPart}`;
+			const mailUrl = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(content);
+			if (typeof window !== 'undefined') {
+				if (window.location) {
+					window.location.href = mailUrl;
+				} else if (typeof window.open === 'function') {
+					window.open(mailUrl);
+				}
+			}
+			return true;
+		}
+
+		// download
+		downloadTextFile(content, fileName);
+		return true;
+	} catch (err) {
+		alert("切り出し出力に失敗しました: " + (err ? err.message : ""));
+		return false;
+	}
+}
+
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		renderRepAll,
@@ -622,7 +710,8 @@ if (typeof module !== 'undefined' && module.exports) {
 		integrateNeighborDataIntoRep: mergeNeighborDataIntoRep,
 		integrateTransferDataIntoRep,
 		loadTransferFileIntoRep,
-		loadPastedTransferTextIntoRep
+		loadPastedTransferTextIntoRep,
+		exportSingleDistrictFromRep
 	};
 	Object.assign(global, module.exports);
 }
