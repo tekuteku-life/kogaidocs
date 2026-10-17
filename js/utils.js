@@ -383,6 +383,31 @@ function getDistrictWideValidStudents(targetDistrict, allDistricts) {
 	return allStudents;
 }
 
+/**
+ * セマンティックバージョニング形式（major.minor.patch）で2つのバージョンを比較します
+ * @param {string} remote リモートから取得したバージョン (例: "2.3.1", "v2.3.1")
+ * @param {string} current 現在のローカルバージョン (例: "2.3.0", "v2.3.0")
+ * @returns {boolean} remoteがcurrentより厳密に新しい場合にtrue
+ */
+function isNewerVersion(remote, current) {
+	if (!remote || typeof remote !== 'string') return false;
+	if (!current || typeof current !== 'string') return false;
+	const rClean = remote.trim().replace(/^v/, '');
+	const cClean = current.trim().replace(/^v/, '');
+	if (!rClean || !cClean) return false;
+	const rParts = rClean.split('.').map(n => parseInt(n, 10));
+	const cParts = cClean.split('.').map(n => parseInt(n, 10));
+	if (rParts.some(isNaN) || cParts.some(isNaN)) return false;
+	const len = Math.max(rParts.length, cParts.length);
+	for (let i = 0; i < len; i++) {
+		const r = rParts[i] !== undefined ? rParts[i] : 0;
+		const c = cParts[i] !== undefined ? cParts[i] : 0;
+		if (r > c) return true;
+		if (r < c) return false;
+	}
+	return false;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		esc,
@@ -401,7 +426,8 @@ if (typeof module !== 'undefined' && module.exports) {
 		sanitizePasswordInput,
 		compareStudents,
 		getUniqueNeighborhoodDistricts,
-		getDistrictWideValidStudents
+		getDistrictWideValidStudents,
+		isNewerVersion
 	};
 	Object.assign(global, module.exports);
 }

@@ -2184,5 +2184,93 @@ test('branch-booster: neighbor.js and rep.js 100% branch perfection', async () =
 	assert.strictEqual(state.repState.szExternals[0].attend, true);
 });
 
+test('branch-booster: app.js PWA version check and forced update branch coverage', async () => {
+	setupDomEnvironment();
 
+	// 1. checkAppVersion: HTTP error response (lines 671-672)
+	navigator.onLine = true;
+	global.fetch = async () => ({ ok: false, status: 500 });
+	let alertMsg = '';
+	global.alert = (m) => { alertMsg = m; };
+	await app.checkAppVersion(true);
+	assert(alertMsg.includes('バージョン情報の取得に失敗しました'));
 
+	// 2. checkAppVersion: empty data / no version field
+	global.fetch = async () => ({ ok: true, json: async () => ({}) });
+	await app.checkAppVersion(true);
+	assert(alertMsg.includes('最新バージョン'));
+
+	// 3. checkAppVersion: older version (downgrade prevention)
+	global.fetch = async () => ({ ok: true, json: async () => ({ version: '1.0.0' }) });
+	await app.checkAppVersion(true);
+	assert(alertMsg.includes('最新バージョン'));
+
+	// 4. checkAppVersion: newer version, user cancel with manual status update (lines 686-687)
+	const statusEl = document.getElementById('version-check-status');
+	global.fetch = async () => ({ ok: true, json: async () => ({ version: '9.9.9' }) });
+	global.confirm = () => false;
+	await app.checkAppVersion(true);
+	assert.strictEqual(statusEl.textContent, '更新がキャンセルされました。');
+
+	// 5. checkAppVersion: missing updateBtn and statusEl elements
+	document.elements['btn-manual-check-update'] = null;
+	document.elements['version-check-status'] = null;
+	await app.checkAppVersion(false);
+	await app.checkAppVersion(true);
+
+	// 6. performAppUpdate: exception in saveDistrictLocal (lines 719-720)
+	setupDomEnvironment();
+	global.saveDistrictLocal = () => { throw new Error('District save error'); };
+	global.saveRepLocal = () => {};
+	global.saveNeighborLocal = () => {};
+	global.caches = { keys: async () => [] };
+	navigator.serviceWorker.getRegistrations = async () => [];
+	window.location.replace = () => {};
+	await app.performAppUpdate();
+
+	// 7. performAppUpdate: exception in saveNeighborLocal (lines 737-738)
+	global.saveDistrictLocal = () => {};
+	global.saveNeighborLocal = () => { throw new Error('Neighbor save error'); };
+	await app.performAppUpdate();
+
+	// 8. performAppUpdate: exception in caches.keys (lines 747-748)
+	global.saveNeighborLocal = () => {};
+	global.caches = { keys: async () => { throw new Error('Caches error'); } };
+	await app.performAppUpdate();
+
+	// 9. performAppUpdate: exception in getRegistrations (lines 757-758)
+	global.caches = { keys: async () => [] };
+	navigator.serviceWorker.getRegistrations = async () => { throw new Error('SW getRegistrations error'); };
+	await app.performAppUpdate();
+
+	// 10. performAppUpdate: fallback when location.replace is missing (lines 765-766)
+	navigator.serviceWorker.getRegistrations = async () => [];
+	delete window.location.replace;
+	window.location.href = '';
+	await app.performAppUpdate();
+	assert(window.location.href.includes('?_update='));
+
+	// 11. performAppUpdate: when location is null, and save functions are undefined
+	delete window.location;
+	delete global.saveDistrictLocal;
+	delete global.saveRepLocal;
+	delete global.saveNeighborLocal;
+	delete global.caches;
+	delete navigator.serviceWorker;
+	await app.performAppUpdate();
+
+	// 12. DOMContentLoaded: startup online check timer execution (lines 816-819)
+	setupDomEnvironment();
+	navigator.onLine = true;
+	global.fetch = async () => ({ ok: true, json: async () => ({ version: app.CURRENT_APP_VERSION }) });
+	const origSetTimeout = global.setTimeout;
+	let timerScheduled = false;
+	global.setTimeout = (fn, delay) => {
+		if (delay === 1000) timerScheduled = true;
+		return origSetTimeout(fn, 0);
+	};
+	window.dispatchEvent('DOMContentLoaded');
+	await new Promise(r => origSetTimeout(r, 20));
+	global.setTimeout = origSetTimeout;
+	assert.strictEqual(timerScheduled, true);
+});

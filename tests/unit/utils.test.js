@@ -427,4 +427,31 @@ test('utils: sanitizePasswordInput normalizes full-width characters and preserve
 	assert.strictEqual(elNoSel.value, 'A');
 });
 
+test('utils: isNewerVersion handles semantic version comparisons and edge cases (Action Item A-1)', () => {
+	// Remote is newer
+	assert.strictEqual(utils.isNewerVersion('2.3.1', '2.3.0'), true);
+	assert.strictEqual(utils.isNewerVersion('2.4.0', '2.3.9'), true);
+	assert.strictEqual(utils.isNewerVersion('3.0.0', '2.9.9'), true);
+	assert.strictEqual(utils.isNewerVersion('v2.3.1', '2.3.0'), true);
+	assert.strictEqual(utils.isNewerVersion('2.3.1', 'v2.3.0'), true);
+	assert.strictEqual(utils.isNewerVersion('v2.3.1', 'v2.3.0'), true);
+	assert.strictEqual(utils.isNewerVersion('2.3.0.1', '2.3.0'), true);
 
+	// Remote is equal
+	assert.strictEqual(utils.isNewerVersion('2.3.0', '2.3.0'), false);
+	assert.strictEqual(utils.isNewerVersion('v2.3.0', '2.3.0'), false);
+	assert.strictEqual(utils.isNewerVersion('2.3', '2.3.0'), false);
+
+	// Remote is older (rollback case)
+	assert.strictEqual(utils.isNewerVersion('2.2.9', '2.3.0'), false);
+	assert.strictEqual(utils.isNewerVersion('1.9.9', '2.0.0'), false);
+	assert.strictEqual(utils.isNewerVersion('2.3.0', '2.3.1'), false);
+
+	// Edge cases: null, undefined, empty, non-string, malformed
+	assert.strictEqual(utils.isNewerVersion(null, '2.3.0'), false);
+	assert.strictEqual(utils.isNewerVersion(undefined, '2.3.0'), false);
+	assert.strictEqual(utils.isNewerVersion('', '2.3.0'), false);
+	assert.strictEqual(utils.isNewerVersion('abc', '2.3.0'), false);
+	assert.strictEqual(utils.isNewerVersion('2.3.0', null), false);
+	assert.strictEqual(utils.isNewerVersion('2.3.0', ''), false);
+});

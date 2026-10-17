@@ -513,3 +513,128 @@ test('app: shareAppUrl handles Web Share API, clipboard fallback, prompt, and er
 	await app.shareAppUrl();
 	assert.strictEqual(promptDefault, window.location.href);
 });
+
+test('app: checkAppVersion handles offline, same version, new version, user cancel, user confirm, and network error', async () => {
+	setupDomEnvironment();
+	let alertMsg = '';
+	global.alert = (m) => { alertMsg = m; };
+	let confirmMsg = '';
+	let confirmResult = true;
+	global.confirm = (m) => { confirmMsg = m; return confirmResult; };
+
+	// Setup mock elements for button and status (A-4)
+	const updateBtn = document.getElementById('btn-manual-check-update');
+	updateBtn.disabled = false;
+	updateBtn.textContent = '🔄 最新バージョンを確認・更新';
+	const statusEl = document.getElementById('version-check-status');
+
+	// 1. Offline cases
+	navigator.onLine = false;
+
+	// 1a. Automatic check while offline: exits silently without fetching
+	let fetchCalled = false;
+	global.fetch = async () => { fetchCalled = true; return { ok: true, json: async () => ({ version: '9.9.9' }) }; };
+	await app.checkAppVersion(false);
+	assert.strictEqual(fetchCalled, false);
+	assert.strictEqual(alertMsg, '');
+
+	// 1b. Manual check while offline: alerts offline notice without fetching
+	alertMsg = '';
+	await app.checkAppVersion(true);
+	assert.strictEqual(fetchCalled, false);
+	assert(alertMsg.includes('オフラインのためバージョンチェックを行えません'));
+
+	// 2. Online cases
+	navigator.onLine = true;
+
+	// 2a. Fetch error handling
+	global.fetch = async () => { throw new Error('Network failure'); };
+	// Automatic check on network failure: exits silently
+	alertMsg = '';
+	await app.checkAppVersion(false);
+	assert.strictEqual(alertMsg, '');
+	// Manual check on network failure: alerts error
+	alertMsg = '';
+	await app.checkAppVersion(true);
+	assert(alertMsg.includes('バージョン情報の取得に失敗しました'));
+	assert.strictEqual(updateBtn.disabled, false); // A-4 restored
+
+	// 2b. Same version (already up to date)
+	global.fetch = async (url) => {
+		assert(url.includes('version.json'));
+		return {
+			ok: true,
+			json: async () => ({ version: app.CURRENT_APP_VERSION, updatedAt: '2026-10-17' })
+		};
+	};
+	// Automatic check: exits silently
+	alertMsg = '';
+	await app.checkAppVersion(false);
+	assert.strictEqual(alertMsg, '');
+	// Manual check: alerts up to date feedback
+	alertMsg = '';
+	await app.checkAppVersion(true);
+	assert(alertMsg.includes('最新バージョン'));
+	assert.strictEqual(updateBtn.disabled, false); // A-4 restored
+
+	// 2c. Newer version available, user cancels confirm
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ version: '9.9.9', updatedAt: '2026-10-18' })
+	});
+	confirmResult = false; // User clicks cancel
+	let updatePerformed = false;
+	const origPerformUpdate = app.performAppUpdate;
+	// Mock performAppUpdate
+	app.performAppUpdate = async () => { updatePerformed = true; };
+	await app.checkAppVersion(false);
+	assert(confirmMsg.includes('v9.9.9'));
+	assert.strictEqual(updatePerformed, false); // Not updated
+
+	// 2d. Newer version available, user confirms
+	confirmResult = true; // User clicks OK
+	updatePerformed = false;
+	await app.checkAppVersion(true);
+	assert(confirmMsg.includes('v9.9.9'));
+	assert.strictEqual(updatePerformed, true); // Updated!
+	assert.strictEqual(updateBtn.disabled, false);
+
+	// Restore performAppUpdate
+	app.performAppUpdate = origPerformUpdate;
+});
+
+test('app: performAppUpdate saves all states, clears caches, unregisters SW, and reloads with cache-busting URL (Action Items A-2 & A-3)', async () => {
+	setupDomEnvironment();
+
+	// 1. Verify safe local state persistence across all modes with try-catch isolation (A-3)
+	let districtSaved = false;
+	let neighborSaved = false;
+	state.saveDistrictLocal = () => { districtSaved = true; };
+	state.saveRepLocal = () => { throw new Error('Rep save temporary fault'); }; // A-3 test exception handling
+	state.saveNeighborLocal = () => { neighborSaved = true; };
+
+	// 2. Mock caches (A-2)
+	const deletedCaches = [];
+	global.caches = {
+		keys: async () => ['kogai-cache-v1', 'kogai-cache-v2'],
+		delete: async (k) => { deletedCaches.push(k); return true; }
+	};
+
+	// 3. Mock serviceWorker registrations (A-2)
+	let unregisterCalled = false;
+	navigator.serviceWorker.getRegistrations = async () => [
+		{ unregister: async () => { unregisterCalled = true; return true; } }
+	];
+
+	// 4. Mock location replacement (A-2)
+	let replacedLocation = '';
+	window.location.replace = (url) => { replacedLocation = url; };
+
+	await app.performAppUpdate();
+
+	assert.strictEqual(districtSaved, true);
+	assert.strictEqual(neighborSaved, true); // Even though rep threw, neighbor saved!
+	assert.deepStrictEqual(deletedCaches, ['kogai-cache-v1', 'kogai-cache-v2']);
+	assert.strictEqual(unregisterCalled, true);
+	assert(replacedLocation.includes('?_update='));
+});

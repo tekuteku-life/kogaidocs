@@ -2,6 +2,7 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
+const CURRENT_APP_VERSION = "2.3.0";
 let deferredInstallPrompt = null;
 
 function switchTab(mode) {
@@ -255,6 +256,20 @@ function openStorageSettingsModal() {
 	const hasBio = meta && meta.webauthn;
 	const bioAvailable = isWebAuthnAvailable();
 
+	const versionHtml = `
+		<hr style="margin:20px 0 16px 0; border:none; border-top:1px solid var(--border);">
+		<div class="version-section">
+			<div style="font-weight:bold; font-size:0.95rem; margin-bottom:4px; color:var(--text);">ℹ️ アプリバージョン情報</div>
+			<div style="font-size:0.88rem; color:#475569; margin-bottom:8px;">
+				現在のバージョン: <strong>v${CURRENT_APP_VERSION}</strong>
+			</div>
+			<button type="button" class="btn btn-outline btn-sm" id="btn-manual-check-update" onclick="checkAppVersion(true)">
+				🔄 最新バージョンを確認・更新
+			</button>
+			<div id="version-check-status" style="font-size:0.82rem; margin-top:6px; color:#64748b;"></div>
+		</div>
+	`;
+
 	let html = "";
 
 	if (!isEnc) {
@@ -292,6 +307,7 @@ function openStorageSettingsModal() {
 				<button type="button" class="btn btn-outline" onclick="closeStorageSettingsModal()">キャンセル</button>
 				<button type="button" class="btn" id="modal-btn-enable-enc" onclick="handleEnableEncryptionSubmit()">🔒 暗号化を有効化</button>
 			</div>
+			${versionHtml}
 		`;
 	} else {
 		html = `
@@ -315,6 +331,7 @@ function openStorageSettingsModal() {
 					🗑️ 保存データを全消去して初期化
 				</button>
 			</div>
+			${versionHtml}
 			<div class="flex-row" style="justify-content:flex-end; margin-top:16px;">
 				<button type="button" class="btn btn-outline" onclick="closeStorageSettingsModal()">閉じる</button>
 			</div>
@@ -625,6 +642,135 @@ async function loadAppDataFromStorage() {
 	}
 }
 
+/**
+ * PWAアプリのバージョンを確認し、最新版があればアップデートを促します
+ * @param {boolean} [isManual=false] 手動実行（設定画面から）かどうか
+ */
+async function checkAppVersion(isManual = false) {
+	if (typeof navigator !== 'undefined' && !navigator.onLine) {
+		if (isManual) {
+			alert("オフラインのためバージョンチェックを行えません。\nインターネット接続を確認してください。");
+		}
+		return;
+	}
+
+	const updateBtn = document.getElementById('btn-manual-check-update');
+	const statusEl = document.getElementById('version-check-status');
+	let origBtnText = "";
+
+	if (isManual && updateBtn) {
+		origBtnText = updateBtn.textContent;
+		updateBtn.disabled = true;
+		updateBtn.textContent = '確認中...';
+		if (statusEl) statusEl.textContent = '最新バージョンを確認しています...';
+	}
+
+	try {
+		const res = await fetch('./version.json?_t=' + Date.now(), { cache: 'no-store' });
+		if (!res.ok) {
+			throw new Error('HTTP ' + res.status);
+		}
+		const data = await res.json();
+		const remoteVersion = data && data.version ? data.version : null;
+
+		if (remoteVersion && isNewerVersion(remoteVersion, CURRENT_APP_VERSION)) {
+			if (statusEl) {
+				statusEl.textContent = `新しいバージョン（v${remoteVersion}）が利用可能です。`;
+			}
+			const ok = confirm(`新しいバージョン（v${remoteVersion}）が公開されています。\n（現在のバージョン: v${CURRENT_APP_VERSION}）\n\n最新バージョンに更新しますか？\n※現在の作業内容は自動的にローカル保存されます。`);
+			if (ok) {
+				const doUpdate = (typeof module !== 'undefined' && module.exports && module.exports.performAppUpdate)
+					? module.exports.performAppUpdate
+					: performAppUpdate;
+				await doUpdate();
+			} else if (isManual && statusEl) {
+				statusEl.textContent = '更新がキャンセルされました。';
+			}
+		} else {
+			if (isManual) {
+				alert(`お使いのアプリは最新バージョン（v${CURRENT_APP_VERSION}）です。`);
+				if (statusEl) statusEl.textContent = '最新バージョンです。';
+			}
+		}
+	} catch (err) {
+		console.warn("Version check failed:", err);
+		if (isManual) {
+			alert("バージョン情報の取得に失敗しました。\nネットワーク接続を確認してください。");
+			if (statusEl) statusEl.textContent = '更新確認に失敗しました。';
+		}
+	} finally {
+		if (isManual && updateBtn) {
+			updateBtn.disabled = false;
+			updateBtn.textContent = origBtnText;
+		}
+	}
+}
+
+/**
+ * 現在の作業状態を保存し、キャッシュを全消去して最新リソースを強制リロードします
+ */
+async function performAppUpdate() {
+	// A-3: 防御的マルチモード状態保存（独立try-catch）
+	const saveDistFn = (typeof global !== 'undefined' && global.saveDistrictLocal) || (typeof saveDistrictLocal === 'function' ? saveDistrictLocal : null);
+	if (typeof saveDistFn === 'function') {
+		try {
+			saveDistFn();
+		} catch (e) {
+			console.warn("Failed to auto-save district before update:", e);
+		}
+	}
+
+	const saveRepFn = (typeof global !== 'undefined' && global.saveRepLocal) || (typeof saveRepLocal === 'function' ? saveRepLocal : null);
+	if (typeof saveRepFn === 'function') {
+		try {
+			saveRepFn();
+		} catch (e) {
+			console.warn("Failed to auto-save rep before update:", e);
+		}
+	}
+
+	const saveNeighborFn = (typeof global !== 'undefined' && global.saveNeighborLocal) || (typeof saveNeighborLocal === 'function' ? saveNeighborLocal : null);
+	if (typeof saveNeighborFn === 'function') {
+		try {
+			saveNeighborFn();
+		} catch (e) {
+			console.warn("Failed to auto-save neighbor before update:", e);
+		}
+	}
+
+	// A-2: Cache Storageの完全破棄
+	if (typeof caches !== 'undefined' && caches.keys) {
+		try {
+			const keys = await caches.keys();
+			await Promise.all(keys.map(k => caches.delete(k)));
+		} catch (e) {
+			console.warn("Failed to clear caches:", e);
+		}
+	}
+
+	// A-2: Service Worker登録の全解除
+	if (typeof navigator !== 'undefined' && navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+		try {
+			const registrations = await navigator.serviceWorker.getRegistrations();
+			await Promise.all(registrations.map(r => r.unregister()));
+		} catch (e) {
+			console.warn("Failed to unregister service workers:", e);
+		}
+	}
+
+	// A-2: キャッシュバイパスクエリパラメータ付加による最新版ナビゲーション
+	if (typeof window !== 'undefined' && window.location) {
+		const origin = window.location.origin || '';
+		const pathname = window.location.pathname || '';
+		const newUrl = origin + pathname + '?_update=' + Date.now();
+		if (typeof window.location.replace === 'function') {
+			window.location.replace(newUrl);
+		} else {
+			window.location.href = newUrl;
+		}
+	}
+}
+
 /* =========================================================================
    DOM 初期化
 ========================================================================= */
@@ -639,7 +785,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
 window.addEventListener('DOMContentLoaded', async () => {
 	// ServiceWorker 登録（PWA対応）
 	if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-		navigator.serviceWorker.register('./sw.js').catch(err => {
+		navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(err => {
 			console.log('ServiceWorker registration error:', err);
 		});
 	}
@@ -668,10 +814,18 @@ window.addEventListener('DOMContentLoaded', async () => {
 		setAllCardsCollapse(true, 'tab-neighbor');
 		resetAutoLockTimer();
 	}
+
+	// 起動時オンライン自動バージョンチェック（1秒遅延して初期描画完了後に実行）
+	if (typeof navigator !== 'undefined' && navigator.onLine) {
+		setTimeout(() => {
+			checkAppVersion(false);
+		}, 1000);
+	}
 });
 
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
+		CURRENT_APP_VERSION,
 		switchTab,
 		toggleModeSelector,
 		shareAppUrl,
@@ -692,7 +846,9 @@ if (typeof module !== 'undefined' && module.exports) {
 		resetAutoLockTimer,
 		initAutoLockListeners,
 		quickSetupEncryptionFromCard,
-		loadAppDataFromStorage
+		loadAppDataFromStorage,
+		checkAppVersion,
+		performAppUpdate
 	};
 	Object.assign(global, module.exports);
 }
