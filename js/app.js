@@ -20,6 +20,76 @@ function switchTab(mode) {
 		btns[0].classList.toggle('active', mode === 'district');
 		btns[1].classList.toggle('active', mode === 'rep');
 	}
+
+	// モード選択肢の動的折りたたみUX
+	const btnContainer = document.getElementById('mode-tab-buttons');
+	const badge = document.getElementById('mode-active-badge');
+	const badgeText = document.getElementById('mode-active-badge-text');
+
+	if (btnContainer) {
+		btnContainer.style.display = 'none';
+	}
+	if (badge) {
+		badge.style.display = 'inline-flex';
+	}
+	if (badgeText) {
+		if (mode === 'district') {
+			badgeText.textContent = '① 各地区役員モード ▼ [モード切替]';
+		} else if (mode === 'rep') {
+			badgeText.textContent = '② 校外代表モード ▼ [モード切替]';
+		} else if (mode === 'neighbor') {
+			badgeText.textContent = '③ 自治会役員名簿モード ▼ [モード切替]';
+		}
+	}
+}
+
+/**
+ * モード選択肢の折りたたみ・再展開を切り替えます
+ */
+function toggleModeSelector() {
+	const btnContainer = document.getElementById('mode-tab-buttons');
+	const badge = document.getElementById('mode-active-badge');
+	if (!btnContainer) return;
+	const isCollapsed = btnContainer.style.display === 'none';
+	if (isCollapsed) {
+		btnContainer.style.display = 'flex';
+		if (badge) badge.style.display = 'none';
+	} else {
+		btnContainer.style.display = 'none';
+		if (badge) badge.style.display = 'inline-flex';
+	}
+}
+
+/**
+ * PWA・ブラウザアプリのURLを他役員へ共有します
+ */
+async function shareAppUrl() {
+	const shareData = {
+		title: "校外委員会 名簿・帳票作成システム",
+		text: "校外委員会および自治会の名簿・帳票作成ツールです。",
+		url: window.location.href
+	};
+
+	if (navigator.share) {
+		try {
+			await navigator.share(shareData);
+			return;
+		} catch (err) {
+			if (err && err.name === 'AbortError') {
+				return;
+			}
+		}
+	}
+
+	if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+		try {
+			await navigator.clipboard.writeText(shareData.url);
+			alert("アプリのURLをクリップボードにコピーしました。\nLINEやメールに貼り付けて共有してください。");
+			return;
+		} catch (e) {}
+	}
+
+	prompt("アプリのURLをコピーして共有してください:", shareData.url);
 }
 
 /**
@@ -196,14 +266,14 @@ function openStorageSettingsModal() {
 			<div class="form-group" style="margin-bottom:12px;">
 				<label>暗号化パスワード（半角英数大文字・小文字・記号12文字以上）</label>
 				<div class="pass-input-group">
-					<input type="password" id="modal-set-pass" placeholder="半角英数記号12文字以上" oninput="validateModalPasswords()">
+					<input type="password" id="modal-set-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateModalPasswords();">
 					<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('modal-set-pass', this)" title="表示/非表示">👁️</button>
 				</div>
 			</div>
 			<div class="form-group" style="margin-bottom:12px;">
 				<label>確認用パスワード（二度入力）</label>
 				<div class="pass-input-group">
-					<input type="password" id="modal-set-pass-confirm" placeholder="もう一度入力" oninput="validateModalPasswords()">
+					<input type="password" id="modal-set-pass-confirm" placeholder="もう一度入力" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateModalPasswords();">
 					<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('modal-set-pass-confirm', this)" title="表示/非表示">👁️</button>
 				</div>
 			</div>
@@ -349,6 +419,7 @@ function clearMemoryAndDomForLock() {
 		currentDistrict.district = "";
 		currentDistrict.han = "";
 		currentDistrict.hanList = [];
+		delete currentDistrict.savedFilePassword;
 		currentDistrict.officers = [
 			{
 				lastName: "", firstName: "", lastNameKana: "", firstNameKana: "",
@@ -370,6 +441,15 @@ function clearMemoryAndDomForLock() {
 			{ role: "副会長", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", email: "", note: "" }
 		];
 	}
+	const dPass = document.getElementById('d-pass');
+	if (dPass) dPass.value = "";
+	const dPassConfirm = document.getElementById('d-pass-confirm');
+	if (dPassConfirm) dPassConfirm.value = "";
+	const dPassOptin = document.getElementById('d-save-password-optin');
+	if (dPassOptin) dPassOptin.checked = false;
+	const nImportPass = document.getElementById('neighbor-import-pass');
+	if (nImportPass) nImportPass.value = "";
+
 	if (typeof renderDistrictForm === 'function') renderDistrictForm();
 	if (typeof renderRepAll === 'function') renderRepAll();
 	if (typeof renderNeighborForm === 'function') renderNeighborForm();
@@ -593,6 +673,8 @@ window.addEventListener('DOMContentLoaded', async () => {
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		switchTab,
+		toggleModeSelector,
+		shareAppUrl,
 		triggerPwaInstall,
 		updateSecurityBadge,
 		showStorageUnlockModal,

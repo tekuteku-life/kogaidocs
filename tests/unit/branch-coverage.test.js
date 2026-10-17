@@ -1157,7 +1157,7 @@ test('branch-booster: neighbor.js, district.js, rep.js, app.js, state.js exhaust
 
 	// prompt success on decrypt failure, with passEl missing
 	setupDomEnvironment();
-	document.elements['neighbor-pass'] = null;
+	document.elements['neighbor-import-pass'] = null;
 	const validEnc = await cryptoLib.encryptPayload(JSON.stringify({ isNeighborhoodData: true, district: "復号町", neighborhood: [] }), pass);
 	const validFile = { text: async () => `BEGIN_DATA:\n${validEnc}\n:END_DATA` };
 	global.prompt = () => pass;
@@ -1167,7 +1167,7 @@ test('branch-booster: neighbor.js, district.js, rep.js, app.js, state.js exhaust
 	// data format mismatch (line 244)
 	setupDomEnvironment();
 	const invalidFormatEnc = await cryptoLib.encryptPayload(JSON.stringify({ notNeighborhood: true }), pass);
-	document.getElementById('neighbor-pass').value = pass;
+	document.getElementById('neighbor-import-pass').value = pass;
 	await neighbor.loadNeighborTxt({ target: { files: [{ text: async () => `BEGIN_DATA:\n${invalidFormatEnc}\n:END_DATA` }], value: "test.txt" } });
 	assert((global.__lastAlert || alertMsg).includes("フォーマットが一致しません"));
 
@@ -1188,13 +1188,13 @@ test('branch-booster: neighbor.js, district.js, rep.js, app.js, state.js exhaust
 
 	// prompt cancel
 	document.getElementById('neighbor-paste-box').value = "corrupt";
-	document.getElementById('neighbor-pass').value = "wrong";
+	document.getElementById('neighbor-import-pass').value = "wrong";
 	global.prompt = () => null;
 	await neighbor.loadPastedTextToNeighbor();
 
 	// prompt success with missing passEl
 	setupDomEnvironment();
-	document.elements['neighbor-pass'] = null;
+	document.elements['neighbor-import-pass'] = null;
 	document.getElementById('neighbor-paste-box').value = `BEGIN_DATA:\n${validEnc}\n:END_DATA`;
 	global.prompt = () => pass;
 	await neighbor.loadPastedTextToNeighbor();
@@ -1202,7 +1202,7 @@ test('branch-booster: neighbor.js, district.js, rep.js, app.js, state.js exhaust
 
 	// data format mismatch
 	setupDomEnvironment();
-	document.getElementById('neighbor-pass').value = pass;
+	document.getElementById('neighbor-import-pass').value = pass;
 	document.getElementById('neighbor-paste-box').value = `BEGIN_DATA:\n${invalidFormatEnc}\n:END_DATA`;
 	await neighbor.loadPastedTextToNeighbor();
 	assert((global.__lastAlert || alertMsg).includes("フォーマットが一致しません"));
@@ -1772,14 +1772,14 @@ test('branch-booster: neighbor.js and rep.js 100% branch perfection', async () =
 		district: "読込自治会",
 		neighborhood: [{ role: "会長", lastName: "山田", firstName: "太郎" }]
 	}), pass);
-	document.getElementById('neighbor-pass').value = pass;
+	document.getElementById('neighbor-import-pass').value = pass;
 	await neighbor.loadNeighborTxt({
 		target: { files: [{ text: async () => `BEGIN_DATA:\n${encNeighbor}\n:END_DATA` }], value: "file" }
 	});
 	assert.strictEqual(state.neighborState.district, "読込自治会");
 
 	// first try fails, promptPass cancelled
-	document.getElementById('neighbor-pass').value = "WrongPass1234!";
+	document.getElementById('neighbor-import-pass').value = "WrongPass1234!";
 	global.prompt = () => null;
 	await neighbor.loadNeighborTxt({
 		target: { files: [{ text: async () => `BEGIN_DATA:\n${encNeighbor}\n:END_DATA` }], value: "file" }
@@ -1808,13 +1808,13 @@ test('branch-booster: neighbor.js and rep.js 100% branch perfection', async () =
 
 	// success on first try
 	document.getElementById('neighbor-paste-box').value = `BEGIN_DATA:\n${encNeighbor}\n:END_DATA`;
-	document.getElementById('neighbor-pass').value = pass;
+	document.getElementById('neighbor-import-pass').value = pass;
 	await neighbor.loadPastedTextToNeighbor();
 	assert.strictEqual(state.neighborState.district, "読込自治会");
 
 	// first try fails, promptPass cancelled
 	document.getElementById('neighbor-paste-box').value = `BEGIN_DATA:\n${encNeighbor}\n:END_DATA`;
-	document.getElementById('neighbor-pass').value = "WrongPass1234!";
+	document.getElementById('neighbor-import-pass').value = "WrongPass1234!";
 	global.prompt = () => null;
 	await neighbor.loadPastedTextToNeighbor();
 

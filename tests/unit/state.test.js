@@ -113,3 +113,18 @@ test('state: saveRepLocal saves seatConfig labels and state to storage', async (
 	assert.strictEqual(topBar.textContent, "ステージ（演台）");
 	assert.strictEqual(bottomBar.textContent, "入口側");
 });
+
+test('state: saveDistrictLocal enforces hard guard removing savedFilePassword when storage is not encrypted (Action Item A-2)', async () => {
+	setupDomEnvironment();
+	// Storage unencrypted
+	localStorage.removeItem('kogai_auth_meta');
+	state.currentDistrict.district = "ガードテスト地区";
+	state.currentDistrict.savedFilePassword = "PlainSecret123!";
+	document.getElementById('d-name').value = "ガードテスト地区";
+
+	await state.saveDistrictLocal();
+
+	assert.strictEqual(state.currentDistrict.savedFilePassword, undefined);
+	const rawStored = JSON.parse(localStorage.getItem('kogai_district_v2') || '{}');
+	assert.strictEqual(rawStored.savedFilePassword, undefined);
+});

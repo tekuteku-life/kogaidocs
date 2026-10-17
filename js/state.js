@@ -116,6 +116,20 @@ function saveDistrictLocal() {
 		currentDistrict.officers = newOfficers;
 	}
 
+	// パスワード安全記憶処理（多層防御・二重防壁）
+	const isEnc = typeof isStorageEncrypted === 'function' ? isStorageEncrypted() : false;
+	const optinEl = document.getElementById('d-save-password-optin');
+	const passEl = document.getElementById('d-pass');
+
+	if (!isEnc) {
+		// [A-2] 端末暗号化が無効な場合は、UIチェック状態に関わらずパスワードを強制除外（平文保存を完全防止）
+		delete currentDistrict.savedFilePassword;
+	} else if (optinEl && optinEl.checked && passEl && passEl.value) {
+		currentDistrict.savedFilePassword = passEl.value;
+	} else if (optinEl && !optinEl.checked) {
+		delete currentDistrict.savedFilePassword;
+	}
+
 	return saveStorageData('kogai_district_v2', currentDistrict);
 }
 

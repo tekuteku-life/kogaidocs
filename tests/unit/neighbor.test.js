@@ -225,7 +225,7 @@ test('neighbor: loadNeighborTxt and loadPastedTextToNeighbor', async () => {
 	setupDomEnvironment();
 	state.neighborState = { district: "", neighborhood: [] };
 	const pass = "Password12345!@#";
-	document.getElementById('neighbor-pass').value = pass;
+	document.getElementById('neighbor-import-pass').value = pass;
 
 	let alertMsg = "";
 	global.alert = (m) => { alertMsg = m; };
@@ -251,7 +251,7 @@ test('neighbor: loadNeighborTxt and loadPastedTextToNeighbor', async () => {
 	assert(alertMsg.includes("読み込みました"));
 
 	// 3. loadNeighborTxt - prompt fallback
-	document.getElementById('neighbor-pass').value = "wrong_password!";
+	document.getElementById('neighbor-import-pass').value = "wrong_password!";
 	global.prompt = () => pass;
 	await neighbor.loadNeighborTxt({ target: { files: [mockFile], value: 'test.txt' } });
 	assert.strictEqual(state.neighborState.district, "インポート町会");
@@ -263,7 +263,7 @@ test('neighbor: loadNeighborTxt and loadPastedTextToNeighbor', async () => {
 	// 4. loadNeighborTxt - invalid format
 	const badFormatEnc = await cryptoLib.encryptPayload(JSON.stringify({ district: "壊れたデータ" }), pass);
 	const badFormatFile = { text: async () => `BEGIN_DATA:\n${badFormatEnc}\n:END_DATA` };
-	document.getElementById('neighbor-pass').value = pass;
+	document.getElementById('neighbor-import-pass').value = pass;
 	await neighbor.loadNeighborTxt({ target: { files: [badFormatFile], value: 'test.txt' } });
 	assert(alertMsg.includes("フォーマットが一致しません"));
 
@@ -280,7 +280,7 @@ test('neighbor: loadNeighborTxt and loadPastedTextToNeighbor', async () => {
 
 	// 7. loadPastedTextToNeighbor - prompt fallback and corrupt text
 	pasteBox.value = `BEGIN_DATA:\n${enc}\n:END_DATA`;
-	document.getElementById('neighbor-pass').value = "wrong_pass!";
+	document.getElementById('neighbor-import-pass').value = "wrong_pass!";
 	global.prompt = () => pass;
 	await neighbor.loadPastedTextToNeighbor();
 	assert.strictEqual(state.neighborState.district, "インポート町会");
@@ -358,5 +358,52 @@ test('neighbor: printNeighborRoster and printNeighborTentCards', () => {
 	assert.strictEqual(printCalled, true);
 	assert(printArea.innerHTML.includes("加藤 剛"));
 	assert(printArea.innerHTML.includes("tent-card"));
+});
+
+test('neighbor: loadNeighborTxt and loadPastedTextToNeighbor prioritize #neighbor-import-pass and ignore #neighbor-pass', async () => {
+	setupDomEnvironment();
+	state.neighborState = { district: "", neighborhood: [] };
+	const importPass = "ImportSecret123!";
+	const savePass = "CompletelyWrongPass!";
+
+	// Set save pass in card 3 and import pass in card 4
+	document.getElementById('neighbor-pass').value = savePass;
+	const importPassInput = document.getElementById('neighbor-import-pass');
+	importPassInput.value = importPass;
+
+	const rawData = {
+		isNeighborhoodData: true,
+		district: "分離テスト町会",
+		neighborhood: [{ role: "会長", lastName: "分離", firstName: "太郎" }]
+	};
+	const enc = await cryptoLib.encryptPayload(JSON.stringify(rawData), importPass);
+
+	// 1. loadPastedTextToNeighbor uses #neighbor-import-pass
+	const pasteBox = document.getElementById('neighbor-paste-box');
+	pasteBox.value = `BEGIN_DATA:\n${enc}\n:END_DATA`;
+	await neighbor.loadPastedTextToNeighbor();
+	assert.strictEqual(state.neighborState.district, "分離テスト町会");
+	assert.strictEqual(state.neighborState.neighborhood[0].lastName, "分離");
+
+	// 2. loadNeighborTxt uses #neighbor-import-pass
+	state.neighborState = { district: "", neighborhood: [] };
+	const mockFile = { text: async () => `BEGIN_DATA:\n${enc}\n:END_DATA` };
+	await neighbor.loadNeighborTxt({ target: { files: [mockFile], value: 'test.txt' } });
+	assert.strictEqual(state.neighborState.district, "分離テスト町会");
+
+	// 3. When #neighbor-import-pass is empty, falls back to prompt, ignoring #neighbor-pass
+	importPassInput.value = "";
+	global.prompt = () => importPass;
+	pasteBox.value = `BEGIN_DATA:\n${enc}\n:END_DATA`;
+	await neighbor.loadPastedTextToNeighbor();
+	assert.strictEqual(state.neighborState.district, "分離テスト町会");
+
+	// 4. Toggle visibility of #neighbor-import-pass
+	importPassInput.type = 'password';
+	const toggleBtn = document.getElementById('neighbor-import-pass-toggle');
+	utils.togglePasswordVisibility('neighbor-import-pass', toggleBtn);
+	assert.strictEqual(importPassInput.type, 'text');
+	utils.togglePasswordVisibility('neighbor-import-pass', toggleBtn);
+	assert.strictEqual(importPassInput.type, 'password');
 });
 

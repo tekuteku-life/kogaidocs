@@ -226,6 +226,56 @@ function togglePasswordVisibility(inputId, btnEl) {
 }
 
 /**
+ * パスワード入力フィールドのリアルタイム半角サニタイズ
+ * 全角ASCIIを半角ASCIIへ変換、全角スペース・非ASCII文字を除去し、キャレット位置を補正します
+ * @param {HTMLInputElement} el
+ */
+function sanitizePasswordInput(el) {
+	if (!el || typeof el.value !== 'string') return;
+	const origVal = el.value;
+	const origStart = typeof el.selectionStart === 'number' ? el.selectionStart : null;
+	const origEnd = typeof el.selectionEnd === 'number' ? el.selectionEnd : null;
+
+	let newVal = '';
+	let removedBeforeStart = 0;
+	let removedBeforeEnd = 0;
+
+	for (let i = 0; i < origVal.length; i++) {
+		const code = origVal.charCodeAt(i);
+		let convertedChar = null;
+
+		// 全角ASCII (0xFF01 ! 〜 0xFF5E ~) -> 半角ASCII (0x21 ! 〜 0x7E ~)
+		if (code >= 0xFF01 && code <= 0xFF5E) {
+			convertedChar = String.fromCharCode(code - 0xFEE0);
+		} else if (code >= 0x21 && code <= 0x7E) {
+			// 半角ASCII印字可能文字（そのまま保持）
+			convertedChar = origVal[i];
+		}
+		// 全角空白 (0x3000)、半角スペース (0x20)、非ASCII（かな・カナ・漢字等）は convertedChar = null（除去）
+
+		if (convertedChar !== null) {
+			newVal += convertedChar;
+		} else {
+			if (origStart !== null && i < origStart) {
+				removedBeforeStart++;
+			}
+			if (origEnd !== null && i < origEnd) {
+				removedBeforeEnd++;
+			}
+		}
+	}
+
+	if (origVal !== newVal) {
+		el.value = newVal;
+		if (origStart !== null && origEnd !== null && typeof el.setSelectionRange === 'function') {
+			const newStart = Math.max(0, origStart - removedBeforeStart);
+			const newEnd = Math.max(0, origEnd - removedBeforeEnd);
+			el.setSelectionRange(newStart, newEnd);
+		}
+	}
+}
+
+/**
  * 児童名簿の並び順比較関数
  * 優先順位:
  * 1. 役職: 班長 → 副班長 → その他
@@ -348,6 +398,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		downloadTextFile,
 		validatePassword,
 		togglePasswordVisibility,
+		sanitizePasswordInput,
 		compareStudents,
 		getUniqueNeighborhoodDistricts,
 		getDistrictWideValidStudents

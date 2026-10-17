@@ -15,6 +15,16 @@ function renderDistrictForm() {
 	const dHanEl = document.getElementById('d-han');
 	if (dHanEl) dHanEl.value = currentDistrict.han || (currentDistrict.hanList && currentDistrict.hanList[0]) || "";
 
+	// パスワード安全記憶の復元
+	if (currentDistrict.savedFilePassword) {
+		const dPass = document.getElementById('d-pass');
+		if (dPass) dPass.value = currentDistrict.savedFilePassword;
+		const dPassConfirm = document.getElementById('d-pass-confirm');
+		if (dPassConfirm) dPassConfirm.value = currentDistrict.savedFilePassword;
+		const dPassOptin = document.getElementById('d-save-password-optin');
+		if (dPassOptin) dPassOptin.checked = true;
+	}
+
 	renderOfficersList();
 	renderNeighborhoodTable();
 	renderStudentsTable();
@@ -327,6 +337,14 @@ function updateStudentSummaryText() {
 function runDistrictYearUpdate() {
 	if (!confirm("【地区データの年度更新】\n・校外役員情報と自治会役員一覧をクリアします。\n・児童一覧から6年生を削除し、1〜5年生の学年を+1します。\n・クラスと班長・副班長をリセットします。\n※地区名・班名・学区外フラグは保持されます。\n\n実行してよろしいですか？")) return;
 
+	delete currentDistrict.savedFilePassword;
+	const dPass = document.getElementById('d-pass');
+	if (dPass) dPass.value = "";
+	const dPassConfirm = document.getElementById('d-pass-confirm');
+	if (dPassConfirm) dPassConfirm.value = "";
+	const dPassOptin = document.getElementById('d-save-password-optin');
+	if (dPassOptin) dPassOptin.checked = false;
+
 	currentDistrict.officers = [
 		{
 			lastName: "", firstName: "", lastNameKana: "", firstNameKana: "",
@@ -428,6 +446,114 @@ async function exportDistrictTxt() {
 		`:END_DATA`
 	].join('\n');
 	downloadTextFile(content, `校外地区データ_${currentDistrict.district}${hanPart}_${dateStr}.txt`);
+}
+
+/**
+ * 地区データを各種チャネル（アプリ共有、LINE、メール、クリップボード）で安全に共有します
+ * @param {'share' | 'line' | 'email' | 'copy'} channel
+ */
+async function shareDistrictData(channel) {
+	saveDistrictLocal();
+	if (!currentDistrict.district) { alert("地区名を入力してください。"); return; }
+	const pass = document.getElementById('d-pass').value;
+	const confirmEl = document.getElementById('d-pass-confirm');
+	const passConfirm = confirmEl ? confirmEl.value : pass;
+
+	const chk = validatePassword(pass);
+	if (!chk.valid) {
+		alert("【保存パスワードエラー】\n" + chk.message);
+		return;
+	}
+
+	if (confirmEl && pass !== passConfirm) {
+		alert("【パスワード不一致エラー】\n入力されたパスワードと確認用パスワードが一致しません。\n内容をご確認の上、再度入力してください。");
+		return;
+	}
+
+	const encoded = await encryptPayload(JSON.stringify(currentDistrict), pass);
+	const dateStr = new Date().toISOString().slice(0, 10);
+	const hanPart = currentDistrict.han ? `_${currentDistrict.han}` : "";
+	const fileName = `校外地区データ_${currentDistrict.district}${hanPart}_${dateStr}.txt`;
+	const content = [
+		`--- 校外委員会 地区データ (${currentDistrict.district}${currentDistrict.han ? ' ' + currentDistrict.han : ''} / 出力日:${dateStr}) ---`,
+		`BEGIN_DATA:`,
+		encoded,
+		`:END_DATA\n`
+	].join('\n');
+
+	if (channel === 'share') {
+		if (navigator.share) {
+			const shareObj = {
+				title: `校外地区データ_${currentDistrict.district}`,
+				text: content
+			};
+			try {
+				if (typeof File !== 'undefined' && navigator.canShare) {
+					const file = new File([content], fileName, { type: 'text/plain' });
+					if (navigator.canShare({ files: [file] })) {
+						shareObj.files = [file];
+					}
+				}
+			} catch (e) {}
+			try {
+				await navigator.share(shareObj);
+				return;
+			} catch (err) {
+				if (err && err.name === 'AbortError') return;
+			}
+		}
+		// フォールバック: クリップボード
+		if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+			try {
+				await navigator.clipboard.writeText(content);
+				alert("暗号化データをクリップボードにコピーしました。\nメールやLINEに貼り付けて提出してください。");
+				return;
+			} catch (e) {}
+		}
+		downloadTextFile(content, fileName);
+		return;
+	}
+
+	if (channel === 'copy') {
+		if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+			try {
+				await navigator.clipboard.writeText(content);
+				alert("暗号化データをクリップボードにコピーしました。\nメールやLINEに貼り付けて提出してください。");
+				return;
+			} catch (e) {}
+		}
+		alert("暗号化データのコピーに失敗しました。ファイル保存をご利用ください。");
+		return;
+	}
+
+	if (channel === 'line') {
+		// [A-1] 暗号文長が 2,000文字 を超える場合はクリップボードに退避し、定型文のみで起動
+		if (content.length > 2000) {
+			if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+				try { await navigator.clipboard.writeText(content); } catch (e) {}
+			}
+			const lineGuidance = "校外委員会地区データを送信します。クリップボードにコピーされた暗号化テキストをここに貼り付けてください";
+			window.open('https://line.me/R/msg/text/?' + encodeURIComponent(lineGuidance));
+		} else {
+			window.open('https://line.me/R/msg/text/?' + encodeURIComponent(content));
+		}
+		return;
+	}
+
+	if (channel === 'email') {
+		const subject = `【校外委員会】地区データ提出_${currentDistrict.district}${hanPart}`;
+		// [A-1] 暗号文長が 2,000文字 を超える場合はクリップボードに退避し、定型文のみで起動
+		if (content.length > 2000) {
+			if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+				try { await navigator.clipboard.writeText(content); } catch (e) {}
+			}
+			const emailGuidance = "校外委員会地区データを送信します。クリップボードにコピーされた暗号化テキストをここに貼り付けてください";
+			window.open('mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(emailGuidance));
+		} else {
+			window.open('mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(content));
+		}
+		return;
+	}
 }
 
 async function loadDistrictTxt(e) {
@@ -574,6 +700,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		runDistrictYearUpdate,
 		validateDistrictPasswords,
 		exportDistrictTxt,
+		shareDistrictData,
 		loadDistrictTxt,
 		mergeNeighborDataIntoDistrict,
 		loadNeighborFileIntoDistrict,

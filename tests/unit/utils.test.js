@@ -385,4 +385,46 @@ test('utils: additional branch coverage tests for utils.js', () => {
 	assert.strictEqual(utils.getDistrictWideValidStudents({}, [{}]).length, 0);
 });
 
+test('utils: sanitizePasswordInput normalizes full-width characters and preserves caret position', () => {
+	// 1. Full-width ASCII conversion (A-Z, a-z, 0-9, symbols)
+	const el1 = new (require('../helpers/dom-mock.js').MockElement)('input');
+	el1.value = 'Ｐａｓｓｗｏｒｄ１２３！＠＃';
+	el1.selectionStart = 5;
+	el1.selectionEnd = 5;
+	utils.sanitizePasswordInput(el1);
+	assert.strictEqual(el1.value, 'Password123!@#');
+	assert.strictEqual(el1.selectionStart, 5);
+
+	// 2. Full-width space and non-ASCII character removal with caret shift
+	const el2 = new (require('../helpers/dom-mock.js').MockElement)('input');
+	el2.value = 'Pass　wordあいう123';
+	// Caret is right after 'あいう' at index 12 ('Pass　wordあいう' is 4+1+4+3 = 12)
+	el2.selectionStart = 12;
+	el2.selectionEnd = 12;
+	utils.sanitizePasswordInput(el2);
+	// Stripping full-width space (1 char) and 'あいう' (3 chars) before index 12: total 4 removed before caret
+	assert.strictEqual(el2.value, 'Password123');
+	assert.strictEqual(el2.selectionStart, 8); // 12 - 4 = 8 ('Password')
+
+	// 3. Normal half-width string remains untouched
+	const el3 = new (require('../helpers/dom-mock.js').MockElement)('input');
+	el3.value = 'Secure#Pass1234!';
+	el3.selectionStart = 6;
+	el3.selectionEnd = 6;
+	utils.sanitizePasswordInput(el3);
+	assert.strictEqual(el3.value, 'Secure#Pass1234!');
+	assert.strictEqual(el3.selectionStart, 6);
+
+	// 4. Null / empty / missing selectionStart edge cases
+	utils.sanitizePasswordInput(null);
+	const elEmpty = new (require('../helpers/dom-mock.js').MockElement)('input');
+	elEmpty.value = '';
+	utils.sanitizePasswordInput(elEmpty);
+	assert.strictEqual(elEmpty.value, '');
+
+	const elNoSel = { value: '全角Ａ' };
+	utils.sanitizePasswordInput(elNoSel);
+	assert.strictEqual(elNoSel.value, 'A');
+});
+
 

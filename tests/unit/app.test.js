@@ -411,3 +411,105 @@ test('app: clearMemoryAndDomForLock, resetAutoLockTimer, and initAutoLockListene
 
 	cryptoLib.clearStorageSecurity();
 });
+
+test('app: toggleModeSelector and switchTab manage mode selector collapse UX', () => {
+	setupDomEnvironment();
+	const btnContainer = document.getElementById('mode-tab-buttons') || document.createElement('div');
+	btnContainer.id = 'mode-tab-buttons';
+	btnContainer.style.display = 'flex';
+	document.body.appendChild(btnContainer);
+
+	const badge = document.getElementById('mode-active-badge') || document.createElement('div');
+	badge.id = 'mode-active-badge';
+	badge.style.display = 'none';
+	document.body.appendChild(badge);
+
+	const badgeText = document.getElementById('mode-active-badge-text') || document.createElement('span');
+	badgeText.id = 'mode-active-badge-text';
+	badge.appendChild(badgeText);
+
+	// 1. Initial state: buttons shown, badge hidden
+	assert.strictEqual(btnContainer.style.display, 'flex');
+
+	// 2. switchTab('rep'): auto-collapses buttons, shows badge with rep label
+	app.switchTab('rep');
+	assert.strictEqual(btnContainer.style.display, 'none');
+	assert.strictEqual(badge.style.display, 'inline-flex');
+	assert(badgeText.textContent.includes('校外代表'));
+
+	// 3. toggleModeSelector(): expands buttons, hides badge
+	app.toggleModeSelector();
+	assert.strictEqual(btnContainer.style.display, 'flex');
+	assert.strictEqual(badge.style.display, 'none');
+
+	// 4. switchTab('neighbor'): collapses buttons, shows badge with neighbor label
+	app.switchTab('neighbor');
+	assert.strictEqual(btnContainer.style.display, 'none');
+	assert.strictEqual(badge.style.display, 'inline-flex');
+	assert(badgeText.textContent.includes('自治会'));
+
+	// 5. switchTab('district'): collapses buttons, shows badge with district label
+	app.switchTab('district');
+	assert.strictEqual(btnContainer.style.display, 'none');
+	assert.strictEqual(badge.style.display, 'inline-flex');
+	assert(badgeText.textContent.includes('地区役員'));
+
+	// 6. toggleModeSelector when buttons are open collapses back to badge
+	btnContainer.style.display = 'flex';
+	badge.style.display = 'none';
+	app.toggleModeSelector();
+	assert.strictEqual(btnContainer.style.display, 'none');
+	assert.strictEqual(badge.style.display, 'inline-flex');
+});
+
+test('app: shareAppUrl handles Web Share API, clipboard fallback, prompt, and error cases', async () => {
+	setupDomEnvironment();
+	let shareCalledWith = null;
+	let alertMsg = '';
+	global.alert = (msg) => { alertMsg = msg; };
+
+	// Case 1: navigator.share supported and succeeds
+	navigator.share = async (data) => {
+		shareCalledWith = data;
+		return Promise.resolve();
+	};
+	await app.shareAppUrl();
+	assert.notStrictEqual(shareCalledWith, null);
+	assert(shareCalledWith.title.includes('校外委員会'));
+	assert.strictEqual(shareCalledWith.url, window.location.href);
+
+	// Case 2: navigator.share throws AbortError (user cancelled) -> silent catch
+	navigator.share = async () => {
+		const err = new Error('User cancelled');
+		err.name = 'AbortError';
+		throw err;
+	};
+	await app.shareAppUrl(); // should not throw and not alert error
+
+	// Case 3: navigator.share throws other Error -> falls back to clipboard
+	let clipText = '';
+	navigator.clipboard = {
+		writeText: async (t) => { clipText = t; }
+	};
+	navigator.share = async () => {
+		throw new Error('Share failed');
+	};
+	await app.shareAppUrl();
+	assert.strictEqual(clipText, window.location.href);
+	assert(alertMsg.includes('URLをクリップボードにコピーしました'));
+
+	// Case 4: navigator.share not supported -> direct clipboard copy
+	delete navigator.share;
+	clipText = '';
+	alertMsg = '';
+	await app.shareAppUrl();
+	assert.strictEqual(clipText, window.location.href);
+	assert(alertMsg.includes('URLをクリップボードにコピーしました'));
+
+	// Case 5: navigator.clipboard fails -> prompt fallback
+	navigator.clipboard.writeText = async () => { throw new Error('Permission denied'); };
+	let promptDefault = '';
+	global.prompt = (msg, def) => { promptDefault = def; return def; };
+	await app.shareAppUrl();
+	assert.strictEqual(promptDefault, window.location.href);
+});

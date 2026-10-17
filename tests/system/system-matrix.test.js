@@ -16,7 +16,7 @@ const app = require('../../js/app.js');
 const neighbor = require('../../js/neighbor.js');
 
 /* =========================================================================
-   機能1: 画面遷移 (Screen Transitions)
+	機能1: 画面遷移 (Screen Transitions)
 ========================================================================= */
 test('system [画面遷移]: tab switching, modal display, and card folding controls', () => {
 	setupDomEnvironment();
@@ -76,7 +76,7 @@ test('system [画面遷移]: tab switching, modal display, and card folding cont
 });
 
 /* =========================================================================
-   機能2: 登録 (Registration)
+	機能2: 登録 (Registration)
 ========================================================================= */
 test('system [登録]: registering officers, students, neighborhood, hans, externals, and seat grid cells', async () => {
 	setupDomEnvironment();
@@ -120,7 +120,7 @@ test('system [登録]: registering officers, students, neighborhood, hans, exter
 });
 
 /* =========================================================================
-   機能3: 編集 (Editing)
+	機能3: 編集 (Editing)
 ========================================================================= */
 test('system [編集]: field editing, real-time title reflection, student multi-tier sort, and Hata template generation', async () => {
 	setupDomEnvironment();
@@ -169,7 +169,7 @@ test('system [編集]: field editing, real-time title reflection, student multi-
 });
 
 /* =========================================================================
-   機能4: 削除 (Deletion)
+	機能4: 削除 (Deletion)
 ========================================================================= */
 test('system [削除]: officer removal limit, deleting neighborhood, students, externals, and bulk clear', () => {
 	setupDomEnvironment();
@@ -208,7 +208,7 @@ test('system [削除]: officer removal limit, deleting neighborhood, students, e
 });
 
 /* =========================================================================
-   機能5: ファイル入出力・暗号化 (File I/O & Cryptography)
+	機能5: ファイル入出力・暗号化 (File I/O & Cryptography)
 ========================================================================= */
 test('system [ファイル入出力]: encrypted txt export/import, text paste, password rules, and error recovery', async () => {
 	setupDomEnvironment();
@@ -258,7 +258,7 @@ test('system [ファイル入出力]: encrypted txt export/import, text paste, p
 });
 
 /* =========================================================================
-   機能6: 印刷・帳票出力 (Printing & Output)
+	機能6: 印刷・帳票出力 (Printing & Output)
 ========================================================================= */
 test('system [印刷・帳票出力]: single district and bulk rep print with origami folds and delivery notices', () => {
 	setupDomEnvironment();
@@ -315,7 +315,7 @@ test('system [印刷・帳票出力]: single district and bulk rep print with or
 });
 
 /* =========================================================================
-   機能7: 年度更新 (Year Rollover)
+	機能7: 年度更新 (Year Rollover)
 ========================================================================= */
 test('system [年度更新]: advancing student grades, deleting 6th graders, and resetting representative structures', () => {
 	setupDomEnvironment();
@@ -356,7 +356,7 @@ test('system [年度更新]: advancing student grades, deleting 6th graders, and
 });
 
 /* =========================================================================
-   機能8: セキュリティ・認証 (Security & Authentication)
+	機能8: セキュリティ・認証 (Security & Authentication)
 ========================================================================= */
 test('system [セキュリティ・認証]: WebAuthn PRF integration, locking, unlocking, and factory reset', async () => {
 	setupDomEnvironment();
@@ -391,7 +391,7 @@ test('system [セキュリティ・認証]: WebAuthn PRF integration, locking, u
 });
 
 /* =========================================================================
-   機能9: PWA・ライフサイクル (PWA & Lifecycle Events)
+	機能9: PWA・ライフサイクル (PWA & Lifecycle Events)
 ========================================================================= */
 test('system [PWA・ライフサイクル]: install prompt handling and DOMContentLoaded initialization', async () => {
 	setupDomEnvironment();
@@ -427,7 +427,7 @@ test('system [PWA・ライフサイクル]: install prompt handling and DOMConte
 });
 
 /* =========================================================================
-   機能10: 自治会役員名簿モードE2Eシナリオ (Neighborhood Mode End-to-End Workflow)
+	機能10: 自治会役員名簿モードE2Eシナリオ (Neighborhood Mode End-to-End Workflow)
 ========================================================================= */
 test('system [自治会役員名簿モード]: creation, export, merge into district, merge into rep, printing, and rollover', async () => {
 	setupDomEnvironment();
@@ -532,4 +532,252 @@ test('system [自治会役員名簿モード]: creation, export, merge into dist
 	assert.strictEqual(state.neighborState.neighborhood[0].role, "会長");
 	assert.strictEqual(state.neighborState.neighborhood[0].lastName, "");
 	assert.strictEqual(state.neighborState.neighborhood[0].tel, "");
+});
+
+/* =========================================================================
+	機能11: モード選択肢の動的折りたたみUX (Mode Selector Collapsing UX)
+========================================================================= */
+test('system [モード選択肢折りたたみUX]: initial state, selection auto-collapse, and toggle re-expansion', () => {
+	setupDomEnvironment();
+	const btnContainer = document.getElementById('mode-tab-buttons') || document.createElement('div');
+	btnContainer.id = 'mode-tab-buttons';
+	btnContainer.style.display = 'flex';
+	document.body.appendChild(btnContainer);
+
+	const badge = document.getElementById('mode-active-badge') || document.createElement('div');
+	badge.id = 'mode-active-badge';
+	badge.style.display = 'none';
+	document.body.appendChild(badge);
+
+	const badgeText = document.getElementById('mode-active-badge-text') || document.createElement('span');
+	badgeText.id = 'mode-active-badge-text';
+	badge.appendChild(badgeText);
+
+	// 1. Initial display is expanded
+	assert.strictEqual(btnContainer.style.display, 'flex');
+	assert.strictEqual(badge.style.display, 'none');
+
+	// 2. Select Tab 2 (rep): collapsed into active badge
+	app.switchTab('rep');
+	assert.strictEqual(btnContainer.style.display, 'none');
+	assert.strictEqual(badge.style.display, 'inline-flex');
+	assert(badgeText.textContent.includes('校外代表'));
+
+	// 3. User clicks badge: re-expands 3 tab buttons
+	app.toggleModeSelector();
+	assert.strictEqual(btnContainer.style.display, 'flex');
+	assert.strictEqual(badge.style.display, 'none');
+
+	// 4. Select Tab 3 (neighbor): collapses again
+	app.switchTab('neighbor');
+	assert.strictEqual(btnContainer.style.display, 'none');
+	assert.strictEqual(badge.style.display, 'inline-flex');
+	assert(badgeText.textContent.includes('自治会'));
+
+	// 5. Select Tab 1 (district): collapses again
+	app.switchTab('district');
+	assert.strictEqual(btnContainer.style.display, 'none');
+	assert.strictEqual(badge.style.display, 'inline-flex');
+	assert(badgeText.textContent.includes('地区役員'));
+});
+
+/* =========================================================================
+	機能12: アプリ共有機能 (PWA App Share)
+========================================================================= */
+test('system [アプリ共有]: PWA URL sharing across Web Share API and clipboard fallbacks', async () => {
+	setupDomEnvironment();
+	let sharedPayload = null;
+	let alertMessage = '';
+	global.alert = (m) => { alertMessage = m; };
+
+	// 1. Web Share API supported
+	navigator.share = async (data) => {
+		sharedPayload = data;
+		return Promise.resolve();
+	};
+	await app.shareAppUrl();
+	assert(sharedPayload !== null);
+	assert(sharedPayload.title.includes('校外委員会'));
+	assert.strictEqual(sharedPayload.url, window.location.href);
+
+	// 2. Web Share cancelled by user (AbortError)
+	navigator.share = async () => {
+		const err = new Error('User dismissed share sheet');
+		err.name = 'AbortError';
+		throw err;
+	};
+	alertMessage = '';
+	await app.shareAppUrl();
+	assert.strictEqual(alertMessage, ''); // no disruptive alert on cancel
+
+	// 3. Clipboard fallback when Web Share fails or is missing
+	delete navigator.share;
+	let clipboardText = '';
+	navigator.clipboard = {
+		writeText: async (txt) => { clipboardText = txt; }
+	};
+	await app.shareAppUrl();
+	assert.strictEqual(clipboardText, window.location.href);
+	assert(alertMessage.includes('URLをクリップボードにコピーしました'));
+});
+
+/* =========================================================================
+	機能13: 地区データ共有連携 (District Data Sharing Options)
+========================================================================= */
+test('system [地区データ共有]: LINE, email, Web Share, and URL length fallback (>2000 chars)', async () => {
+	setupDomEnvironment();
+	document.getElementById('d-name').value = "共有テスト町";
+	const pass = "SharingPass123!@#";
+	document.getElementById('d-pass').value = pass;
+	document.getElementById('d-pass-confirm').value = pass;
+	state.currentDistrict.district = "共有テスト町";
+	state.currentDistrict.students = [{ grade: "2", class: "1", name: "児童1", lastName: "児童", firstName: "1" }];
+
+	let sharedData = null;
+	navigator.share = async (d) => { sharedData = d; };
+	let clipData = '';
+	navigator.clipboard = {
+		writeText: async (t) => { clipData = t; }
+	};
+	let openedUrl = '';
+	global.window.open = (u) => { openedUrl = u; };
+
+	// 1. Native share
+	await district.shareDistrictData('share');
+	assert(sharedData !== null);
+
+	// 2. Clipboard copy
+	await district.shareDistrictData('copy');
+	assert(clipData.includes('BEGIN_DATA:'));
+
+	// 3. Small payload LINE share
+	await district.shareDistrictData('line');
+	assert(openedUrl.startsWith('https://line.me/R/msg/text/?'));
+	assert(openedUrl.includes('BEGIN_DATA%3A'));
+
+	// 4. Large payload LINE fallback (Action Item A-1: payload > 2000 chars)
+	state.currentDistrict.students = Array.from({ length: 50 }, (_, i) => ({
+		grade: "3",
+		class: "2",
+		name: `大容量児童${i}番`,
+		lastName: "大容量",
+		firstName: `児童${i}`,
+		address: `町内${i}番地`
+	}));
+	clipData = '';
+	openedUrl = '';
+	await district.shareDistrictData('line');
+	assert(clipData.includes('BEGIN_DATA:'));
+	assert(openedUrl.startsWith('https://line.me/R/msg/text/?'));
+	assert(!openedUrl.includes('BEGIN_DATA%3A')); // cipher suppressed from URL query!
+	assert(openedUrl.includes('%E3%82%AF%E3%83%AA%E3%83%83%E3%83%97%E3%83%9C%E3%83%BC%E3%83%89')); // guidance included
+});
+
+/* =========================================================================
+	機能14: パスワード安全記憶ライフサイクル (Password Persistence Lifecycle)
+========================================================================= */
+test('system [パスワード安全記憶]: opt-in persistence, unencrypted storage exclusion, lock wipe, and rollover', async () => {
+	setupDomEnvironment();
+	const pass = "PersistPass123!@#";
+	const passInput = document.getElementById('d-pass');
+	const confirmInput = document.getElementById('d-pass-confirm');
+	const optinInput = document.getElementById('d-save-password-optin');
+
+	// 1. Encrypted storage: password saved when opt-in checked
+	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: true }));
+	passInput.value = pass;
+	confirmInput.value = pass;
+	optinInput.checked = true;
+	state.currentDistrict.district = "記憶地区";
+	await state.saveDistrictLocal();
+	assert.strictEqual(state.currentDistrict.savedFilePassword, pass);
+
+	// 2. Unencrypted storage: password strictly stripped (Action Item A-2)
+	localStorage.removeItem('kogai_auth_meta');
+	state.currentDistrict.savedFilePassword = pass;
+	await state.saveDistrictLocal();
+	assert.strictEqual(state.currentDistrict.savedFilePassword, undefined);
+
+	// 3. Form render restores saved password
+	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: true }));
+	state.currentDistrict.savedFilePassword = pass;
+	passInput.value = '';
+	confirmInput.value = '';
+	optinInput.checked = false;
+	district.renderDistrictForm();
+	assert.strictEqual(passInput.value, pass);
+	assert.strictEqual(confirmInput.value, pass);
+	assert.strictEqual(optinInput.checked, true);
+
+	// 4. App lock immediately purges saved password from memory and DOM
+	app.handleImmediateLock();
+	assert.strictEqual(state.currentDistrict.savedFilePassword, undefined);
+	assert.strictEqual(passInput.value, '');
+	assert.strictEqual(confirmInput.value, '');
+
+	// 5. Annual rollover deletes saved password
+	state.currentDistrict.savedFilePassword = pass;
+	passInput.value = pass;
+	confirmInput.value = pass;
+	optinInput.checked = true;
+	global.confirm = () => true;
+	district.runDistrictYearUpdate();
+	assert.strictEqual(state.currentDistrict.savedFilePassword, undefined);
+	assert.strictEqual(passInput.value, '');
+	assert.strictEqual(confirmInput.value, '');
+	assert.strictEqual(optinInput.checked, false);
+});
+
+/* =========================================================================
+	機能15: パスワード入力リアルタイム半角サニタイズ (IME Input Sanitization)
+========================================================================= */
+test('system [パスワード入力サニタイズ]: full-width normalization, non-ASCII stripping, and caret tracking', () => {
+	setupDomEnvironment();
+	const passInput = document.getElementById('d-pass');
+
+	// 1. Full-width alphanumeric & symbols to half-width
+	passInput.value = 'Ｐａｓｓｗｏｒｄ１２３！＠＃';
+	passInput.selectionStart = 8;
+	passInput.selectionEnd = 8;
+	utils.sanitizePasswordInput(passInput);
+	assert.strictEqual(passInput.value, 'Password123!@#');
+	assert.strictEqual(passInput.selectionStart, 8);
+
+	// 2. Full-width space and Japanese text stripped with caret position adjustment (Action Item A-3)
+	passInput.value = 'Secure　パスワードPass!';
+	passInput.selectionStart = 12; // cursor right after 'パスワード'
+	passInput.selectionEnd = 12;
+	utils.sanitizePasswordInput(passInput);
+	assert.strictEqual(passInput.value, 'SecurePass!');
+	assert.strictEqual(passInput.selectionStart, 6);
+});
+
+/* =========================================================================
+	機能16: 自治会読込専用パスワード分離 (Neighborhood Import Password Separation)
+========================================================================= */
+test('system [自治会読込パスワード分離]: #neighbor-import-pass isolated from export password', async () => {
+	setupDomEnvironment();
+	state.neighborState = { district: "", neighborhood: [] };
+	const savePass = "SaveSecret999!@#";
+	const importPass = "ImportSecret123!@#";
+
+	document.getElementById('neighbor-pass').value = savePass;
+	const importPassInput = document.getElementById('neighbor-import-pass');
+	importPassInput.value = importPass;
+
+	// Encrypt with importPass
+	const encData = await cryptoLib.encryptPayload(JSON.stringify({
+		isNeighborhoodData: true,
+		district: "分離町内会",
+		neighborhood: [{ role: "会長", lastName: "分離", firstName: "三郎" }]
+	}), importPass);
+
+	// Paste into Tab 3 import card
+	const pasteBox = document.getElementById('neighbor-paste-box');
+	pasteBox.value = `BEGIN_DATA:\n${encData}\n:END_DATA`;
+	await neighbor.loadPastedTextToNeighbor();
+
+	// Verified decoded successfully using #neighbor-import-pass while #neighbor-pass had wrong pass
+	assert.strictEqual(state.neighborState.district, "分離町内会");
+	assert.strictEqual(state.neighborState.neighborhood[0].lastName, "分離");
 });

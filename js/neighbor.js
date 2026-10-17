@@ -218,7 +218,7 @@ async function copyNeighborEncryptedText() {
 async function loadNeighborTxt(e) {
 	const file = e.target.files[0];
 	if (!file) return;
-	let pass = document.getElementById('neighbor-pass')?.value || "";
+	let pass = document.getElementById('neighbor-import-pass')?.value || "";
 	try {
 		const text = await file.text();
 		let data;
@@ -229,7 +229,7 @@ async function loadNeighborTxt(e) {
 			if (!promptPass) { e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass);
 			pass = promptPass;
-			const passEl = document.getElementById('neighbor-pass');
+			const passEl = document.getElementById('neighbor-import-pass');
 			if (passEl) passEl.value = promptPass;
 		}
 
@@ -254,7 +254,7 @@ async function loadPastedTextToNeighbor() {
 	if (!box) return;
 	const raw = box.value.trim();
 	if (!raw) return;
-	let pass = document.getElementById('neighbor-pass')?.value || "";
+	let pass = document.getElementById('neighbor-import-pass')?.value || "";
 	try {
 		let data;
 		try {
@@ -264,7 +264,7 @@ async function loadPastedTextToNeighbor() {
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass);
 			pass = promptPass;
-			const passEl = document.getElementById('neighbor-pass');
+			const passEl = document.getElementById('neighbor-import-pass');
 			if (passEl) passEl.value = promptPass;
 		}
 

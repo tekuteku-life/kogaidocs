@@ -453,3 +453,289 @@ test('district: loadPastedNeighborTextIntoDistrict handles empty, password promp
 	await districtLib.loadPastedNeighborTextIntoDistrict();
 });
 
+test('district: secure password persistence and auto-fill lifecycle', async () => {
+	setupDomEnvironment();
+	// 1. Storage is encrypted and opt-in checked -> savedFilePassword kept
+	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: true }));
+	const passInput = document.getElementById('d-pass');
+	const confirmInput = document.getElementById('d-pass-confirm');
+	const optinInput = document.getElementById('d-save-password-optin');
+	passInput.value = 'MyPassword123!';
+	confirmInput.value = 'MyPassword123!';
+	optinInput.checked = true;
+
+	// When saving district
+	state.currentDistrict.district = 'テスト地区';
+	state.saveDistrictLocal();
+	assert.strictEqual(state.currentDistrict.savedFilePassword, 'MyPassword123!');
+
+	// 2. Storage is unencrypted (Action Item A-2) -> savedFilePassword stripped
+	localStorage.removeItem('kogai_auth_meta');
+	state.currentDistrict.savedFilePassword = 'PlainSecret123!';
+	optinInput.checked = true;
+	state.saveDistrictLocal();
+	assert.strictEqual(state.currentDistrict.savedFilePassword, undefined);
+
+	// 3. Form rendering auto-populates savedFilePassword when present
+	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: true }));
+	state.currentDistrict.savedFilePassword = 'SavedPass456!';
+	passInput.value = '';
+	confirmInput.value = '';
+	optinInput.checked = false;
+	districtLib.renderDistrictForm();
+	assert.strictEqual(passInput.value, 'SavedPass456!');
+	assert.strictEqual(confirmInput.value, 'SavedPass456!');
+	assert.strictEqual(optinInput.checked, true);
+
+	// 4. Annual update clears saved password
+	global.confirm = () => true;
+	districtLib.runDistrictYearUpdate();
+	assert.strictEqual(state.currentDistrict.savedFilePassword, undefined);
+	assert.strictEqual(passInput.value, '');
+	assert.strictEqual(confirmInput.value, '');
+	assert.strictEqual(optinInput.checked, false);
+});
+
+test('district: shareDistrictData handles Web Share, LINE, Email, and Clipboard with URL length fallback', async () => {
+	setupDomEnvironment();
+	document.getElementById('d-name').value = '緑ヶ丘';
+	const passInput = document.getElementById('d-pass');
+	const confirmInput = document.getElementById('d-pass-confirm');
+	passInput.value = 'TestPass1234!';
+	confirmInput.value = 'TestPass1234!';
+	state.currentDistrict.district = '緑ヶ丘';
+	state.currentDistrict.students = [{ grade: '1', name: '生徒A' }];
+
+	let sharedData = null;
+	navigator.share = async (d) => { sharedData = d; };
+	let clipData = '';
+	navigator.clipboard = {
+		writeText: async (t) => { clipData = t; }
+	};
+	let alertMsg = '';
+	global.alert = (m) => { alertMsg = m; };
+
+	// Validation failure: weak password
+	passInput.value = 'short';
+	confirmInput.value = 'short';
+	await districtLib.shareDistrictData('copy');
+	assert(alertMsg.includes('保存パスワードエラー'));
+
+	// Validation failure: mismatched password
+	passInput.value = 'TestPass1234!';
+	confirmInput.value = 'DifferentPass!';
+	await districtLib.shareDistrictData('copy');
+	assert(alertMsg.includes('パスワード不一致エラー'));
+	assert.strictEqual(clipData, ''); // aborted
+
+	// Fix password
+	confirmInput.value = 'TestPass1234!';
+
+	// 1. Channel 'share' with canShare files support
+	global.File = class File {
+		constructor(bits, name, opts) {
+			this.bits = bits;
+			this.name = name;
+			this.opts = opts;
+		}
+	};
+	navigator.canShare = (data) => Boolean(data && data.files);
+	await districtLib.shareDistrictData('share');
+	assert(sharedData !== null);
+	assert(Array.isArray(sharedData.files));
+
+	// 1b. Channel 'share' with AbortError (user cancelled)
+	navigator.share = async () => {
+		const err = new Error('Cancelled');
+		err.name = 'AbortError';
+		throw err;
+	};
+	await districtLib.shareDistrictData('share'); // should return silently
+
+	// 1c. Channel 'share' error falls back to clipboard
+	navigator.share = async () => {
+		throw new Error('Share failed');
+	};
+	clipData = '';
+	alertMsg = '';
+	await districtLib.shareDistrictData('share');
+	assert(clipData.includes('BEGIN_DATA:'));
+	assert(alertMsg.includes('暗号化データをクリップボードにコピーしました'));
+
+	// 1d. Channel 'share' when both share and clipboard fail -> downloadTextFile
+	delete navigator.share;
+	navigator.clipboard.writeText = async () => { throw new Error('Clipboard failed'); };
+	let downloadedText = '';
+	const oldCreateElement = document.createElement;
+	document.createElement = function(tag) {
+		const el = oldCreateElement.call(document, tag);
+		if (tag === 'a') {
+			el.click = () => { downloadedText = el.href; };
+		}
+		return el;
+	};
+	await districtLib.shareDistrictData('share');
+	assert(downloadedText.startsWith('blob:'));
+	document.createElement = oldCreateElement;
+
+	// 2. Channel 'copy' success
+	navigator.clipboard.writeText = async (t) => { clipData = t; };
+	clipData = '';
+	await districtLib.shareDistrictData('copy');
+	assert(clipData.includes('BEGIN_DATA:'));
+
+	// 2b. Channel 'copy' failure alert
+	navigator.clipboard.writeText = async () => { throw new Error('Clipboard failed'); };
+	alertMsg = '';
+	await districtLib.shareDistrictData('copy');
+	assert(alertMsg.includes('暗号化データのコピーに失敗しました'));
+
+	// Restore working clipboard
+	navigator.clipboard.writeText = async (t) => { clipData = t; };
+
+	let openedUrl = '';
+	window.open = (u) => { openedUrl = u; };
+
+	// 3. Channel 'line' with small payload (<= 2000 chars)
+	openedUrl = '';
+	await districtLib.shareDistrictData('line');
+	assert(openedUrl.startsWith('https://line.me/R/msg/text/?'));
+	assert(openedUrl.includes('BEGIN_DATA%3A'));
+
+	// 4. Channel 'email' with small payload (<= 2000 chars)
+	openedUrl = '';
+	await districtLib.shareDistrictData('email');
+	assert(openedUrl.startsWith('mailto:'));
+	assert(openedUrl.includes('BEGIN_DATA%3A'));
+
+	// 5. Action Item A-1: Large payload (> 2000 chars) fallback for LINE and Email
+	state.currentDistrict.students = Array.from({ length: 60 }, (_, i) => ({
+		grade: String((i % 6) + 1),
+		class: '1',
+		name: `テスト児童${i}番`,
+		lastName: 'テスト',
+		firstName: `児童${i}`,
+		address: `町内${i}番地`
+	}));
+	clipData = '';
+	openedUrl = '';
+	await districtLib.shareDistrictData('line');
+	assert(clipData.includes('BEGIN_DATA:')); // copied to clipboard!
+	assert(openedUrl.startsWith('https://line.me/R/msg/text/?'));
+	// URL should NOT contain BEGIN_DATA, but should contain guidance text
+	assert(!openedUrl.includes('BEGIN_DATA%3A'));
+	assert(openedUrl.includes('%E3%82%AF%E3%83%AA%E3%83%83%E3%83%97%E3%83%9C%E3%83%BC%E3%83%89')); // "クリップボード"
+
+	// Email large payload fallback
+	clipData = '';
+	openedUrl = '';
+	await districtLib.shareDistrictData('email');
+	assert(clipData.includes('BEGIN_DATA:')); // copied to clipboard!
+	assert(openedUrl.startsWith('mailto:'));
+	assert(!openedUrl.includes('BEGIN_DATA%3A'));
+	assert(openedUrl.includes('%E3%82%AF%E3%83%AA%E3%83%83%E3%83%97%E3%83%9C%E3%83%BC%E3%83%89'));
+});
+
+test('district: additional branch booster for loadNeighborFileIntoDistrict, mergeNeighborData, and shareDistrictData edge cases', async () => {
+	setupDomEnvironment();
+	const pass = "BoosterPass1234!";
+	let alertMsg = "";
+	window.alert = (m) => { alertMsg = m; };
+
+	// 1. shareDistrictData without district name
+	state.currentDistrict.district = "";
+	await districtLib.shareDistrictData('copy');
+	assert(alertMsg.includes("地区名を入力してください"));
+
+	// 2. shareDistrictData without confirmEl and with han
+	document.getElementById('d-name').value = "青葉台";
+	document.getElementById('d-han-list').value = "1班, 2班";
+	document.getElementById('d-pass').value = pass;
+	const origGetById = document.getElementById;
+	document.getElementById = (id) => (id === 'd-pass-confirm' ? null : origGetById.call(document, id));
+	let clipData = "";
+	navigator.clipboard = { writeText: async (t) => { clipData = t; } };
+	await districtLib.shareDistrictData('copy');
+	document.getElementById = origGetById;
+	assert(clipData.includes("青葉台 1班"));
+	assert(clipData.includes("BEGIN_DATA:"));
+
+	// 3. mergeNeighborDataIntoDistrict with mismatched district name
+	state.currentDistrict.district = "青葉台";
+	state.currentDistrict.neighborhood = [];
+	let confirmCalled = false;
+	global.confirm = () => { confirmCalled = true; return false; }; // cancel
+	districtLib.mergeNeighborDataIntoDistrict({
+		district: "白石町",
+		neighborhood: [{ role: "会長", lastName: "石田", firstName: "健" }]
+	});
+	assert(confirmCalled);
+	assert.strictEqual(state.currentDistrict.neighborhood.length, 0); // cancelled
+
+	// confirm = true
+	global.confirm = () => true;
+	districtLib.mergeNeighborDataIntoDistrict({
+		district: "白石町",
+		neighborhood: [{ role: "会長", lastName: "石田", firstName: "健" }]
+	});
+	assert.strictEqual(state.currentDistrict.neighborhood.length, 1);
+	assert.strictEqual(state.currentDistrict.neighborhood[0].lastName, "石田");
+
+	// 4. loadDistrictTxt with isNeighborhoodData
+	const neighborData = {
+		isNeighborhoodData: true,
+		district: "青葉台",
+		neighborhood: [{ role: "会計", lastName: "高橋", firstName: "正" }]
+	};
+	const encNeighbor = await cryptoLib.encryptPayload(JSON.stringify(neighborData), pass);
+	document.getElementById('d-pass').value = pass;
+	const dummyTarget = {
+		files: [{ text: async () => `BEGIN_DATA:\n${encNeighbor}\n:END_DATA` }],
+		value: "file.txt"
+	};
+	await districtLib.loadDistrictTxt({ target: dummyTarget });
+	assert.strictEqual(dummyTarget.value, "");
+	assert(state.currentDistrict.neighborhood.some(n => n.lastName === "高橋"));
+
+	// 5. loadNeighborFileIntoDistrict edge cases
+	// 5a. empty files
+	const emptyTarget = { files: [], value: "empty" };
+	await districtLib.loadNeighborFileIntoDistrict({ target: emptyTarget });
+
+	// 5b. success on first pass
+	const fileTarget = {
+		files: [{ text: async () => `BEGIN_DATA:\n${encNeighbor}\n:END_DATA` }],
+		value: "file.txt"
+	};
+	await districtLib.loadNeighborFileIntoDistrict({ target: fileTarget });
+	assert.strictEqual(fileTarget.value, "");
+
+	// 5c. first decrypt fails, promptPass cancelled
+	document.getElementById('d-pass').value = "WrongPass123!";
+	global.prompt = () => null;
+	const promptCancelTarget = {
+		files: [{ text: async () => `BEGIN_DATA:\n${encNeighbor}\n:END_DATA` }],
+		value: "file.txt"
+	};
+	await districtLib.loadNeighborFileIntoDistrict({ target: promptCancelTarget });
+	assert.strictEqual(promptCancelTarget.value, "");
+
+	// 5d. first decrypt fails, promptPass entered and succeeds
+	global.prompt = () => pass;
+	const promptSuccessTarget = {
+		files: [{ text: async () => `BEGIN_DATA:\n${encNeighbor}\n:END_DATA` }],
+		value: "file.txt"
+	};
+	await districtLib.loadNeighborFileIntoDistrict({ target: promptSuccessTarget });
+	assert.strictEqual(promptSuccessTarget.value, "");
+
+	// 5e. read error throws in outer try
+	const errorTarget = {
+		files: [{ text: async () => { throw new Error("Read failed"); } }],
+		value: "file.txt"
+	};
+	alertMsg = "";
+	await districtLib.loadNeighborFileIntoDistrict({ target: errorTarget });
+	assert(alertMsg.includes("失敗しました"));
+	assert.strictEqual(errorTarget.value, "");
+});

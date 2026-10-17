@@ -1,5 +1,5 @@
 /* =========================================================================
-   テスト用 DOM・ブラウザ環境モック（Node.js用）
+	テスト用 DOM・ブラウザ環境モック（Node.js用）
 ========================================================================= */
 
 const fs = require('fs');
@@ -56,6 +56,8 @@ class MockElement {
 		this.rows = 0;
 		this.title = '';
 		this.placeholder = '';
+		this.selectionStart = 0;
+		this.selectionEnd = 0;
 	}
 
 	get className() {
@@ -182,6 +184,10 @@ class MockElement {
 
 	focus() {}
 	select() {}
+	setSelectionRange(start, end) {
+		this.selectionStart = start;
+		this.selectionEnd = end;
+	}
 	click() {
 		this.dispatchEvent({ type: 'click', target: this, stopPropagation() {} });
 	}

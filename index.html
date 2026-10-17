@@ -29,16 +29,22 @@
 	<div class="header-main">
 		<h1><img src="icons/icon.svg" alt="" style="width:28px; height:28px; vertical-align:-6px; margin-right:6px;">kogaidocs - 校外委員名簿管理システム</h1>
 		<div class="header-actions">
+			<button type="button" id="btn-share-app" class="btn btn-secondary btn-sm" onclick="shareAppUrl()" title="他役員へアプリのURLを共有">🔗 アプリを共有</button>
 			<button type="button" id="pwa-install-btn" class="btn btn-outline btn-sm" style="display:none;" onclick="triggerPwaInstall()">📲 アプリをインストール</button>
 			<div id="storage-security-badge" class="security-badge is-plain" onclick="openStorageSettingsModal()">
 				🔓 ストレージ未暗号化
 			</div>
 		</div>
 	</div>
-	<div class="tabs">
+	<div id="mode-tab-buttons" class="tabs">
 		<button class="tab-btn active" onclick="switchTab('district')">① 各地区役員モード（地区入力・ハタフロット・地区印刷）</button>
 		<button class="tab-btn" onclick="switchTab('rep')">② 校外代表モード（全地区集約・スクゾ協議会・選択印刷）</button>
 		<button class="tab-btn" onclick="switchTab('neighbor')">③ 自治会役員モード（自治会役員名簿の作成・提出）</button>
+	</div>
+	<div class="mode-active-bar">
+		<button type="button" id="mode-active-badge" class="mode-active-badge" style="display:none;" onclick="toggleModeSelector()">
+			<span id="mode-active-badge-text">① 各地区役員モード ▼ [モード切替]</span>
+		</button>
 	</div>
 </header>
 
@@ -225,14 +231,14 @@
 					<div>
 						<label>共通パスワード（保存・暗号化用／必須）</label>
 						<div class="pass-input-group">
-							<input type="password" id="d-pass" placeholder="半角英数記号12文字以上" oninput="validateDistrictPasswords()">
+							<input type="password" id="d-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateDistrictPasswords();">
 							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('d-pass', this)" title="表示/非表示">👁️</button>
 						</div>
 					</div>
 					<div>
 						<label>確認用パスワード（二度入力）</label>
 						<div class="pass-input-group">
-							<input type="password" id="d-pass-confirm" placeholder="もう一度入力" oninput="validateDistrictPasswords()">
+							<input type="password" id="d-pass-confirm" placeholder="もう一度入力" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateDistrictPasswords();">
 							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('d-pass-confirm', this)" title="表示/非表示">👁️</button>
 						</div>
 					</div>
@@ -243,14 +249,26 @@
 				</div>
 				<div id="d-pass-match-msg" class="pass-feedback-msg" style="margin-top: 6px;"></div>
 				<div style="margin-top: 6px;">
+					<label style="font-weight: normal; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem;">
+						<input type="checkbox" id="d-save-password-optin" onchange="saveDistrictLocal()">
+						<span>☑ このパスワードを端末内に安全に記憶する（生体認証/端末暗号化で保護）</span>
+					</label>
+				</div>
+				<div style="margin-top: 6px;">
 					<button type="button" class="btn btn-sm btn-outline" onclick="quickSetupEncryptionFromCard('d-pass')">🛡️ このパスワードでブラウザ内データ（LocalStorage）も暗号化保護する</button>
 				</div>
 				<div class="flex-row" style="margin-top: 12px;">
 					<button type="button" class="btn" onclick="exportDistrictTxt()">💾 提出・保存用ファイル(.txt)出力</button>
 					<button type="button" class="btn btn-danger" onclick="runDistrictYearUpdate()">🔄 年度更新（新年度化）</button>
 				</div>
+				<div class="share-buttons-grid" style="margin-top: 10px;">
+					<button type="button" class="btn btn-secondary btn-sm" onclick="shareDistrictData('share')">📲 アプリ連携で共有</button>
+					<button type="button" class="btn btn-secondary btn-sm" onclick="shareDistrictData('line')">💬 LINEで送る</button>
+					<button type="button" class="btn btn-secondary btn-sm" onclick="shareDistrictData('email')">✉️ メールで送る</button>
+					<button type="button" class="btn btn-secondary btn-sm" onclick="shareDistrictData('copy')">📋 暗号化テキストコピー</button>
+				</div>
 				<div class="help-text">
-					※セキュリティ保護のため、保存時のパスワードは<strong>半角英数大文字・小文字・記号の最低12文字以上</strong>が必須です。「年度更新」を押すと校外役員・自治会役員一覧がクリアされ、児童の6年生が削除、1〜5年生が+1学年されます。
+					※セキュリティ保護のため、保存時のパスワードは<strong>半角英数大文字・小文字・記号の最低12文字以上</strong>が必須です。「年度更新」を押すと校外役員・自治会役員一覧および記憶されたファイルパスワードがクリアされ、児童の6年生が削除、1〜5年生が+1学年されます。
 				</div>
 			</div>
 		</div>
@@ -278,14 +296,14 @@
 					<div>
 						<label>共通パスワード（復号・保存用／必須）</label>
 						<div class="pass-input-group">
-							<input type="password" id="rep-pass" placeholder="半角英数記号12文字以上" oninput="validateRepPasswords()">
+							<input type="password" id="rep-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateRepPasswords();">
 							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('rep-pass', this)" title="表示/非表示">👁️</button>
 						</div>
 					</div>
 					<div>
 						<label>確認用パスワード（二度入力）</label>
 						<div class="pass-input-group">
-							<input type="password" id="rep-pass-confirm" placeholder="もう一度入力" oninput="validateRepPasswords()">
+							<input type="password" id="rep-pass-confirm" placeholder="もう一度入力" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateRepPasswords();">
 							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('rep-pass-confirm', this)" title="表示/非表示">👁️</button>
 						</div>
 					</div>
@@ -569,14 +587,14 @@
 					<div>
 						<label>暗号化パスワード（半角英数大文字・小文字・記号の12文字以上）</label>
 						<div class="pass-input-group">
-							<input type="password" id="neighbor-pass" placeholder="半角英数記号12文字以上" oninput="validateNeighborPasswords()">
+							<input type="password" id="neighbor-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateNeighborPasswords();">
 							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('neighbor-pass', this)" title="表示/非表示">👁️</button>
 						</div>
 					</div>
 					<div>
 						<label>パスワード確認（二度入力）</label>
 						<div class="pass-input-group">
-							<input type="password" id="neighbor-pass-confirm" placeholder="もう一度入力" oninput="validateNeighborPasswords()">
+							<input type="password" id="neighbor-pass-confirm" placeholder="もう一度入力" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateNeighborPasswords();">
 							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('neighbor-pass-confirm', this)" title="表示/非表示">👁️</button>
 						</div>
 					</div>
@@ -602,7 +620,16 @@
 				<div class="help-text" style="margin-bottom: 12px;">
 					※過去に出力した自治会役員ファイル（.txt）またはメール・チャットで受け取った暗号化テキストを読み込みます。
 				</div>
+				<div class="form-group" style="margin-bottom: 14px;">
+					<label>復号用パスワード（読込専用）</label>
+					<div class="pass-input-group" style="max-width: 400px;">
+						<input type="password" id="neighbor-import-pass" placeholder="提出ファイル復号パスワード" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this)">
+						<button type="button" id="neighbor-import-pass-toggle" class="btn-toggle-pass" onclick="togglePasswordVisibility('neighbor-import-pass', this)" title="表示/非表示">👁️</button>
+					</div>
+					<div class="help-text">※保存用カードのパスワードとは独立して入力できます。空欄の場合は読込時にダイアログで確認します。</div>
+				</div>
 				<div style="margin-bottom:14px;">
+					<label>自治会役員ファイル（.txt）を選択：</label>
 					<input type="file" id="neighbor-file-input" accept=".txt" onchange="loadNeighborTxt(event)">
 				</div>
 				<div class="form-group">
@@ -656,7 +683,7 @@
 			<div class="form-group">
 				<label>保存用パスワード</label>
 				<div class="pass-input-group">
-					<input type="password" id="modal-unlock-pass" placeholder="半角英数記号12文字以上" onkeydown="if(event.key==='Enter') handlePasswordUnlock()">
+					<input type="password" id="modal-unlock-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this)" onkeydown="if(event.key==='Enter') handlePasswordUnlock()">
 					<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('modal-unlock-pass', this)" title="表示/非表示">👁️</button>
 				</div>
 			</div>
