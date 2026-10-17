@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kogai-cache-v2';
+const CACHE_NAME = 'kogai-cache-v2.3.0';
 const ASSETS = [
 	'./',
 	'./index.html',
@@ -37,9 +37,21 @@ self.addEventListener('activate', event => {
 	);
 });
 
+self.addEventListener('message', event => {
+	if (event.data && event.data.type === 'SKIP_WAITING') {
+		self.skipWaiting();
+	}
+});
+
 self.addEventListener('fetch', event => {
 	// Only handle GET requests
 	if (event.request.method !== 'GET') return;
+
+	// version.json は常にキャッシュを介さずネットワークから直接取得
+	if (event.request.url.includes('version.json')) {
+		event.respondWith(fetch(event.request, { cache: 'no-store' }));
+		return;
+	}
 
 	event.respondWith(
 		caches.match(event.request).then(cached => {
@@ -63,4 +75,3 @@ self.addEventListener('fetch', event => {
 		})
 	);
 });
-

@@ -781,3 +781,76 @@ test('system [自治会読込パスワード分離]: #neighbor-import-pass isola
 	assert.strictEqual(state.neighborState.district, "分離町内会");
 	assert.strictEqual(state.neighborState.neighborhood[0].lastName, "分離");
 });
+
+/* =========================================================================
+	機能17: PWAバージョンチェックおよび強制・手動アップデート機構 (PWA Version Check & Forced Update)
+========================================================================= */
+test('system [PWA強制アップデート]: startup online check, manual settings check, and zero data loss reload', async () => {
+	setupDomEnvironment();
+	let alertMsg = '';
+	global.alert = (m) => { alertMsg = m; };
+	let confirmMsg = '';
+	let confirmAnswer = true;
+	global.confirm = (m) => { confirmMsg = m; return confirmAnswer; };
+
+	// 1. Populate current business data across all modes to verify zero data loss
+	state.currentDistrict = {
+		district: 'アップデート検証地区',
+		officers: [{ lastName: '地区役員', firstName: '太郎' }],
+		students: [{ name: '児童A', grade: '3' }],
+		neighborhood: []
+	};
+	document.getElementById('d-name').value = 'アップデート検証地区';
+
+	state.repState = {
+		districts: [{ district: 'アップデート代表地区', students: [] }],
+		szExternals: []
+	};
+
+	state.neighborState = {
+		district: 'アップデート自治会',
+		neighborhood: [{ role: '会長', lastName: '自治会長' }]
+	};
+	document.getElementById('neighbor-district-name').value = 'アップデート自治会';
+
+	// 2. Open Settings modal to verify version section rendered
+	app.openStorageSettingsModal();
+	const modalBody = document.getElementById('settings-modal-body');
+	assert(modalBody.innerHTML.includes('アプリバージョン情報'));
+	assert(modalBody.innerHTML.includes('btn-manual-check-update'));
+
+	// 3. Online startup check with newer version available
+	navigator.onLine = true;
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({
+			version: '3.0.0',
+			updatedAt: '2026-10-18',
+			description: 'メジャーアップデート'
+		})
+	});
+
+	let replacedUrl = '';
+	window.location.replace = (url) => { replacedUrl = url; };
+	global.caches = {
+		keys: async () => ['kogai-cache-v2'],
+		delete: async () => true
+	};
+	navigator.serviceWorker.getRegistrations = async () => [];
+
+	// User confirms update
+	confirmAnswer = true;
+	await app.checkAppVersion(false);
+	assert(confirmMsg.includes('新しいバージョン（v3.0.0）'));
+	assert(replacedUrl.includes('?_update='));
+
+	// 4. Verify LocalStorage has saved state (zero data loss)
+	assert.strictEqual(state.currentDistrict.district, 'アップデート検証地区');
+	assert.strictEqual(state.neighborState.district, 'アップデート自治会');
+
+	// 5. Manual check when offline: verify alert feedback
+	navigator.onLine = false;
+	alertMsg = '';
+	await app.checkAppVersion(true);
+	assert(alertMsg.includes('オフラインのためバージョンチェックを行えません'));
+});

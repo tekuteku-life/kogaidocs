@@ -167,8 +167,12 @@ if (typeof module !== 'undefined' && module.exports) {
 		set repState(v) { repState = v; global.repState = v; },
 		get neighborState() { return global.neighborState !== undefined ? global.neighborState : neighborState; },
 		set neighborState(v) { neighborState = v; global.neighborState = v; },
-		saveDistrictLocal,
-		saveRepLocal,
-		saveNeighborLocal
+		get saveDistrictLocal() { return global.saveDistrictLocal !== undefined ? global.saveDistrictLocal : saveDistrictLocal; },
+		set saveDistrictLocal(fn) { global.saveDistrictLocal = fn; },
+		get saveRepLocal() { return global.saveRepLocal !== undefined ? global.saveRepLocal : saveRepLocal; },
+		set saveRepLocal(fn) { global.saveRepLocal = fn; },
+		get saveNeighborLocal() { return global.saveNeighborLocal !== undefined ? global.saveNeighborLocal : saveNeighborLocal; },
+		set saveNeighborLocal(fn) { global.saveNeighborLocal = fn; }
 	};
+	global.state = module.exports;
 }
