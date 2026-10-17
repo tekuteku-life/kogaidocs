@@ -1,7 +1,8 @@
 # kogaidocs 開発プロセス定義書 (Development Process Specification)
 
-**文書バージョン**: 1.0.0<br>
+**文書バージョン**: 1.1.0<br>
 **策定日**: 2026年10月17日<br>
+**改訂日**: 2026年10月17日 (v1.1.0: ブランチ運用およびプルリクエストワークフローの定義追加)<br>
 **適用対象**: `kogaidocs` プロジェクトにおける全機能拡張・改修・品質保証活動
 
 ---
@@ -19,6 +20,8 @@
 	- 設計フェーズ、テスト設計フェーズ、実装完了フェーズの各段階において、独立したサブエージェントによる厳格なレビューゲートを通過することを必須とする。
 4. **Zero Dead Code & High Test Coverage（不要コードの完全排除と高網羅率）**
 	- 機能追加・改修によって生じた不要コードや旧互換コードを即時削除し、命令網羅（Line）100%、分岐網羅（Branch）95%以上を維持する。
+5. **Branch & Pull Request-Driven Development（ブランチ・プルリク駆動開発の徹底）**
+	- `main` ブランチへの直接コミットを原則禁止とし、必ず作業用ブランチ（`feature/*`, `fix/*`, `docs/*` 等）を切って作業を行い、所定のプルリクフォーマットに基づくPR発行・レビューを経てマージする。
 
 ---
 
@@ -26,7 +29,8 @@
 
 ```mermaid
 flowchart TD
-	S1[Stage 1: 要求分析と全体最適化構想] --> S2[Stage 2: システム設計書の改訂 docs/system_design.md]
+	S0[Stage 0: フィーチャーブランチ作成 git checkout -b] --> S1[Stage 1: 要求分析と全体最適化構想]
+	S1 --> S2[Stage 2: システム設計書の改訂 docs/system_design.md]
 	S2 --> S3[Stage 3: 設計レビュー＆セキュリティアセスメント サブエージェント]
 	S3 -->|レビュー記録保存| D1[(docs/reviews/review2_design.md)]
 	S3 --> S4[Stage 4: テスト設計とテストスイート実装 tests/]
@@ -37,11 +41,23 @@ flowchart TD
 	S7 --> S8[Stage 8: 最終品質保証＆セキュリティ評価 サブエージェント]
 	S8 -->|レビュー記録保存| D3[(docs/reviews/review4_final.md)]
 	S8 --> S9[Stage 9: 英語コミットメッセージによるGitコミット]
+	S9 --> S10[Stage 10: プルリクエスト発行とフォーマット記載 .github/pull_request_template.md]
+	S10 --> S11[Stage 11: PRレビュー承認＆mainブランチへのマージ]
 ```
 
 ---
 
 ## 3. 各ステージの実施要領
+
+### Stage 0: フィーチャーブランチの作成と命名規約
+- `main` ブランチを最新状態に更新後、作業内容に応じたプレフィックスを付与したブランチを作成する。
+- **ブランチ命名規約**:
+	- `feature/<feature-name>`: 新機能開発、機能拡張
+	- `fix/<bug-name>`: バグ修正、不具合対応
+	- `docs/<doc-name>`: 設計書・ドキュメント・テンプレートの改訂
+	- `refactor/<refactor-name>`: リファクタリング、コード整理
+	- `test/<test-name>`: テストケースの追加・強化
+- 例: `git checkout -b feature/share-district-data`
 
 ### Stage 1: 要求分析と全体最適化構想
 - ユーザー要求の背景・意図（ユーザーが真に解決したい課題）を深く分析する。
@@ -85,7 +101,22 @@ flowchart TD
 - 実装されたコード、テスト結果、規約準拠を検証し、リリース合否判定を `docs/reviews/review4_final.md` に記録する。
 
 ### Stage 9: 英語コミットメッセージによるGitコミット
-- Conventional Commits 規約に準拠した詳細な英語コミットメッセージを作成し、リポジトリに変更をコミットする。
+- Conventional Commits 規約に準拠した詳細な英語コミットメッセージを作成し、作業ブランチに変更をコミットする。
+- コミットメッセージには、変更の概要、詳細な改修点（機能、セキュリティ、クリーンアップ）、テスト結果を明記する。
+
+### Stage 10: プルリクエスト（PR）の発行とフォーマット記載
+- リモートブランチへプッシュ後、`main` ブランチに向けてプルリクエストを発行する。
+- [`.github/pull_request_template.md`](file:///home/k/workspace/kogaidocs/.github/pull_request_template.md)（参照: [`docs/pull_request_template.md`](file:///home/k/workspace/kogaidocs/docs/pull_request_template.md)）の所定フォーマットに従い、以下の**5大項目を日本語で漏れなく記載**する：
+	1. **背景 (Background)**: 変更理由、課題、関連Issue
+	2. **変更内容（設計・ファイル） (Changes: Design & Files)**: 設計書への反映点、主要変更ファイル一覧と修正理由
+	3. **確認内容 (Verification Points)**: 動作確認チェックリスト、セキュリティ安全措置チェックリスト
+	4. **テスト結果 (Test Results)**: `npm test` 実行結果、Line 100% / Branch 95%以上のカバレッジ結果サマリ
+	5. **レビュー結果 (Review Results)**: Gate 1〜Gate 3のレビュー合否判定とレビュー記録リンク
+
+### Stage 11: PRレビュー承認＆mainブランチへのマージ
+- レビュアーによるPR内容の精査、CIチェック（自動テスト・カバレッジ検証）の通過を確認する。
+- レビュアーの承認（Approve）後、`main` ブランチへ安全にマージ（Squash and Merge または Rebase and Merge）する。
+- マージ完了後、役目を終えた作業ブランチを削除（`git branch -d`）し、ローカルの `main` を最新化する。
 
 ---
 
@@ -93,9 +124,10 @@ flowchart TD
 
 | 項目 | 基準 |
 | :--- | :--- |
+| **ブランチ戦略** | `main` 直接コミット禁止、`feature/*`, `fix/*`, `docs/*` によるPRベース運用 |
+| **PRフォーマット** | `.github/pull_request_template.md` 準拠（日本語5大項目の記載必須） |
 | **外部依存性** | 外部 npm ランタイムライブラリゼロ（Node.js / Web標準技術のみ） |
 | **テスト合格率** | 100%（全件パス、失敗0件） |
 | **コードカバレッジ** | Line 100.00%（全モジュール）、Branch 95.00%以上（全モジュール） |
 | **インデント規約** | 全ファイル（JS, HTML, CSS, MD, JSON）タブインデント（`\t`） |
 | **セキュリティ基準** | AES-256-GCM、PBKDF2 100,000回、WebAuthn PRF、CSP強制、XSSエスケープ |
-
