@@ -2,23 +2,6 @@
 // タブ4：転入者モード（家庭側: 児童情報入力・暗号化提出・APPI消去）
 // =========================================================================
 
-let transferState = (typeof state !== 'undefined' && state.transferState) ? state.transferState : {
-	children: [
-		{
-			id: 'c_' + Date.now(),
-			lastName: "",
-			firstName: "",
-			lastNameKana: "",
-			firstNameKana: "",
-			grade: "1",
-			className: "1",
-			address: "",
-			tel: ""
-		}
-	],
-	memo: ""
-};
-
 // 転入者フォームを描画します
 function renderTransferForm() {
 	const container = document.getElementById('transfer-children-container');
@@ -334,8 +317,8 @@ if (typeof module !== 'undefined' && module.exports) {
 	global.loadTransferLocal = loadTransferLocal;
 
 	module.exports = {
-		get transferState() { return global.transferState !== undefined ? global.transferState : transferState; },
-		set transferState(v) { transferState = v; global.transferState = v; },
+		get transferState() { return (typeof transferState !== 'undefined' && transferState) ? transferState : (global.transferState || (typeof state !== 'undefined' ? state.transferState : null)); },
+		set transferState(v) { if (typeof transferState !== 'undefined') transferState = v; global.transferState = v; },
 		renderTransferForm,
 		addTransferChildRow,
 		removeTransferChildRow,
