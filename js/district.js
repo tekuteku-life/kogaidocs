@@ -28,6 +28,7 @@ function renderDistrictForm() {
 	renderOfficersList();
 	renderNeighborhoodTable();
 	renderStudentsTable();
+	if (typeof renderHataCard === 'function') renderHataCard();
 	updateHataPreview();
 }
 
@@ -395,8 +396,8 @@ function runDistrictYearUpdate() {
 			location: currentDistrict.hata.location || "",
 			time: currentDistrict.hata.time || "",
 			weekdays: Array.isArray(currentDistrict.hata.weekdays) ? currentDistrict.hata.weekdays : [1, 2, 3, 4, 5],
-			orientation: currentDistrict.hata.orientation || "landscape",
-			layoutColumns: currentDistrict.hata.layoutColumns || "3",
+			orientation: currentDistrict.hata.orientation || "portrait",
+			layoutColumns: currentDistrict.hata.layoutColumns || "2",
 			headerMsg: currentDistrict.hata.headerMsg || "",
 			footerMsg: currentDistrict.hata.footerMsg || "",
 			contactMsg: currentDistrict.hata.contactMsg || "",
@@ -412,6 +413,7 @@ function runDistrictYearUpdate() {
 	}
 
 	renderDistrictForm();
+	if (typeof renderHataCard === 'function') renderHataCard();
 	saveDistrictLocal();
 	alert("年度更新が完了しました。新年度用の引き継ぎファイルとして「提出・保存用ファイル(.txt)出力」から保存してください。");
 }

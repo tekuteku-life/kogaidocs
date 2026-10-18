@@ -364,6 +364,7 @@ function saveAndCloseRepDistrictDetailModal() {
 		return;
 	}
 	repState.districts[modalDistrictIndex] = JSON.parse(JSON.stringify(modalCurrentDistrict));
+	(repState.districts[modalDistrictIndex].officers || []).forEach(normalizeNameFields);
 	(repState.districts[modalDistrictIndex].neighborhood || []).forEach(normalizeNameFields);
 	(repState.districts[modalDistrictIndex].students || []).forEach(s => {
 		normalizeNameFields(s);
@@ -376,11 +377,166 @@ function saveAndCloseRepDistrictDetailModal() {
 	saveRepLocal();
 }
 
+function openAddDistrictModal() {
+	const modal = document.getElementById('rep-add-district-modal');
+	if (modal) {
+		modal.style.display = 'flex';
+	}
+	const input = document.getElementById('rep-new-district-name');
+	if (input) {
+		input.value = '';
+		if (typeof input.focus === 'function') input.focus();
+	}
+	const errorEl = document.getElementById('rep-new-district-error');
+	if (errorEl) {
+		errorEl.textContent = '';
+		errorEl.style.display = 'none';
+	}
+}
+
+function closeAddDistrictModal() {
+	const modal = document.getElementById('rep-add-district-modal');
+	if (modal) {
+		modal.style.display = 'none';
+	}
+	const input = document.getElementById('rep-new-district-name');
+	if (input) {
+		input.value = '';
+	}
+	const errorEl = document.getElementById('rep-new-district-error');
+	if (errorEl) {
+		errorEl.textContent = '';
+		errorEl.style.display = 'none';
+	}
+}
+
+function confirmAddRepDistrict() {
+	const input = document.getElementById('rep-new-district-name');
+	const errorEl = document.getElementById('rep-new-district-error');
+	const rawName = input ? input.value : '';
+	const dName = (rawName || '').replace(/[\r\n\t]/g, '').trim();
+
+	if (!dName) {
+		if (errorEl) {
+			errorEl.textContent = '地区名を入力してください。';
+			errorEl.style.display = 'block';
+		}
+		if (input && typeof input.focus === 'function') input.focus();
+		return;
+	}
+
+	if (repState.districts && repState.districts.some(d => d.district === dName)) {
+		if (errorEl) {
+			errorEl.textContent = `地区「${dName}」は既に存在します。`;
+			errorEl.style.display = 'block';
+		}
+		if (input && typeof input.focus === 'function') input.focus();
+		return;
+	}
+
+	closeAddDistrictModal();
+	addNewRepDistrict(dName);
+
+	const card = document.getElementById('card-rep-districts');
+	if (card) {
+		card.classList.remove('is-collapsed');
+		const toggleText = card.querySelector('.btn-card-toggle');
+		if (toggleText) toggleText.textContent = '▲ 閉じる';
+	}
+}
+
+function addNewRepDistrict(directName) {
+	if (typeof directName !== 'string') {
+		openAddDistrictModal();
+		return;
+	}
+
+	const dName = directName.replace(/[\r\n\t]/g, '').trim();
+	if (!dName) return;
+
+	if (repState.districts && repState.districts.some(d => d.district === dName)) {
+		alert("地区「" + dName + "」は既に存在します。");
+		return;
+	}
+
+	const newDist = {
+		district: dName,
+		han: "1班",
+		hanList: ["1班"],
+		officers: [
+			{
+				role: "校外委員",
+				lastName: "",
+				firstName: "",
+				lastNameKana: "",
+				firstNameKana: "",
+				han: "1班",
+				tel: "",
+				email: "",
+				childGrade: "",
+				childClass: "",
+				childLastName: "",
+				childFirstName: "",
+				childLastNameKana: "",
+				childFirstNameKana: ""
+			}
+		],
+		neighborhood: [],
+		students: [],
+		selectedForPrint: true,
+		szNeighborChecks: {}
+	};
+
+	if (!repState.districts) repState.districts = [];
+	repState.districts.push(newDist);
+	renderRepDistrictsTable();
+	if (typeof renderSzNeighborhoodSelector === 'function') renderSzNeighborhoodSelector();
+	saveRepLocal();
+}
+
+if (typeof window !== 'undefined' && window.addEventListener) {
+	window.addEventListener('keydown', (e) => {
+		if (e.key === 'Escape') {
+			const modal = document.getElementById('rep-add-district-modal');
+			if (modal && modal.style.display !== 'none') {
+				closeAddDistrictModal();
+			}
+		}
+	});
+}
+
 function renderRepDistrictDetailModal() {
 	if (!modalCurrentDistrict) return;
 	const titleEl = document.getElementById('rep-modal-district-title');
 	if (titleEl) {
 		titleEl.textContent = `地区名簿の閲覧・編集: ${modalCurrentDistrict.district || ''} ${modalCurrentDistrict.han ? '(' + modalCurrentDistrict.han + ')' : ''}`;
+	}
+
+	const oBody = document.getElementById('rep-modal-officer-tbody');
+	if (oBody) {
+		oBody.innerHTML = (modalCurrentDistrict.officers || []).map((off, idx) => `
+			<tr>
+				<td><input type="text" value="${esc(off.role || '')}" placeholder="校外委員" style="width:100px;" oninput="updateModalOfficer(${idx}, 'role', this.value)"></td>
+				<td>
+					<input type="text" value="${esc(off.lastName || '')}" placeholder="姓" style="width:65px;" oninput="updateModalOfficer(${idx}, 'lastName', this.value)">
+					<input type="text" value="${esc(off.firstName || '')}" placeholder="名" style="width:65px;" oninput="updateModalOfficer(${idx}, 'firstName', this.value)">
+				</td>
+				<td><input type="text" value="${esc(off.han || '')}" placeholder="担当班" style="width:70px;" oninput="updateModalOfficer(${idx}, 'han', this.value)"></td>
+				<td><input type="text" value="${esc(off.tel || '')}" placeholder="電話番号" style="width:100px;" oninput="updateModalOfficer(${idx}, 'tel', this.value)"></td>
+				<td><input type="text" value="${esc(off.email || '')}" placeholder="メール" style="width:120px;" oninput="updateModalOfficer(${idx}, 'email', this.value)"></td>
+				<td>
+					<div style="display:flex; gap:2px; align-items:center;">
+						<input type="text" value="${esc(off.childGrade || '')}" placeholder="年" style="width:28px;" oninput="updateModalOfficer(${idx}, 'childGrade', this.value)">
+						<input type="text" value="${esc(off.childClass || '')}" placeholder="組" style="width:32px;" oninput="updateModalOfficer(${idx}, 'childClass', this.value)">
+						<input type="text" value="${esc(off.childLastName || '')}" placeholder="姓" style="width:50px;" oninput="updateModalOfficer(${idx}, 'childLastName', this.value)">
+						<input type="text" value="${esc(off.childFirstName || '')}" placeholder="名" style="width:50px;" oninput="updateModalOfficer(${idx}, 'childFirstName', this.value)">
+					</div>
+				</td>
+				<td style="text-align:center;">
+					<button type="button" class="btn btn-danger btn-xs" onclick="removeModalOfficerRow(${idx})">×</button>
+				</td>
+			</tr>
+		`).join('');
 	}
 
 	const stBody = document.getElementById('rep-modal-students-tbody');
@@ -425,8 +581,46 @@ function renderRepDistrictDetailModal() {
 	}
 }
 
+function updateModalOfficer(idx, key, val) {
+	if (!modalCurrentDistrict || !modalCurrentDistrict.officers || !modalCurrentDistrict.officers[idx]) return;
+	modalCurrentDistrict.officers[idx][key] = val;
+}
+
+function addModalOfficerRow() {
+	if (!modalCurrentDistrict) return;
+	if (!modalCurrentDistrict.officers) modalCurrentDistrict.officers = [];
+	modalCurrentDistrict.officers.push({
+		role: "校外委員",
+		lastName: "",
+		firstName: "",
+		lastNameKana: "",
+		firstNameKana: "",
+		han: modalCurrentDistrict.han || "",
+		tel: "",
+		email: "",
+		childGrade: "",
+		childClass: "",
+		childLastName: "",
+		childFirstName: "",
+		childLastNameKana: "",
+		childFirstNameKana: ""
+	});
+	renderRepDistrictDetailModal();
+}
+
+function removeModalOfficerRow(idx) {
+	if (!modalCurrentDistrict || !modalCurrentDistrict.officers || !modalCurrentDistrict.officers[idx]) return;
+	const off = modalCurrentDistrict.officers[idx];
+	const name = ((off.lastName || '') + ' ' + (off.firstName || '')).trim();
+	if (name || off.role) {
+		if (!confirm('役員「' + (name || off.role) + '」を削除しますか？')) return;
+	}
+	modalCurrentDistrict.officers.splice(idx, 1);
+	renderRepDistrictDetailModal();
+}
+
 function updateModalStudent(idx, key, val) {
-	if (!modalCurrentDistrict || !modalCurrentDistrict.students[idx]) return;
+	if (!modalCurrentDistrict || !modalCurrentDistrict.students || !modalCurrentDistrict.students[idx]) return;
 	modalCurrentDistrict.students[idx][key] = val;
 }
 
@@ -449,7 +643,7 @@ function addModalStudentRow() {
 }
 
 function removeModalStudentRow(idx) {
-	if (!modalCurrentDistrict || !modalCurrentDistrict.students[idx]) return;
+	if (!modalCurrentDistrict || !modalCurrentDistrict.students || !modalCurrentDistrict.students[idx]) return;
 	const s = modalCurrentDistrict.students[idx];
 	const name = ((s.lastName || '') + ' ' + (s.firstName || '')).trim();
 	if (name) {
@@ -460,7 +654,7 @@ function removeModalStudentRow(idx) {
 }
 
 function updateModalNeighbor(idx, key, val) {
-	if (!modalCurrentDistrict || !modalCurrentDistrict.neighborhood[idx]) return;
+	if (!modalCurrentDistrict || !modalCurrentDistrict.neighborhood || !modalCurrentDistrict.neighborhood[idx]) return;
 	modalCurrentDistrict.neighborhood[idx][key] = val;
 }
 
@@ -908,11 +1102,15 @@ if (typeof module !== 'undefined' && module.exports) {
 		toggleAllDistrictChecks,
 		clearAllRepDistricts,
 		deleteRepDistrict,
+		addNewRepDistrict,
 		openRepDistrictDetailModal,
 		closeRepDistrictDetailModalWithoutSaving,
 		saveAndCloseRepDistrictDetailModal,
 		renderRepDistrictDetailModal,
 		getModalCurrentDistrict,
+		addModalOfficerRow,
+		removeModalOfficerRow,
+		updateModalOfficer,
 		addModalStudentRow,
 		removeModalStudentRow,
 		addModalNeighborRow,
@@ -925,6 +1123,10 @@ if (typeof module !== 'undefined' && module.exports) {
 		updateSzEx,
 		addSzExternalRow,
 		deleteSzExternalRow,
+		addNewRepDistrict,
+		openAddDistrictModal,
+		closeAddDistrictModal,
+		confirmAddRepDistrict,
 		mergeNeighborDataIntoRep,
 		integrateNeighborDataIntoRep: mergeNeighborDataIntoRep,
 		integrateTransferDataIntoRep,
@@ -933,4 +1135,11 @@ if (typeof module !== 'undefined' && module.exports) {
 		exportSingleDistrictFromRep
 	};
 	Object.assign(global, module.exports);
+}
+
+if (typeof window !== 'undefined') {
+	window.openAddDistrictModal = openAddDistrictModal;
+	window.closeAddDistrictModal = closeAddDistrictModal;
+	window.confirmAddRepDistrict = confirmAddRepDistrict;
+	window.addNewRepDistrict = addNewRepDistrict;
 }

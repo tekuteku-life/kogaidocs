@@ -1202,4 +1202,39 @@ table.edit-table th { background: #f8fafc; font-weight: bold; white-space: nowra
 	}
 }
 
+/* ハタフロット レスポンシブ改善 */
+@media (min-width: 768px) {
+	.hata-details-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 12px;
+	}
+}
+
+@media (max-width: 600px) {
+	.hata-text-copy-row {
+		flex-direction: column !important;
+		align-items: stretch !important;
+	}
+	.hata-text-copy-row input[type="text"] {
+		width: 100% !important;
+	}
+	.hata-toolbar {
+		flex-direction: column !important;
+		align-items: stretch !important;
+	}
+	.hata-toolbar > button {
+		width: 100% !important;
+	}
+	.hata-toolbar-sub {
+		display: grid !important;
+		grid-template-columns: 1fr 1fr;
+		gap: 6px !important;
+		width: 100% !important;
+	}
+	.hata-toolbar-sub > button:first-child {
+		grid-column: 1 / -1;
+	}
+}
+
 

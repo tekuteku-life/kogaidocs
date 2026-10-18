@@ -248,15 +248,28 @@ describe('transfer unit tests', () => {
 		assert.equal(await transfer.copyTransferEncryptedText(), false);
 
 		transfer.transferState.children = [
-			{ id: 'c1', lastName: '山田', firstName: '', grade: '1', className: '1' }
+			{ id: 'c1', lastName: '山田', firstName: '', grade: '1', className: '1', address: '東京都新宿区1-1-1', tel: '090-1234-5678' }
+		];
+		assert.equal(await transfer.exportTransferTxt(), false);
+		assert.equal(await transfer.copyTransferEncryptedText(), false);
+
+		// 5b. exportTransferTxt with child missing address or tel
+		transfer.transferState.children = [
+			{ id: 'c1', lastName: '山田', firstName: '太郎', grade: '1', className: '1', address: '', tel: '090-1234-5678' }
+		];
+		assert.equal(await transfer.exportTransferTxt(), false);
+		assert.equal(await transfer.copyTransferEncryptedText(), false);
+
+		transfer.transferState.children = [
+			{ id: 'c1', lastName: '山田', firstName: '太郎', grade: '1', className: '1', address: '東京都新宿区1-1-1', tel: '' }
 		];
 		assert.equal(await transfer.exportTransferTxt(), false);
 		assert.equal(await transfer.copyTransferEncryptedText(), false);
 
 		// 6. exportTransferTxt and copyTransferEncryptedText with fallback class logic
 		transfer.transferState.children = [
-			{ id: 'c1', lastName: '山田', firstName: '太郎', grade: '1', className: '', class: '2組' },
-			{ id: 'c2', lastName: '山田', firstName: '次郎', grade: '3', className: '', class: '' }
+			{ id: 'c1', lastName: '山田', firstName: '太郎', grade: '1', className: '', class: '2組', address: '東京都新宿区1-1-1', tel: '090-1234-5678' },
+			{ id: 'c2', lastName: '山田', firstName: '次郎', grade: '3', className: '', class: '', address: '東京都新宿区1-1-1', tel: '090-1234-5678' }
 		];
 		let dlCount = 0;
 		utils.downloadTextFile = () => { dlCount++; };
@@ -419,5 +432,45 @@ describe('transfer unit tests', () => {
 		assert.strictEqual(confirmMsg, '', 'Should delete empty row without prompt');
 		assert.strictEqual(transfer.transferState.children.length, 1);
 		assert.strictEqual(transfer.transferState.children[0].lastName, '');
+	});
+
+	test('exportTransferTxt and copyTransferEncryptedText require address and tel (mandatory fields)', async () => {
+		setupDomEnvironment();
+		transfer.transferState.children = [
+			{ id: 'c1', lastName: '佐藤', firstName: '健太', grade: '2', className: '1', address: '', tel: '' }
+		];
+		const passInput = document.getElementById('transfer-export-pass');
+		const confirmInput = document.getElementById('transfer-export-pass-confirm');
+		passInput.value = 'TransferPass123!';
+		confirmInput.value = 'TransferPass123!';
+
+		let alertMsg = '';
+		global.alert = (msg) => { alertMsg = msg; };
+
+		// 住所・電話番号が空の場合、exportTransferTxt は失敗し警告を出す
+		const res1 = await transfer.exportTransferTxt();
+		assert.strictEqual(res1, false);
+		assert.ok(alertMsg.includes('住所') && alertMsg.includes('電話番号'), 'Should warn about address and tel');
+
+		// copyTransferEncryptedText も同様に失敗し警告を出す
+		alertMsg = '';
+		const res2 = await transfer.copyTransferEncryptedText();
+		assert.strictEqual(res2, false);
+		assert.ok(alertMsg.includes('住所') && alertMsg.includes('電話番号'));
+
+		// ホワイトスペースのみの場合も失敗する (GAP-DESIGN-4)
+		transfer.transferState.children[0].address = '   ';
+		transfer.transferState.children[0].tel = '　';
+		alertMsg = '';
+		const res3 = await transfer.exportTransferTxt();
+		assert.strictEqual(res3, false);
+		assert.ok(alertMsg.includes('住所') && alertMsg.includes('電話番号'));
+
+		// 正常入力時は成功する
+		transfer.transferState.children[0].address = '1丁目2-3';
+		transfer.transferState.children[0].tel = '090-0000-0000';
+		utils.downloadTextFile = () => {};
+		const res4 = await transfer.exportTransferTxt();
+		assert.strictEqual(res4, true);
 	});
 });

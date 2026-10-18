@@ -63,11 +63,11 @@ function renderTransferForm() {
 				</div>
 				<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
 					<div>
-						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">住所</label>
+						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">住所 <span style="color: #ef4444;">*</span></label>
 						<input type="text" class="form-control" value="${esc(child.address || '')}" placeholder="例: ○○町1-2-3 ○○マンション101" oninput="updateTransferChild(${index}, 'address', this.value)" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 					<div>
-						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">電話番号</label>
+						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">電話番号 <span style="color: #ef4444;">*</span></label>
 						<input type="tel" class="form-control" value="${esc(child.tel || '')}" placeholder="例: 090-1234-5678" oninput="updateTransferChild(${index}, 'tel', this.value)" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 				</div>
@@ -164,9 +164,11 @@ async function exportTransferTxt() {
 		return false;
 	}
 
-	const hasEmptyName = transferState.children.some(c => !c.lastName || !c.firstName);
-	if (hasEmptyName) {
-		alert("すべての児童の氏名（姓・名）を入力してください。");
+	const hasEmptyRequired = transferState.children.some(c =>
+		!c.lastName?.trim() || !c.firstName?.trim() || !c.address?.trim() || !c.tel?.trim()
+	);
+	if (hasEmptyRequired) {
+		alert("すべての児童の氏名（姓・名）、住所、および電話番号を入力してください。");
 		return false;
 	}
 
@@ -208,9 +210,11 @@ async function copyTransferEncryptedText() {
 		return false;
 	}
 
-	const hasEmptyName = transferState.children.some(c => !c.lastName || !c.firstName);
-	if (hasEmptyName) {
-		alert("すべての児童の氏名（姓・名）を入力してください。");
+	const hasEmptyRequired = transferState.children.some(c =>
+		!c.lastName?.trim() || !c.firstName?.trim() || !c.address?.trim() || !c.tel?.trim()
+	);
+	if (hasEmptyRequired) {
+		alert("すべての児童の氏名（姓・名）、住所、および電話番号を入力してください。");
 		return false;
 	}
 

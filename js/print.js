@@ -21,14 +21,95 @@ function printSingleDistrictSelected() {
 	};
 
 	const pages = [];
-	if (pStu) pages.push(buildStudentPageHtml(currentDistrict, options, [currentDistrict]));
-	if (pNei) pages.push(buildNeighborPageHtml(currentDistrict));
-	if (pSch) pages.push(buildSchoolOfficersRosterPageHtml([currentDistrict], [currentDistrict]));
-	if (pPta) pages.push(buildPtaOfficersRosterPageHtml([currentDistrict]));
+	const checkedNames = [];
+	const distName = currentDistrict.district || "未設定";
+
+	if (pStu) {
+		pages.push(buildStudentPageHtml(currentDistrict, options, [currentDistrict]));
+		checkedNames.push("児童名簿");
+	}
+	if (pNei) {
+		pages.push(buildNeighborPageHtml(currentDistrict));
+		checkedNames.push("自治会役員名簿");
+	}
+	if (pSch) {
+		pages.push(buildSchoolOfficersRosterPageHtml([currentDistrict], [currentDistrict]));
+		checkedNames.push("校外役員名簿_学校用");
+	}
+	if (pPta) {
+		pages.push(buildPtaOfficersRosterPageHtml([currentDistrict]));
+		checkedNames.push("校外役員名簿_PTA用");
+	}
 
 	const area = document.getElementById('print-area');
-	area.innerHTML = pages.join('');
-	window.print();
+	if (area) area.innerHTML = pages.join('');
+
+	const origTitle = document.title;
+	const targetTitle = checkedNames.length === 1
+		? `${checkedNames[0]}_${distName}`
+		: `自地区帳票一括_${distName}`;
+
+	try {
+		document.title = targetTitle;
+		window.print();
+	} finally {
+		document.title = origTitle;
+	}
+}
+
+/* タブ1：自地区の個別PDF保存（選択した帳票ごとに順次印刷ダイアログを起動） */
+function printSingleDistrictSeparately() {
+	saveDistrictLocal();
+	const pStu = document.getElementById('d-print-students')?.checked;
+	const pNei = document.getElementById('d-print-neighbors')?.checked;
+	const pSch = document.getElementById('d-print-school')?.checked;
+	const pPta = document.getElementById('d-print-pta')?.checked;
+	if (!pStu && !pNei && !pSch && !pPta) { alert("印刷する帳票にチェックを入れてください。"); return; }
+
+	const options = {
+		includeOfficerTel: document.getElementById('d-opt-officer-tel')?.checked !== false,
+		includeOfficerEmail: document.getElementById('d-opt-officer-email')?.checked !== false
+	};
+
+	const distName = currentDistrict.district || "未設定";
+	const area = document.getElementById('print-area');
+
+	const printItems = [];
+	if (pStu) {
+		printItems.push({
+			title: `児童名簿_${distName}`,
+			html: buildStudentPageHtml(currentDistrict, options, [currentDistrict])
+		});
+	}
+	if (pNei) {
+		printItems.push({
+			title: `自治会役員名簿_${distName}`,
+			html: buildNeighborPageHtml(currentDistrict)
+		});
+	}
+	if (pSch) {
+		printItems.push({
+			title: `校外役員名簿_学校用_${distName}`,
+			html: buildSchoolOfficersRosterPageHtml([currentDistrict], [currentDistrict])
+		});
+	}
+	if (pPta) {
+		printItems.push({
+			title: `校外役員名簿_PTA用_${distName}`,
+			html: buildPtaOfficersRosterPageHtml([currentDistrict])
+		});
+	}
+
+	const origTitle = document.title;
+	for (const item of printItems) {
+		if (area) area.innerHTML = item.html;
+		try {
+			document.title = item.title;
+			window.print();
+		} finally {
+			document.title = origTitle;
+		}
+	}
 }
 
 /* タブ2：代表モードの選択一括印刷 */
@@ -47,6 +128,21 @@ function executeRepSelectedPrint() {
 
 	const targetDistricts = repState.districts.filter(d => d.selectedForPrint);
 	const pages = [];
+
+	const repTypeNames = {
+		officers_pta: 'PTA総会・校外役員名簿',
+		officers_school: '学校提出用・校外役員名簿',
+		reg_tent: '定例会用四つ折り名札',
+		envelopes: '子供経由封筒宛名',
+		all_students: '地区別児童名簿',
+		all_neighbors: '地区別自治会役員名簿',
+		sz_tent: 'スクゾ四つ折り名札',
+		sz_att_1: 'スクゾ出席簿1_学校PTA',
+		sz_att_2: 'スクゾ出席簿2_役所自治会',
+		sz_att_3: 'スクゾ出席簿3_当日用',
+		sz_seats: 'スクゾ座席表',
+		sz_master: '代表控え用スクゾ関係者名簿'
+	};
 
 	checkedTypes.forEach(type => {
 		if (type === 'officers_pta') {
@@ -95,8 +191,19 @@ function executeRepSelectedPrint() {
 	}
 
 	const area = document.getElementById('print-area');
-	area.innerHTML = pages.join('');
-	window.print();
+	if (area) area.innerHTML = pages.join('');
+
+	const origTitle = document.title;
+	const targetTitle = checkedTypes.length === 1 && repTypeNames[checkedTypes[0]]
+		? repTypeNames[checkedTypes[0]]
+		: '校外代表印刷一括';
+
+	try {
+		document.title = targetTitle;
+		window.print();
+	} finally {
+		document.title = origTitle;
+	}
 }
 
 /* --- 個別帳票ビルダー群 --- */
@@ -884,6 +991,7 @@ if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		setRepPrintChecks,
 		printSingleDistrictSelected,
+		printSingleDistrictSeparately,
 		executeRepSelectedPrint,
 		buildStudentPageHtml,
 		buildNeighborPageHtml,

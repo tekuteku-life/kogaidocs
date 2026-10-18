@@ -1108,3 +1108,36 @@ test('hata: precision branch booster to achieve 100% line and >95% branch covera
 	hata.applyHataPeriodPreset('full');
 	assert.strictEqual(state.currentDistrict.hata.startDate.slice(5), '04-06');
 });
+
+test('hata: default orientation must be portrait and layoutColumns must be 2', () => {
+	setupDomEnvironment();
+	state.currentDistrict = {};
+	hata.renderHataCard();
+	assert.strictEqual(state.currentDistrict.hata.orientation, 'portrait', 'Default orientation should be portrait');
+	assert.strictEqual(state.currentDistrict.hata.layoutColumns, '2', 'Default layoutColumns should be 2');
+});
+
+test('hata: printHataSchedule dynamically sets document.title to shift table title and restores it', () => {
+	setupDomEnvironment();
+	const origTitle = 'テストアプリタイトル';
+	document.title = origTitle;
+	state.currentDistrict = {
+		district: '1丁目',
+		hata: {
+			title: '1丁目 登校見守り活動シフト表',
+			startDate: '2026-06-01',
+			endDate: '2026-06-05',
+			weekdays: [1, 2, 3, 4, 5],
+			members: '高橋'
+		}
+	};
+
+	let titleDuringPrint = '';
+	global.window.print = () => {
+		titleDuringPrint = document.title;
+	};
+
+	hata.printHataSchedule();
+	assert.strictEqual(titleDuringPrint, '1丁目 登校見守り活動シフト表', 'Title during print should match hata.title');
+	assert.strictEqual(document.title, origTitle, 'Title after print should be restored');
+});

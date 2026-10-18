@@ -5,6 +5,10 @@
 function renderNeighborForm() {
 	const dNameEl = document.getElementById('neighbor-district-name');
 	if (dNameEl) dNameEl.value = neighborState.district || "";
+	const topBtn = document.getElementById('btn-add-neighbor-mode-top');
+	if (topBtn) topBtn.onclick = () => addNeighborRow();
+	const bottomBtn = document.getElementById('btn-add-neighbor-mode-bottom');
+	if (bottomBtn) bottomBtn.onclick = () => addNeighborRow();
 	renderNeighborTable();
 }
 
@@ -313,7 +317,14 @@ function printNeighborRoster() {
 		district: neighborState.district || "自治会",
 		neighborhood: neighborState.neighborhood
 	});
-	window.print();
+	const origTitle = document.title;
+	const distName = neighborState.district || "自治会";
+	try {
+		document.title = `自治会役員名簿_${distName}`;
+		window.print();
+	} finally {
+		document.title = origTitle;
+	}
 }
 
 function printNeighborTentCards() {
@@ -332,7 +343,14 @@ function printNeighborTentCards() {
 		const ruby = (n.lastNameKana || n.firstNameKana) ? `${n.lastNameKana || ''} ${n.firstNameKana || ''}`.trim() : "";
 		return buildTentCardPageHtml(org, role, name, ruby);
 	}).join('');
-	window.print();
+	const origTitle = document.title;
+	const distName = neighborState.district || "自治会";
+	try {
+		document.title = `自治会役員席札_${distName}`;
+		window.print();
+	} finally {
+		document.title = origTitle;
+	}
 }
 
 if (typeof module !== 'undefined' && module.exports) {

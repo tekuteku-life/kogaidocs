@@ -26,7 +26,24 @@ let currentDistrict = {
 		}
 	],
 	neighborhood: [],
-	students: []
+	students: [],
+	hata: {
+		title: "登校見守り活動シフト表",
+		location: "",
+		time: "7:55 〜 8:25",
+		startDate: "",
+		endDate: "",
+		orientation: "portrait",
+		layoutColumns: 2,
+		holidays: "",
+		specials: "",
+		headerMsg: "",
+		footerMsg: "",
+		contactMsg: "",
+		exemptHouseholds: [],
+		schedule: [],
+		manualOverrides: {}
+	}
 };
 
 let repState = {
@@ -133,6 +150,35 @@ function saveDistrictLocal() {
 		currentDistrict.officers = newOfficers;
 	}
 
+	// ハタフロット（旗振りシフト）入力値の同期収集（要素が存在し入力値がある場合のみ更新）
+	const hTitle = document.getElementById('hata-title');
+	if (hTitle && hTitle.value.trim() !== '') {
+		currentDistrict.hata = currentDistrict.hata || {};
+		currentDistrict.hata.title = hTitle.value.trim();
+		const hLoc = document.getElementById('hata-location');
+		if (hLoc && hLoc.value.trim() !== '') currentDistrict.hata.location = hLoc.value.trim();
+		const hTime = document.getElementById('hata-time');
+		if (hTime && hTime.value.trim() !== '') currentDistrict.hata.time = hTime.value.trim();
+		const hStart = document.getElementById('hata-start-date');
+		if (hStart && hStart.value) currentDistrict.hata.startDate = hStart.value;
+		const hEnd = document.getElementById('hata-end-date');
+		if (hEnd && hEnd.value) currentDistrict.hata.endDate = hEnd.value;
+		const hOrient = document.getElementById('hata-orientation');
+		if (hOrient && hOrient.value) currentDistrict.hata.orientation = hOrient.value;
+		const hCols = document.getElementById('hata-columns');
+		if (hCols && hCols.value) currentDistrict.hata.layoutColumns = String(hCols.value);
+		const hHols = document.getElementById('hata-holidays');
+		if (hHols && hHols.value) currentDistrict.hata.holidays = hHols.value;
+		const hSpecs = document.getElementById('hata-specials');
+		if (hSpecs && hSpecs.value) currentDistrict.hata.specials = hSpecs.value;
+		const hHeader = document.getElementById('hata-header-msg');
+		if (hHeader && hHeader.value) currentDistrict.hata.headerMsg = hHeader.value;
+		const hFooter = document.getElementById('hata-footer-msg');
+		if (hFooter && hFooter.value) currentDistrict.hata.footerMsg = hFooter.value;
+		const hContact = document.getElementById('hata-contact-msg');
+		if (hContact && hContact.value) currentDistrict.hata.contactMsg = hContact.value;
+	}
+
 	// パスワード安全記憶処理（多層防御・二重防壁）
 	const isEnc = typeof isStorageEncrypted === 'function' ? isStorageEncrypted() : false;
 	const optinEl = document.getElementById('d-save-password-optin');
@@ -151,6 +197,9 @@ function saveDistrictLocal() {
 }
 
 function saveRepLocal() {
+	if (!repState.seatConfig) {
+		repState.seatConfig = { cols: 4, rows: 5, cells: {} };
+	}
 	const topLabelEl = document.getElementById('seat-top-label');
 	const bottomLabelEl = document.getElementById('seat-bottom-label');
 	if (topLabelEl && bottomLabelEl) {

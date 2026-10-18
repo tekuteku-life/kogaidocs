@@ -407,3 +407,39 @@ test('neighbor: loadNeighborTxt and loadPastedTextToNeighbor prioritize #neighbo
 	assert.strictEqual(importPassInput.type, 'password');
 });
 
+test('neighbor: toolbar add buttons (#btn-add-neighbor-mode-top and bottom) add rows', () => {
+	setupDomEnvironment();
+	state.neighborState = { district: "ボタンテスト町会", neighborhood: [] };
+	neighbor.renderNeighborForm();
+
+	const topBtn = document.getElementById('btn-add-neighbor-mode-top');
+	const bottomBtn = document.getElementById('btn-add-neighbor-mode-bottom');
+
+	assert(topBtn, '#btn-add-neighbor-mode-top should exist');
+	assert(bottomBtn, '#btn-add-neighbor-mode-bottom should exist');
+
+	// Click top button
+	topBtn.click();
+	assert.strictEqual(state.neighborState.neighborhood.length, 1);
+
+	// Click bottom button
+	bottomBtn.click();
+	assert.strictEqual(state.neighborState.neighborhood.length, 2);
+});
+
+test('neighbor: integrated card (#card-n-file) 4 major sections exist', () => {
+	setupDomEnvironment();
+	const card = document.getElementById('card-n-file');
+	assert(card, '#card-n-file should exist');
+
+	const secPass = document.getElementById('sec-n-pass');
+	const secSave = document.getElementById('sec-n-save-share');
+	const secLoad = document.getElementById('sec-n-load');
+	const secYear = document.getElementById('sec-n-year');
+
+	assert(secPass, '#sec-n-pass should exist');
+	assert(secSave, '#sec-n-save-share should exist');
+	assert(secLoad, '#sec-n-load should exist');
+	assert(secYear, '#sec-n-year should exist');
+});
+
