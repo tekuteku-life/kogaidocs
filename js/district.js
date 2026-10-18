@@ -261,6 +261,12 @@ function updateN(idx, key, val) {
 }
 
 function removeN(idx) {
+	if (!currentDistrict.neighborhood || !currentDistrict.neighborhood[idx]) return;
+	const n = currentDistrict.neighborhood[idx];
+	const name = ((n.lastName || '') + ' ' + (n.firstName || '')).trim() || n.role || '役員';
+	if (!confirm('自治会役員「' + name + '」を削除しますか？')) {
+		return;
+	}
 	currentDistrict.neighborhood.splice(idx, 1);
 	renderNeighborhoodTable();
 	saveDistrictLocal();
@@ -281,6 +287,12 @@ function updateS(idx, key, val) {
 }
 
 function removeS(idx) {
+	if (!currentDistrict.students || !currentDistrict.students[idx]) return;
+	const s = currentDistrict.students[idx];
+	const name = ((s.lastName || '') + ' ' + (s.firstName || '')).trim() || 'この児童';
+	if (!confirm('児童「' + name + '」を名簿から削除しますか？')) {
+		return;
+	}
 	currentDistrict.students.splice(idx, 1);
 	renderStudentsTable();
 	saveDistrictLocal();
@@ -376,6 +388,29 @@ function runDistrictYearUpdate() {
 	});
 	currentDistrict.students = nextStudents;
 	sortStudentsDesc();
+
+	if (currentDistrict.hata) {
+		currentDistrict.hata = {
+			title: currentDistrict.hata.title || "登校見守り活動シフト表",
+			location: currentDistrict.hata.location || "",
+			time: currentDistrict.hata.time || "",
+			weekdays: Array.isArray(currentDistrict.hata.weekdays) ? currentDistrict.hata.weekdays : [1, 2, 3, 4, 5],
+			orientation: currentDistrict.hata.orientation || "landscape",
+			layoutColumns: currentDistrict.hata.layoutColumns || "3",
+			headerMsg: currentDistrict.hata.headerMsg || "",
+			footerMsg: currentDistrict.hata.footerMsg || "",
+			contactMsg: currentDistrict.hata.contactMsg || "",
+			format: currentDistrict.hata.format || "{住所数字} {苗字}",
+			startDate: "",
+			endDate: "",
+			members: "",
+			holidays: "",
+			specials: "",
+			exemptHouseholds: Array.isArray(currentDistrict.hata.exemptHouseholds) ? currentDistrict.hata.exemptHouseholds : [],
+			manualOverrides: {}
+		};
+	}
+
 	renderDistrictForm();
 	saveDistrictLocal();
 	alert("年度更新が完了しました。新年度用の引き継ぎファイルとして「提出・保存用ファイル(.txt)出力」から保存してください。");
@@ -557,14 +592,26 @@ async function shareDistrictData(channel) {
 }
 
 async function loadDistrictTxt(e) {
-	const file = e.target.files[0];
+	const file = (e && e.target && e.target.files) ? e.target.files[0] : (e && e.files ? e.files[0] : e);
 	if (!file) return;
-	const pass = document.getElementById('d-pass').value;
+	const pass = document.getElementById('d-pass')?.value || document.getElementById('d-file-pass')?.value || '';
 	try {
-		const data = await parseTxtContent(await file.text(), pass);
+		let rawText = '';
+		if (typeof file.text === 'function') {
+			rawText = await file.text();
+		} else {
+			rawText = await new Promise((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onload = ev => resolve(ev.target.result);
+				reader.onerror = reject;
+				reader.readAsText(file);
+			});
+		}
+
+		const data = await parseTxtContent(rawText, pass);
 		if (data.isNeighborhoodData || (!data.students && Array.isArray(data.neighborhood))) {
 			mergeNeighborDataIntoDistrict(data);
-			e.target.value = "";
+			if (e && e.target) e.target.value = "";
 			return;
 		}
 
@@ -573,10 +620,13 @@ async function loadDistrictTxt(e) {
 			Boolean((currentDistrict.district || "").trim());
 		if (hasExistingData) {
 			if (!confirm("現在の入力内容が提出ファイルの内容で上書きされますが、よろしいですか？")) {
-				e.target.value = "";
+				if (e && e.target) e.target.value = "";
 				return;
 			}
 		}
+
+		// [A-3] 既存の自地区 hata 設定を保護退避
+		const existingHata = currentDistrict.hata ? JSON.parse(JSON.stringify(currentDistrict.hata)) : null;
 
 		if (!data.officers || !data.officers.length) {
 			data.officers = [data.officer || {}];
@@ -592,17 +642,33 @@ async function loadDistrictTxt(e) {
 			if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
 			if (s.han === undefined) s.han = data.han || "";
 		});
+
+		// [A-3] 旗振り設定（hata）の保護および競合調停
+		if (existingHata) {
+			if (data.hata && Object.keys(data.hata).length > 0) {
+				// 読み込みデータ側にも hata が存在する場合、上書き確認
+				if (!confirm("読み込みファイルにも旗振りシフト設定が含まれています。自地区の既存設定を上書きしますか？\n※「キャンセル」を押すと自地区の既存設定を維持します。")) {
+					data.hata = existingHata; // 既存維持
+				}
+			} else {
+				// 読み込みデータに hata がない（代表切り出しデータ等）場合、既存設定を保護・統合
+				data.hata = existingHata;
+			}
+		}
+
 		currentDistrict = data;
 		currentDistrict.hanList = data.hanList || getDistrictHanList(data);
 		currentDistrict.han = data.han || (currentDistrict.hanList && currentDistrict.hanList[0]) || "";
 		renderDistrictForm();
 		saveDistrictLocal();
 		const hanMsg = currentDistrict.han ? `（${currentDistrict.han}）` : "";
-		alert(`「${data.district}${hanMsg}」のデータを読み込みました。`);
+		alert(`地区データ「${currentDistrict.district || ""}」${hanMsg}を読み込みました。`);
+		if (e && e.target) e.target.value = "";
 	} catch (err) {
-		alert("読み込みに失敗しました。パスワードが正しいか確認してください。");
+		console.error("Failed to load district file:", err);
+		alert("読み込みに失敗しました。パスワードを確認してください。");
+		if (e && e.target) e.target.value = "";
 	}
-	e.target.value = "";
 }
 
 function mergeNeighborDataIntoDistrict(data) {

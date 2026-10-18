@@ -880,4 +880,67 @@ table.edit-table th { background: #f8fafc; font-weight: bold; white-space: nowra
 	flex-direction: column;
 }
 
+/* ==================== 代表モード：4大セクション ＆ モーダル ==================== */
+#sec-rep-pass, #sec-rep-import, #sec-rep-export, #sec-rep-year {
+	transition: background-color 0.2s ease;
+}
+
+#rep-district-detail-modal .modal-card {
+	animation: modalSlideDown 0.2s ease-out;
+}
+
+@keyframes modalSlideDown {
+	from {
+		opacity: 0;
+		transform: translateY(-20px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* ==================== ハタフロット：レスポンシブ ＆ 印刷スタイル ==================== */
+.hata-card-list {
+	display: flex;
+	flex-direction: column;
+}
+
+.hata-card-item:last-child {
+	border-bottom: none !important;
+}
+
+.hata-grid-table th, .hata-grid-table td {
+	padding: 8px 10px;
+	text-align: left;
+}
+
+@media print {
+	#hata-print-active-sheet {
+		display: block !important;
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		background: #fff;
+		z-index: 99999;
+	}
+
+	.hata-print-sheet {
+		width: 100%;
+		box-sizing: border-box;
+		page-break-after: always;
+	}
+
+	.hata-print-columns {
+		column-count: 2;
+		column-gap: 20px;
+	}
+
+	.hata-print-columns table {
+		break-inside: avoid;
+		page-break-inside: avoid;
+	}
+}
+
 

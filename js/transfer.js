@@ -96,6 +96,16 @@ function addTransferChildRow() {
 
 // 児童行を削除します
 function removeTransferChildRow(index) {
+	if (!transferState.children || !transferState.children[index]) return;
+	const child = transferState.children[index];
+	const name = ((child.lastName || '') + ' ' + (child.firstName || '')).trim();
+	const hasData = name.length > 0 || (child.address && child.address.trim().length > 0) || (child.tel && child.tel.trim().length > 0);
+	if (hasData) {
+		const targetLabel = name ? '児童「' + name + '」' : 'この児童';
+		if (!confirm(targetLabel + 'の入力情報を削除しますか？')) {
+			return;
+		}
+	}
 	if (transferState.children.length <= 1) {
 		transferState.children[0] = {
 			id: 'c_' + Date.now(),

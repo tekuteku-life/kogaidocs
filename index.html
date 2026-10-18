@@ -230,29 +230,98 @@
 			</div>
 		</div>
 
-		<!-- 5. ハタフロット連携 -->
+		<!-- 5. 旗振り当番シフト管理（ハタフロット統合） -->
 		<div class="card is-collapsed" id="card-d-hata">
 			<h2 class="card-header-toggle" onclick="toggleCard(this.closest('.card'))">
-				<span>🚩 5. ハタフロット用リスト連携</span>
+				<span>🚩 5. 旗振り当番シフト管理（ハタフロット）</span>
 				<span class="btn-card-toggle">▼ 開く</span>
 			</h2>
 			<div class="card-body">
-				<div class="grid-form">
-					<div style="grid-column: 1 / -1;">
-						<label>ハタフロット名前欄の出力フォーマット</label>
-						<input type="text" id="hata-format" value="{住所数字} {苗字}" oninput="updateHataPreview()">
-						<div class="help-text">
-							変数: <code>{住所}</code>(そのまま), <code>{住所数字}</code>(号棟・号室等の数字をハイフン繋ぎに変換), <code>{苗字}</code>, <code>{名前}</code>, <code>{氏名}</code>, <code>{ふりがな}</code>, <code>{苗字ふりがな}</code>, <code>{名前ふりがな}</code>, <code>{学年}</code>, <code>{地区}</code>, <code>{班}</code>, <code>{班名}</code>
+				<!-- 基本設定バー -->
+				<div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+					<div class="grid-form" style="align-items: start;">
+						<div style="grid-column: 1 / -1;">
+							<label>シフト表タイトル</label>
+							<input type="text" id="hata-title" value="登校見守り活動シフト表" placeholder="〇〇地区 登校見守り活動シフト表" oninput="if(currentDistrict.hata) currentDistrict.hata.title=this.value; saveDistrictLocal();">
 						</div>
-						<label class="check-item" style="margin-top:8px;">
-							<input type="checkbox" id="hata-dedup" checked onchange="updateHataPreview()">
-							同一世帯（同じ住所＋苗字）の重複を1行にまとめる
-						</label>
-						<div style="margin-top:8px;">
-							<textarea id="hata-preview" rows="4" readonly placeholder="児童を入力するとここに変換リストが表示されます"></textarea>
-							<button type="button" class="btn btn-sm" style="margin-top:4px;" onclick="copyHataList()">📋 ハタフロット用リストをコピー</button>
+						<div>
+							<label>当番場所・交差点</label>
+							<input type="text" id="hata-location" placeholder="例: セブンイレブン前交差点" oninput="if(currentDistrict.hata) currentDistrict.hata.location=this.value; saveDistrictLocal();">
+						</div>
+						<div>
+							<label>活動時間帯</label>
+							<input type="text" id="hata-time" value="7:45〜8:15" placeholder="例: 7:45〜8:15" oninput="if(currentDistrict.hata) currentDistrict.hata.time=this.value; saveDistrictLocal();">
+						</div>
+						<div>
+							<label>活動期間（開始日 〜 終了日）</label>
+							<div class="flex-row" style="gap:4px; align-items:center;">
+								<input type="date" id="hata-start-date" onchange="if(currentDistrict.hata) currentDistrict.hata.startDate=this.value; saveDistrictLocal();">
+								<span>〜</span>
+								<input type="date" id="hata-end-date" onchange="if(currentDistrict.hata) currentDistrict.hata.endDate=this.value; saveDistrictLocal();">
+							</div>
+							<div class="flex-row" style="gap:4px; margin-top:6px;">
+								<button type="button" class="btn btn-outline btn-xs" onclick="applyHataPeriodPreset('zenki')">前期（4月〜9月）</button>
+								<button type="button" class="btn btn-outline btn-xs" onclick="applyHataPeriodPreset('kouki')">後期（10月〜3月）</button>
+								<button type="button" class="btn btn-outline btn-xs" onclick="applyHataPeriodPreset('full')">通年（4月〜3月）</button>
+							</div>
 						</div>
 					</div>
+				</div>
+
+				<!-- 詳細アコーディオン：対象世帯・免除・祝日設定 -->
+				<details style="background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;">
+					<summary style="font-weight: 600; cursor: pointer; color: #334155;">⚙️ 詳細設定（対象世帯・免除世帯・祝日・除外日）</summary>
+					<div style="margin-top: 10px; border-top: 1px dashed #e2e8f0; padding-top: 10px;">
+						<div style="margin-bottom: 12px;">
+							<div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 4px;">免除世帯の選択（チェックを入れた世帯は当番から除外されます）</div>
+							<div id="hata-exempt-list" style="background:#f1f5f9; padding:8px 10px; border-radius:4px; max-height:120px; overflow-y:auto;">
+								<!-- 動的生成 -->
+							</div>
+						</div>
+
+						<div class="grid-form">
+							<div>
+								<label>除外する祝日・行事日（カンマ区切り: 日付,名称）</label>
+								<textarea id="hata-holidays" rows="3" placeholder="2026-05-04,みどりの日&#10;2026-05-05,こどもの日" style="font-size:0.85rem;" oninput="if(currentDistrict.hata) currentDistrict.hata.holidays=this.value; saveDistrictLocal();"></textarea>
+							</div>
+							<div>
+								<label>特別枠・固定枠（日付,特別枠名,担当者）</label>
+								<textarea id="hata-specials" rows="3" placeholder="2026-05-01,交通安全週間,校外役員" style="font-size:0.85rem;" oninput="if(currentDistrict.hata) currentDistrict.hata.specials=this.value; saveDistrictLocal();"></textarea>
+							</div>
+						</div>
+
+						<!-- 旧ハタフロット用テキスト出力（互換性アコーディオン） -->
+						<div style="margin-top: 10px; padding: 8px; background: #fafafa; border-radius: 4px;">
+							<span style="font-size:0.85rem; font-weight:600; color:#64748b;">公式ハタフロット用テキスト形式（旧連携機能）</span>
+							<div class="flex-row" style="margin-top:4px; gap:8px;">
+								<input type="text" id="hata-format" value="{住所数字} {苗字}" style="flex:1; font-size:0.85rem;" oninput="updateHataPreview()">
+								<label class="check-item" style="font-size:0.8rem; margin:0;">
+									<input type="checkbox" id="hata-dedup" checked onchange="updateHataPreview()">
+									同一世帯まとめ
+								</label>
+								<button type="button" class="btn btn-outline btn-xs" onclick="copyHataList()">テキストコピー</button>
+							</div>
+							<textarea id="hata-preview" rows="2" readonly style="display:none;"></textarea>
+						</div>
+					</div>
+				</details>
+
+				<!-- 操作ツールバー -->
+				<div class="flex-row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
+					<button type="button" class="btn btn-primary" onclick="runAutoHataGeneration()">⚡ シフトを自動均等生成</button>
+					<div class="flex-row" style="gap: 6px;">
+						<button type="button" class="btn btn-outline btn-sm" onclick="printHataSchedule()">🖨️ A4印刷プレビュー</button>
+						<label class="btn btn-outline btn-sm" style="cursor:pointer; margin-bottom:0;">
+							📥 公式JSON読込
+							<input type="file" accept=".json" style="display:none;" onchange="const f=this.files[0]; if(f){ const r=new FileReader(); r.onload=ev=>{ currentDistrict.hata = importHataOfficialJson(ev.target.result); renderHataCard(); saveDistrictLocal(); }; r.readAsText(f); }">
+						</label>
+						<button type="button" class="btn btn-outline btn-sm" onclick="downloadTextFile(exportHataOfficialJson(currentDistrict.hata), `hatafurotto_${(currentDistrict.district||'district')}_${(new Date().toISOString().slice(0,10))}.json`)">💾 公式JSON保存</button>
+					</div>
+				</div>
+
+				<!-- シフトプレビュー表示エリア -->
+				<div id="hata-schedule-preview">
+					<div class="help-text" style="text-align:center; padding:1.5rem;">「⚡ シフトを自動均等生成」を押すと、当番シフト表が表示されます。</div>
 				</div>
 			</div>
 		</div>
@@ -357,64 +426,92 @@
 				<span class="btn-card-toggle">▼ 開く</span>
 			</h2>
 			<div class="card-body">
-				<div class="grid-form" style="align-items: end;">
-					<div>
-						<label>共通パスワード（復号・保存用／必須）</label>
-						<div class="pass-input-group">
-							<input type="password" id="rep-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateRepPasswords();">
-							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('rep-pass', this)" title="表示/非表示">👁️</button>
+				<!-- ① パスワード設定・暗号化保護 -->
+				<div id="sec-rep-pass" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; margin-bottom: 14px;">
+					<div style="font-weight: bold; font-size: 0.95rem; margin-bottom: 8px; color: #1e293b;">① ファイル保護パスワード設定・端末記憶</div>
+					<div class="grid-form" style="align-items: start;">
+						<div>
+							<label>共通パスワード（復号・保存用／必須）</label>
+							<div class="pass-input-group">
+								<input type="password" id="rep-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateRepPasswords();">
+								<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('rep-pass', this)" title="表示/非表示">👁️</button>
+							</div>
+						</div>
+						<div>
+							<label>確認用パスワード（二度入力）</label>
+							<div class="pass-input-group">
+								<input type="password" id="rep-pass-confirm" placeholder="もう一度入力" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateRepPasswords();">
+								<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('rep-pass-confirm', this)" title="表示/非表示">👁️</button>
+							</div>
 						</div>
 					</div>
-					<div>
-						<label>確認用パスワード（二度入力）</label>
-						<div class="pass-input-group">
-							<input type="password" id="rep-pass-confirm" placeholder="もう一度入力" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateRepPasswords();">
-							<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('rep-pass-confirm', this)" title="表示/非表示">👁️</button>
-						</div>
+					<div id="rep-pass-match-msg" class="pass-feedback-msg" style="margin-top: 6px;"></div>
+					<div style="margin-top: 6px;">
+						<button type="button" class="btn btn-sm btn-outline" onclick="quickSetupEncryptionFromCard('rep-pass')">🛡️ このパスワードでブラウザ内データ（LocalStorage）も暗号化保護する</button>
 					</div>
-					<div>
-						<label>各地区の .txt ファイルをまとめて追加（複数選択可）</label>
-						<input type="file" id="rep-files" accept=".txt" multiple onchange="loadMultipleDistrictFiles(event)">
-					</div>
-				</div>
-				<div id="rep-pass-match-msg" class="pass-feedback-msg" style="margin-top: 6px;"></div>
-				<div style="margin-top: 6px;">
-					<button type="button" class="btn btn-sm btn-outline" onclick="quickSetupEncryptionFromCard('rep-pass')">🛡️ このパスワードでブラウザ内データ（LocalStorage）も暗号化保護する</button>
-				</div>
-
-				<div class="flex-row" style="margin-top: 12px;">
-					<button type="button" class="btn btn-outline btn-sm" onclick="addCurrentDistrictToRep()">＋ タブ①の地区データを合算</button>
-					<button type="button" class="btn btn-sm" onclick="exportRepMasterTxt()">💾 代表統合ファイル(.txt)を保存</button>
-					<button type="button" class="btn btn-danger btn-sm" onclick="runRepYearUpdate()">🔄 代表データの年度更新</button>
 				</div>
 
-				<div style="margin-top: 14px;" class="grid-form">
-					<div>
-						<label>代表統合ファイル(.txt)を読み込む（引き継ぎ・再開用）</label>
-						<input type="file" accept=".txt" onchange="loadRepMasterTxt(event)">
+				<!-- ② 各地区データの集約・取り込み -->
+				<div id="sec-rep-import" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 12px; margin-bottom: 14px;">
+					<div style="font-weight: bold; font-size: 0.95rem; margin-bottom: 8px; color: #1e40af;">② 各地区データの集約・取り込み</div>
+					<div class="grid-form" style="align-items: end;">
+						<div>
+							<label>各地区の .txt ファイルをまとめて追加（複数選択可）</label>
+							<input type="file" id="rep-files" accept=".txt" multiple onchange="loadMultipleDistrictFiles(event)">
+						</div>
+						<div>
+							<label>暗号化テキストを貼り付けて追加</label>
+							<div class="flex-row">
+								<input type="text" id="rep-paste-box" placeholder="BEGIN_DATA: ... :END_DATA を貼り付け" style="flex:1;">
+								<button type="button" class="btn btn-sm" onclick="loadPastedTextToRep()">追加</button>
+							</div>
+						</div>
 					</div>
-					<div>
-						<label>メール本文等で送られた暗号化テキストを貼り付けて追加</label>
-						<div class="flex-row">
-							<input type="text" id="rep-paste-box" placeholder="BEGIN_DATA: ... :END_DATA を貼り付け" style="flex:1;">
-							<button type="button" class="btn btn-sm" onclick="loadPastedTextToRep()">追加</button>
+					<div class="flex-row" style="margin-top: 10px; gap: 8px;">
+						<button type="button" class="btn btn-outline btn-sm" onclick="addCurrentDistrictToRep()">＋ タブ①の自地区データを合算</button>
+					</div>
+
+					<!-- 転入児童データの取り込み -->
+					<div style="margin-top: 12px; background: #fff; border: 1px dashed #bfdbfe; border-radius: 6px; padding: 10px 12px;">
+						<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+							<span style="font-weight: bold; font-size: 0.88rem; color: #1e40af;">📥 転入児童データを取り込み（代表直接統合）</span>
+							<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+								<label class="btn btn-outline-primary btn-sm" style="cursor: pointer; margin-bottom: 0;">
+									📁 ファイルから統合
+									<input type="file" accept=".txt" style="display:none;" onchange="loadTransferFileIntoRep(event)">
+								</label>
+								<button type="button" class="btn btn-outline btn-sm" onclick="const p = document.getElementById('rep-transfer-paste-panel'); p.style.display = p.style.display === 'none' ? 'block' : 'none';">📋 テキスト貼付で統合</button>
+							</div>
+						</div>
+						<div id="rep-transfer-paste-panel" style="display: none; margin-top: 8px; border-top: 1px dashed #e2e8f0; padding-top: 8px;">
+							<textarea id="rep-transfer-paste-box" rows="2" placeholder="転入者から受け取った暗号化テキストを貼り付けてください" style="width: 100%; font-size: 0.85rem; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box;"></textarea>
+							<button type="button" class="btn btn-sm" style="margin-top: 4px;" onclick="loadPastedTransferTextIntoRep()">📥 貼り付けて統合を実行</button>
 						</div>
 					</div>
 				</div>
-				<div style="margin-top: 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px;">
-					<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-						<span style="font-weight: bold; font-size: 0.9rem; color: #166534;">📥 転入児童データを取り込み（代表直接統合）</span>
-						<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-							<label class="btn btn-outline-primary btn-sm" style="cursor: pointer; margin-bottom: 0;">
-								📁 ファイルから統合
-								<input type="file" accept=".txt" style="display:none;" onchange="loadTransferFileIntoRep(event)">
-							</label>
-							<button type="button" class="btn btn-outline btn-sm" onclick="const p = document.getElementById('rep-transfer-paste-panel'); p.style.display = p.style.display === 'none' ? 'block' : 'none';">📋 テキスト貼付で統合</button>
+
+				<!-- ③ 代表統合マスターデータの保存・出力 -->
+				<div id="sec-rep-export" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 12px; margin-bottom: 14px;">
+					<div style="font-weight: bold; font-size: 0.95rem; margin-bottom: 8px; color: #166534;">③ 代表統合マスターデータの保存・出力</div>
+					<div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
+						<button type="button" class="btn btn-primary" onclick="exportRepMasterTxt()">💾 代表統合マスターファイル(.txt)を出力・保存</button>
+					</div>
+				</div>
+
+				<!-- ④ 代表データの引き継ぎ・復元・年度更新 -->
+				<div id="sec-rep-year" style="background: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; padding: 12px;">
+					<div style="font-weight: bold; font-size: 0.95rem; margin-bottom: 8px; color: #9f1239;">④ 代表データの引き継ぎ・復元・年度更新</div>
+					<div class="grid-form" style="align-items: center;">
+						<div>
+							<label>前年度代表統合ファイル(.txt)を読み込む（復元・再開用）</label>
+							<input type="file" accept=".txt" onchange="loadRepMasterTxt(event)">
+						</div>
+						<div>
+							<button type="button" class="btn btn-danger" onclick="runRepYearUpdate()">🔄 代表統合データの年度更新</button>
 						</div>
 					</div>
-					<div id="rep-transfer-paste-panel" style="display: none; margin-top: 8px; border-top: 1px dashed #bbf7d0; padding-top: 8px;">
-						<textarea id="rep-transfer-paste-box" rows="2" placeholder="転入者から受け取った暗号化テキストを貼り付けてください" style="width: 100%; font-size: 0.85rem; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box;"></textarea>
-						<button type="button" class="btn btn-sm" style="margin-top: 4px;" onclick="loadPastedTransferTextIntoRep()">📥 貼り付けて統合を実行</button>
+					<div class="help-text" style="color: #64748b; margin-top: 6px;">
+						※年度更新を実行すると、集約済みの全地区データがクリアされ、スクゾ外部関係者の氏名・連絡先がクリアされます。
 					</div>
 				</div>
 			</div>
@@ -850,6 +947,78 @@
 		</div>
 		<div class="modal-body" id="settings-modal-body">
 			<!-- 動的に生成されます -->
+		</div>
+	</div>
+</div>
+
+<!-- ==================== 代表モード：地区名簿閲覧・編集モーダル ==================== -->
+<div id="rep-district-detail-modal" class="modal-overlay" style="display:none;">
+	<div class="modal-card" style="max-width: 900px; width: 95%;">
+		<div class="modal-header">
+			<h3 id="rep-modal-district-title">📝 地区名簿の閲覧・編集</h3>
+			<button type="button" class="btn-close" onclick="closeRepDistrictDetailModalWithoutSaving()">×</button>
+		</div>
+		<div class="modal-body" style="max-height: 80vh; overflow-y: auto;">
+			<!-- 児童名簿セクション -->
+			<div style="margin-bottom: 20px;">
+				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+					<h4 style="margin: 0; font-size: 1rem; color: #1e293b;">🎒 児童名簿</h4>
+					<button type="button" class="btn btn-outline btn-xs" onclick="addModalStudentRow()">＋ 児童を追加</button>
+				</div>
+				<div style="overflow-x: auto;">
+					<table class="edit-table" style="width: 100%;">
+						<thead>
+							<tr>
+								<th style="width: 50px;">学年</th>
+								<th style="width: 55px;">組</th>
+								<th style="width: 60px;">班</th>
+								<th>氏名（姓 / 名）</th>
+								<th>住所</th>
+								<th>電話番号</th>
+								<th style="width: 40px; text-align: center;">削除</th>
+							</tr>
+						</thead>
+						<tbody id="rep-modal-students-tbody">
+							<!-- 動的生成 -->
+						</tbody>
+					</table>
+				</div>
+				<div style="margin-top: 6px;">
+					<button type="button" class="btn btn-outline btn-xs" onclick="addModalStudentRow()">＋ 児童を追加</button>
+				</div>
+			</div>
+
+			<!-- 自治会役員セクション -->
+			<div style="margin-bottom: 20px;">
+				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+					<h4 style="margin: 0; font-size: 1rem; color: #1e293b;">🏘️ 自治会役員名簿</h4>
+					<button type="button" class="btn btn-outline btn-xs" onclick="addModalNeighborRow()">＋ 役員を追加</button>
+				</div>
+				<div style="overflow-x: auto;">
+					<table class="edit-table" style="width: 100%;">
+						<thead>
+							<tr>
+								<th>役職</th>
+								<th>氏名（姓 / 名）</th>
+								<th>連絡先電話番号</th>
+								<th style="width: 40px; text-align: center;">削除</th>
+							</tr>
+						</thead>
+						<tbody id="rep-modal-neighbor-tbody">
+							<!-- 動的生成 -->
+						</tbody>
+					</table>
+				</div>
+				<div style="margin-top: 6px;">
+					<button type="button" class="btn btn-outline btn-xs" onclick="addModalNeighborRow()">＋ 役員を追加</button>
+				</div>
+			</div>
+
+			<hr style="margin: 16px 0; border: 0; border-top: 1px solid var(--border);">
+			<div class="flex-row" style="justify-content: flex-end; gap: 10px;">
+				<button type="button" class="btn btn-outline" onclick="closeRepDistrictDetailModalWithoutSaving()">キャンセル（破棄）</button>
+				<button type="button" class="btn btn-primary" onclick="saveAndCloseRepDistrictDetailModal()">💾 変更を保存して閉じる</button>
+			</div>
 		</div>
 	</div>
 </div>

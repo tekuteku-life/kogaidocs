@@ -1064,3 +1064,174 @@ test('district: card 6 4-section categorized structure and buttons verification 
 		assert.ok(btnYear);
 	}
 });
+
+test('district: removeN prompts confirmation and deletes only on OK (GAP-TEST-1)', () => {
+	setupDomEnvironment();
+	state.currentDistrict = {
+		district: '1丁目',
+		neighborhood: [
+			{ role: '会長', lastName: '山田', firstName: '太郎' },
+			{ role: '副会長', lastName: '佐藤', firstName: '二郎' }
+		]
+	};
+
+	let confirmMsg = '';
+	global.confirm = (msg) => {
+		confirmMsg = msg;
+		return false; // キャンセル
+	};
+
+	// キャンセル時: 削除されず維持
+	districtLib.removeN(0);
+	assert.ok(confirmMsg.includes('山田'), 'Should mention officer name in confirm dialog');
+	assert.strictEqual(state.currentDistrict.neighborhood.length, 2, 'Neighborhood array should remain unchanged when cancelled');
+
+	// OK時: 削除される
+	global.confirm = () => true;
+	districtLib.removeN(0);
+	assert.strictEqual(state.currentDistrict.neighborhood.length, 1, 'Officer should be deleted when confirmed');
+	assert.strictEqual(state.currentDistrict.neighborhood[0].lastName, '佐藤');
+});
+
+test('district: removeS prompts confirmation and deletes only on OK (GAP-TEST-1)', () => {
+	setupDomEnvironment();
+	state.currentDistrict = {
+		district: '1丁目',
+		students: [
+			{ grade: '1', class: '1組', lastName: '田中', firstName: '健' },
+			{ grade: '2', class: '2組', lastName: '高橋', firstName: '美咲' }
+		]
+	};
+
+	let confirmMsg = '';
+	global.confirm = (msg) => {
+		confirmMsg = msg;
+		return false; // キャンセル
+	};
+
+	// キャンセル時: 削除されず維持
+	districtLib.removeS(0);
+	assert.ok(confirmMsg.includes('田中'), 'Should mention student name in confirm dialog');
+	assert.strictEqual(state.currentDistrict.students.length, 2, 'Students array should remain unchanged when cancelled');
+
+	// OK時: 削除される
+	global.confirm = () => true;
+	districtLib.removeS(0);
+	assert.strictEqual(state.currentDistrict.students.length, 1, 'Student should be deleted when confirmed');
+	assert.strictEqual(state.currentDistrict.students[0].lastName, '高橋');
+});
+
+test('district: loadDistrictTxt protects existing hata when incoming has no hata, and confirms override when both have hata (A-3)', async () => {
+	setupDomEnvironment();
+	state.currentDistrict = {
+		district: '1丁目',
+		officers: [],
+		neighborhood: [],
+		students: [],
+		hata: {
+			title: '自地区の旗振りシフト',
+			location: '正門前'
+		}
+	};
+
+	// ケース1: 読み込みデータに hata がない場合（代表切り出しデータ等） -> 既存の hata が自動保護される
+	const incomingWithoutHata = {
+		district: '1丁目',
+		officers: [{ role: '地区長', lastName: '代表経由役員' }],
+		neighborhood: [],
+		students: [{ grade: '1', lastName: '新規児童' }]
+	};
+
+	// 暗号化ペイロードをシミュレート
+	const pwd = 'TestPassword123!';
+	const encText = await cryptoLib.encryptPayload(JSON.stringify(incomingWithoutHata), pwd);
+
+	// 復号読込実行
+	const file = { name: 'test.txt' };
+	global.FileReader = class {
+		readAsText() {
+			this.onload({ target: { result: `BEGIN_DATA:\n${encText}\n:END_DATA` } });
+		}
+	};
+	document.getElementById('d-file-pass').value = pwd;
+
+	await districtLib.loadDistrictTxt(file);
+
+	assert.strictEqual(state.currentDistrict.students[0].lastName, '新規児童');
+	assert.ok(state.currentDistrict.hata, 'Existing hata must be protected and preserved');
+	assert.strictEqual(state.currentDistrict.hata.title, '自地区の旗振りシフト');
+
+	// ケース2: 読み込みデータにも hata がある場合 -> confirm で上書き確認 (A-3)
+	const incomingWithHata = {
+		district: '1丁目',
+		officers: [],
+		neighborhood: [],
+		students: [],
+		hata: {
+			title: '提出されてきた新しい旗振りシフト',
+			location: '交差点'
+		}
+	};
+	const encText2 = await cryptoLib.encryptPayload(JSON.stringify(incomingWithHata), pwd);
+	let confirmCalled = false;
+	global.confirm = () => {
+		confirmCalled = true;
+		return true; // 上書き承認
+	};
+
+	await districtLib.loadDistrictTxt(file);
+	// (encText2 の FileReader でテスト)
+	global.FileReader = class {
+		readAsText() {
+			this.onload({ target: { result: `BEGIN_DATA:\n${encText2}\n:END_DATA` } });
+		}
+	};
+	await districtLib.loadDistrictTxt(file);
+	assert.strictEqual(state.currentDistrict.hata.title, '提出されてきた新しい旗振りシフト');
+
+	// T-2: 両方に hata がある状態で confirm = false（上書きキャンセル）した場合、既存の hata が維持されること (GAP-TG-2)
+	state.currentDistrict.hata.title = '守るべき自地区の旗振りシフト';
+	global.confirm = () => false; // 上書きを拒否
+	await districtLib.loadDistrictTxt(file);
+	assert.strictEqual(state.currentDistrict.hata.title, '守るべき自地区の旗振りシフト', 'Existing hata must be preserved when override is cancelled (T-2)');
+});
+
+test('district: runDistrictYearUpdate preserves hata configuration while resetting schedule and overrides', () => {
+	setupDomEnvironment();
+	state.currentDistrict = {
+		district: '1丁目',
+		officers: [{ role: '旧地区長', lastName: '旧姓' }],
+		neighborhood: [],
+		students: [
+			{ grade: '6', lastName: '卒業生' },
+			{ grade: '3', lastName: '進級生' }
+		],
+		hata: {
+			title: '見守り活動シフト表',
+			location: 'セブン前交差点',
+			time: '7:45〜8:15',
+			weekdays: [1, 2, 3, 4, 5],
+			orientation: 'landscape',
+			layoutColumns: '3',
+			startDate: '2025-04-01',
+			endDate: '2025-09-30',
+			exemptHouseholds: ['1-1-1_山田'],
+			manualOverrides: { '2025-05-01': { person: '佐藤' } }
+		}
+	};
+
+	global.confirm = () => true;
+	districtLib.runDistrictYearUpdate();
+
+	// 旗振りの基本設定は新年度役員のために維持
+	assert.ok(state.currentDistrict.hata);
+	assert.strictEqual(state.currentDistrict.hata.title, '見守り活動シフト表');
+	assert.strictEqual(state.currentDistrict.hata.location, 'セブン前交差点');
+	assert.strictEqual(state.currentDistrict.hata.time, '7:45〜8:15');
+	assert.strictEqual(state.currentDistrict.hata.orientation, 'landscape');
+
+	// 旧年度の日程・個別調整は初期化
+	assert.strictEqual(state.currentDistrict.hata.startDate, '');
+	assert.strictEqual(state.currentDistrict.hata.endDate, '');
+	assert.deepStrictEqual(state.currentDistrict.hata.manualOverrides, {});
+});
