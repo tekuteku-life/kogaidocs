@@ -230,6 +230,43 @@ function generateJapaneseHolidays(startYear, endYear) {
 }
 
 /**
+ * 日付文字列を YYYY-MM-DD 形式に正規化します
+ */
+function normalizeDateStr(dStr) {
+	if (!dStr) return null;
+	const m = String(dStr).trim().match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
+	if (!m) return null;
+	const y = m[1];
+	const mon = m[2].padStart(2, '0');
+	const d = m[3].padStart(2, '0');
+	return `${y}-${mon}-${d}`;
+}
+
+/**
+ * 日付または期間範囲指定（YYYY/MM/DD〜YYYY/MM/DD）を日付配列へ展開します
+ */
+function expandDateOrRange(datePart) {
+	if (!datePart) return [];
+	const parts = String(datePart).split(/[\~〜]/);
+	if (parts.length === 2) {
+		const startStr = normalizeDateStr(parts[0]);
+		const endStr = normalizeDateStr(parts[1]);
+		if (startStr && endStr) {
+			const dates = [];
+			let curr = new Date(startStr + "T00:00:00Z");
+			const endD = new Date(endStr + "T00:00:00Z");
+			while (curr <= endD) {
+				dates.push(curr.toISOString().slice(0, 10));
+				curr.setUTCDate(curr.getUTCDate() + 1);
+			}
+			return dates;
+		}
+	}
+	const single = normalizeDateStr(datePart);
+	return single ? [single] : [];
+}
+
+/**
  * 期間プリセットの日程を算出します（前期・後期・通年）
  */
 function getPeriodPresetDates(presetKey, baseYear) {
@@ -254,20 +291,26 @@ function getPeriodPresetDates(presetKey, baseYear) {
 }
 
 /**
- * 旗振り当番シフトを均等ラウンドロビン自動生成します
+ * 旗振り当番シフトを均等ラウンドロビン自動生成します（祝日行保持・波線範囲展開対応）
  */
 function generateHataSchedule(config) {
 	if (!config || !config.startDate || !config.endDate) return [];
 	const weekdays = Array.isArray(config.weekdays) ? config.weekdays : [1, 2, 3, 4, 5];
 	const weekdaysSet = new Set(weekdays);
 
-	// 祝日マップ生成
+	const startStr = normalizeDateStr(config.startDate);
+	const endStr = normalizeDateStr(config.endDate);
+	if (!startStr || !endStr) return [];
+
+	// 祝日マップ生成（波線範囲指定対応）
 	const holidayMap = new Map();
 	if (typeof config.holidays === 'string') {
 		config.holidays.split('\n').forEach(line => {
 			const parts = line.split(',');
 			if (parts[0] && parts[0].trim()) {
-				holidayMap.set(parts[0].trim(), (parts[1] || '祝日').trim());
+				const reason = (parts[1] || '祝日').trim();
+				const dates = expandDateOrRange(parts[0].trim());
+				dates.forEach(dKey => holidayMap.set(dKey, reason));
 			}
 		});
 	} else if (Array.isArray(config.holidays)) {
@@ -276,18 +319,20 @@ function generateHataSchedule(config) {
 		});
 	}
 
-	// 特別枠マップ生成
+	// 特別枠マップ生成（波線範囲指定対応）
 	const specialMap = new Map();
 	if (typeof config.specials === 'string') {
 		config.specials.split('\n').forEach(line => {
-			const parts = line.split(',');
-			if (parts[0] && parts[0].trim()) {
-				const d = parts[0].trim();
-				const noteOrPerson = (parts[1] || '特別枠').trim();
-				const personOrNote = (parts[2] || '').trim();
-				specialMap.set(d, {
-					note: personOrNote ? noteOrPerson : '特別枠',
-					person: personOrNote || noteOrPerson
+			const parts = line.split(',').map(s => s.trim());
+			if (parts.length >= 1 && parts[0]) {
+				const dates = expandDateOrRange(parts[0]);
+				const fixedPerson = parts[1] || '';
+				const label = parts[2] || '特別枠';
+				dates.forEach(dKey => {
+					specialMap.set(dKey, {
+						fixedPerson,
+						label
+					});
 				});
 			}
 		});
@@ -309,58 +354,100 @@ function generateHataSchedule(config) {
 
 	const manualOverrides = config.manualOverrides || {};
 	const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
-	const schedule = [];
 
-	let cur = new Date(config.startDate + 'T00:00:00Z');
-	const end = new Date(config.endDate + 'T00:00:00Z');
-	let memberIdx = 0;
+	let cur = new Date(startStr + 'T00:00:00Z');
+	const end = new Date(endStr + 'T00:00:00Z');
+	const allDateSet = new Set();
 
 	while (cur <= end) {
-		const dateStr = cur.toISOString().slice(0, 10);
-		const dayOfWeekNum = cur.getUTCDay();
+		const dNum = cur.getUTCDay();
+		if (weekdaysSet.has(dNum)) {
+			allDateSet.add(cur.toISOString().slice(0, 10));
+		}
+		cur.setUTCDate(cur.getUTCDate() + 1);
+	}
+
+	specialMap.forEach((_, dateKey) => {
+		if (dateKey >= startStr && dateKey <= endStr) {
+			allDateSet.add(dateKey);
+		}
+	});
+
+	const sortedDates = Array.from(allDateSet).sort();
+	let memberIdx = 0;
+	const schedule = [];
+
+	sortedDates.forEach(dateStr => {
+		const d = new Date(dateStr + 'T00:00:00Z');
+		const dayOfWeekNum = d.getUTCDay();
 		const dayOfWeekStr = dayNames[dayOfWeekNum];
 
-		if (weekdaysSet.has(dayOfWeekNum) && !holidayMap.has(dateStr)) {
-			let person = '';
-			let note = '';
-			let isSpecial = false;
-			let isSwapped = false;
-			let originalPerson = '';
-
-			if (specialMap.has(dateStr)) {
-				const sp = specialMap.get(dateStr);
-				person = sp.person;
-				note = sp.note;
-				isSpecial = true;
-			} else {
+		if (holidayMap.has(dateStr)) {
+			schedule.push({
+				date: dateStr,
+				day: dayOfWeekStr,
+				dayOfWeek: dayOfWeekStr,
+				type: 'holiday',
+				tag: '休み',
+				person: '-',
+				note: holidayMap.get(dateStr),
+				isSpecial: false,
+				isSwapped: false,
+				originalPerson: ''
+			});
+		} else if (specialMap.has(dateStr)) {
+			const sp = specialMap.get(dateStr);
+			let assigned = sp.fixedPerson;
+			if (!assigned) {
 				if (activeMembers.length > 0) {
-					person = activeMembers[memberIdx % activeMembers.length];
+					assigned = activeMembers[memberIdx % activeMembers.length];
 					memberIdx++;
 				}
 			}
-
-			// 手動オーバーライドの適用
-			if (manualOverrides[dateStr]) {
-				const ovr = manualOverrides[dateStr];
-				if (ovr.person !== undefined) person = ovr.person;
-				if (ovr.note !== undefined) note = ovr.note;
-				if (ovr.isSwapped !== undefined) isSwapped = ovr.isSwapped;
-				if (ovr.originalPerson !== undefined) originalPerson = ovr.originalPerson;
-			}
-
 			schedule.push({
 				date: dateStr,
+				day: dayOfWeekStr,
 				dayOfWeek: dayOfWeekStr,
+				type: 'special',
+				tag: sp.label,
+				person: assigned,
+				note: sp.label,
+				isSpecial: true,
+				isSwapped: false,
+				originalPerson: ''
+			});
+		} else {
+			let person = '';
+			if (activeMembers.length > 0) {
+				person = activeMembers[memberIdx % activeMembers.length];
+				memberIdx++;
+			}
+			schedule.push({
+				date: dateStr,
+				day: dayOfWeekStr,
+				dayOfWeek: dayOfWeekStr,
+				type: 'regular',
+				tag: '通常',
 				person,
-				note,
-				isSpecial,
-				isSwapped,
-				originalPerson
+				note: '',
+				isSpecial: false,
+				isSwapped: false,
+				originalPerson: ''
 			});
 		}
+	});
 
-		cur.setUTCDate(cur.getUTCDate() + 1);
-	}
+	// 手動オーバーライドの適用
+	schedule.forEach(s => {
+		if (manualOverrides[s.date]) {
+			const ovr = manualOverrides[s.date];
+			if (ovr.person !== undefined) s.person = ovr.person;
+			if (ovr.note !== undefined) s.note = ovr.note;
+			if (ovr.type !== undefined) s.type = ovr.type;
+			if (ovr.isSwapped !== undefined) s.isSwapped = ovr.isSwapped;
+			if (ovr.originalPerson !== undefined) s.originalPerson = ovr.originalPerson;
+		}
+	});
 
 	return schedule;
 }
@@ -457,11 +544,98 @@ function importHataOfficialJson(jsonStr) {
 }
 
 /**
- * 生成されたシフト配列からレスポンシブHTML（スマホリスト / PCグリッド）を構築します
+ * 各メンバーの当番回数（通常枠・特別枠）を集計します
  */
-function buildHataScheduleHtml(schedule, viewMode = 'list') {
+function calculateHataStats(schedule, members) {
+	const stats = {};
+	const memList = Array.isArray(members)
+		? members
+		: (typeof members === 'string' ? members.split('\n').map(m => m.trim()).filter(Boolean) : []);
+
+	memList.forEach(m => {
+		stats[m] = { regular: 0, special: 0 };
+	});
+
+	(schedule || []).forEach(item => {
+		if (!item || !item.person || item.person === '-') return;
+		if (!stats[item.person]) {
+			stats[item.person] = { regular: 0, special: 0 };
+		}
+		if (item.type === 'special' || item.isSpecial) {
+			stats[item.person].special += 1;
+		} else if (item.type === 'regular' || (!item.type && !item.isSpecial)) {
+			stats[item.person].regular += 1;
+		}
+	});
+
+	return stats;
+}
+
+/**
+ * 当番回数集計アコーディオンを描画します
+ */
+function renderHataSummary(stats, containerEl) {
+	const el = containerEl || document.getElementById('hata-summary-container') || document.getElementById('summaryContainer');
+	if (!el) return;
+	el.innerHTML = '';
+
+	const entries = Object.entries(stats || {});
+	if (entries.length === 0) {
+		el.innerHTML = '<div class="help-text" style="grid-column: 1 / -1; text-align: center; padding: 0.5rem;">メンバーが登録されていません</div>';
+		return;
+	}
+
+	entries.forEach(([name, count]) => {
+		const div = document.createElement('div');
+		div.className = 'summary-item';
+		div.innerHTML = `<strong>${esc(name)}</strong><br>通常: ${count.regular}回<br><span style="color:#d97706; font-size:0.75rem;">特別: ${count.special}回</span>`;
+		el.appendChild(div);
+	});
+}
+
+/**
+ * 当番回数アコーディオンの開閉をトグルします
+ */
+function toggleHataSummary() {
+	const content = document.getElementById('hata-summary-accordion') || document.getElementById('summaryAccordion');
+	const arrow = document.getElementById('hata-accordion-arrow') || document.getElementById('accordionArrow');
+	if (!content) return;
+	if (content.classList.contains('open')) {
+		content.classList.remove('open');
+		if (arrow) arrow.innerText = '▼';
+	} else {
+		content.classList.add('open');
+		if (arrow) arrow.innerText = '▲';
+	}
+}
+
+/**
+ * 生成されたシフト配列からレスポンシブHTML（スマホリスト / PCグリッド / 本家シート）を構築します
+ */
+function buildHataScheduleHtml(schedule, viewMode = 'sheet', config = null) {
 	if (!Array.isArray(schedule) || schedule.length === 0) {
 		return `<div class="help-text" style="text-align:center; padding:1.5rem;">シフトがまだ生成されていません。「自動生成」ボタンを押してください。</div>`;
+	}
+
+	if (viewMode === 'list') {
+		const cardsHtml = schedule.map((s, idx) => {
+			const badge = s.isSpecial ? '<span class="badge badge-warning" style="font-size:0.75rem;">特別</span>' : (s.isSwapped ? '<span class="badge badge-info" style="font-size:0.75rem;">交代</span>' : '');
+			const noteHtml = s.note ? `<div style="font-size:0.8rem; color:#64748b; margin-top:2px;">${esc(s.note)}</div>` : '';
+			return `
+				<div class="hata-card-item" style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem 0.8rem; border-bottom:1px solid #e2e8f0;">
+					<div>
+						<span style="font-weight:600; color:#334155;">${esc(s.date)} (${esc(s.dayOfWeek || s.day || '')})</span>
+						${badge}
+						${noteHtml}
+					</div>
+					<div style="font-weight:700; color:#1e293b; font-size:1rem;">
+						${esc(s.person)}
+					</div>
+				</div>
+			`;
+		}).join('');
+
+		return `<div class="hata-card-list" style="background:#fff; border-radius:6px; border:1px solid #e2e8f0;">${cardsHtml}</div>`;
 	}
 
 	if (viewMode === 'grid') {
@@ -469,7 +643,7 @@ function buildHataScheduleHtml(schedule, viewMode = 'list') {
 			const badge = s.isSpecial ? '<span class="badge badge-warning" style="margin-left:4px;">特別</span>' : (s.isSwapped ? '<span class="badge badge-info" style="margin-left:4px;">交代</span>' : '');
 			return `
 				<tr>
-					<td>${esc(s.date)} (${esc(s.dayOfWeek)})</td>
+					<td>${esc(s.date)} (${esc(s.dayOfWeek || s.day || '')})</td>
 					<td><strong>${esc(s.person)}</strong>${badge}</td>
 					<td>${esc(s.note || '')}</td>
 				</tr>
@@ -492,53 +666,117 @@ function buildHataScheduleHtml(schedule, viewMode = 'list') {
 		`;
 	}
 
-	// 'list' スマホ向け縦型カードリスト
-	const cardsHtml = schedule.map((s, idx) => {
-		const badge = s.isSpecial ? '<span class="badge badge-warning" style="font-size:0.75rem;">特別</span>' : (s.isSwapped ? '<span class="badge badge-info" style="font-size:0.75rem;">交代</span>' : '');
-		const noteHtml = s.note ? `<div style="font-size:0.8rem; color:#64748b; margin-top:2px;">${esc(s.note)}</div>` : '';
-		return `
-			<div class="hata-card-item" style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem 0.8rem; border-bottom:1px solid #e2e8f0;">
-				<div>
-					<span style="font-weight:600; color:#334155;">${esc(s.date)} (${esc(s.dayOfWeek)})</span>
-					${badge}
-					${noteHtml}
-				</div>
-				<div style="font-weight:700; color:#1e293b; font-size:1rem;">
-					${esc(s.person)}
-				</div>
-			</div>
-		`;
-	}).join('');
-
-	return `<div class="hata-card-list" style="background:#fff; border-radius:6px; border:1px solid #e2e8f0;">${cardsHtml}</div>`;
+	// 'sheet' またはデフォルト: 本家ハタフロット多段組A4シートを生成
+	return buildHataPrintHtml(schedule, config || (typeof currentDistrict !== 'undefined' ? currentDistrict.hata : null));
 }
 
 /**
- * A4用紙印刷用の多段組HTMLを構築します
+ * A4用紙印刷用・画面表示用の多段組HTML（本家ハタフロット完全準拠）を構築します
  */
 function buildHataPrintHtml(schedule, config) {
 	const c = config || {};
-	const title = c.title || '登校見守り活動シフト表';
-	const loc = c.location ? `【場所: ${esc(c.location)}】` : '';
-	const time = c.time ? `【時間: ${esc(c.time)}】` : '';
-	const header = c.headerMsg ? `<div class="hata-print-header-msg" style="margin-bottom:8px; font-size:0.9rem; color:#334155;">${esc(c.headerMsg)}</div>` : '';
-	const footer = c.footerMsg ? `<div class="hata-print-footer-msg" style="margin-top:12px; font-size:0.85rem; color:#475569;">${esc(c.footerMsg)}</div>` : '';
-	const contact = c.contactMsg ? `<div class="hata-print-contact" style="margin-top:6px; font-size:0.85rem; text-align:right; font-weight:600;">${esc(c.contactMsg)}</div>` : '';
+	const title = c.title || c.scheduleTitle || '登校見守り活動シフト表';
+	const yr = new Date().getFullYear();
+	const mo = new Date().getMonth() + 1;
+	const da = new Date().getDate();
+	const defaultCreatedDate = `作成日：${yr}年${mo}月${da}日`;
+	const createdDate = c.createdDate || c.scheduleCreatedDate || defaultCreatedDate;
+	const district = c.district || (typeof currentDistrict !== 'undefined' ? currentDistrict.district : '') || '第1地区';
+	const location = c.location || '〇〇交差点・小学校正門前';
+	const time = c.time || '7:55 〜 8:25';
 
-	const tableHtml = buildHataScheduleHtml(schedule, 'grid');
+	const selectedDays = Array.isArray(c.weekdays) ? c.weekdays : [1, 2, 3, 4, 5];
+	const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+	const dayStrList = selectedDays.map(d => dayNames[d] + '曜').join('・');
+	const weekdaysStr = dayStrList ? `${dayStrList}（祝日・学校休校日を除く）` : '指定なし';
+
+	const headerMsg = (c.headerMsg || '').trim();
+	const footerMsg = (c.footerMsg || '').trim();
+	const contactMsg = (c.contactMsg || '').trim();
+
+	const headerMsgHtml = headerMsg ? `<div class="sheet-msg-box">${esc(headerMsg)}</div>` : '';
+	const footerMsgHtml = footerMsg ? `<div class="sheet-msg-box sheet-footer-box">${esc(footerMsg)}</div>` : '';
+	const contactMsgHtml = contactMsg ? `<div class="sheet-contact-box">${esc(contactMsg)}</div>` : '';
+
+	const numCols = parseInt(c.layoutColumns || 3, 10);
+	const schedList = Array.isArray(schedule) ? schedule : [];
+	const total = schedList.length;
+
+	let columnsHtml = '';
+	if (total > 0) {
+		const itemsPerCol = Math.ceil(total / numCols);
+		for (let colIdx = 0; colIdx < numCols; colIdx++) {
+			const colItems = schedList.slice(colIdx * itemsPerCol, (colIdx + 1) * itemsPerCol);
+			if (colItems.length === 0 && colIdx > 0) continue;
+
+			let rowsHtml = '';
+			for (let i = 0; i < itemsPerCol; i++) {
+				if (i < colItems.length) {
+					const item = colItems[i];
+					const md = item.date.slice(5).replace('-', '/');
+					const dayStr = item.day || item.dayOfWeek || '';
+					const dateWithDay = `${md}(${dayStr})`;
+
+					if (item.type === 'holiday') {
+						rowsHtml += `<tr class="row-holiday"><td>${dateWithDay}</td><td><strong>${esc(item.note || '祝日')}</strong></td></tr>`;
+					} else if (item.type === 'special' || item.isSpecial) {
+						const noteText = item.note || item.tag || '特別枠';
+						rowsHtml += `<tr class="row-special"><td>${dateWithDay}</td><td><span class="badge-special">★${esc(noteText)}:</span><strong>${esc(item.person)}</strong></td></tr>`;
+					} else {
+						const badge = item.isSwapped ? '<span class="badge badge-info" style="margin-left:4px;">交代</span>' : '';
+						rowsHtml += `<tr><td>${dateWithDay}</td><td>${esc(item.person)}${badge}</td></tr>`;
+					}
+				} else {
+					rowsHtml += `<tr><td>&nbsp;</td><td></td></tr>`;
+				}
+			}
+
+			columnsHtml += `
+				<div class="column-table-wrapper">
+					<table class="schedule-table">
+						<thead>
+							<tr>
+								<th style="width: 42%;">月日(曜)</th>
+								<th style="width: 58%;">担当 / 事由</th>
+							</tr>
+						</thead>
+						<tbody>
+							${rowsHtml}
+						</tbody>
+					</table>
+				</div>
+			`;
+		}
+	} else {
+		columnsHtml = `<div class="help-text" style="text-align:center; padding:1.5rem; width:100%;">シフトがまだ生成されていません。「自動生成」ボタンを押してください。</div>`;
+	}
 
 	return `
-		<div class="hata-print-sheet" style="padding:15px; background:#fff;">
-			<div style="text-align:center; margin-bottom:12px;">
-				<h2 style="margin:0 0 6px 0; font-size:1.4rem; color:#0f172a;">${esc(title)}</h2>
-				<div style="font-size:0.95rem; font-weight:600; color:#334155;">${loc} ${time}</div>
+		<div class="hata-print-sheet hata-sheet">
+			<div class="sheet-top-date">${esc(createdDate)}</div>
+			<div class="sheet-header">
+				<div class="sheet-title">${esc(title)}</div>
+				<table class="sheet-meta-table">
+					<tr>
+						<td class="sheet-meta-label" style="width: 8%;">地区</td>
+						<td style="width: 14%;">${esc(district)}</td>
+						<td class="sheet-meta-label" style="width: 8%;">場所</td>
+						<td style="width: 32%;">${esc(location)}</td>
+						<td class="sheet-meta-label" style="width: 8%;">時間</td>
+						<td style="width: 30%; white-space: pre-wrap; line-height: 1.25;">${esc(time)}</td>
+					</tr>
+					<tr>
+						<td class="sheet-meta-label">実施曜日</td>
+						<td colspan="5">${esc(weekdaysStr)}</td>
+					</tr>
+				</table>
 			</div>
-			${header}
-			<div class="hata-print-columns">
-				${tableHtml}
+			${headerMsgHtml}
+			<div class="columns-container">
+				${columnsHtml}
 			</div>
-			${footer}
-			${contact}
+			${footerMsgHtml}
+			${contactMsgHtml}
 		</div>
 	`;
 }
@@ -581,6 +819,18 @@ function renderHataCard() {
 	if (startEl) startEl.value = h.startDate || '';
 	const endEl = document.getElementById('hata-end-date');
 	if (endEl) endEl.value = h.endDate || '';
+	const orientEl = document.getElementById('hata-orientation');
+	if (orientEl) orientEl.value = h.orientation || 'landscape';
+	const colEl = document.getElementById('hata-columns');
+	if (colEl) colEl.value = h.layoutColumns || '3';
+	const headEl = document.getElementById('hata-header-msg');
+	if (headEl) headEl.value = h.headerMsg || '';
+	const footEl = document.getElementById('hata-footer-msg');
+	if (footEl) footEl.value = h.footerMsg || '';
+	const contactEl = document.getElementById('hata-contact-msg');
+	if (contactEl) contactEl.value = h.contactMsg || '';
+	const specEl = document.getElementById('hata-specials');
+	if (specEl) specEl.value = h.specials || '';
 
 	// 名簿からの世帯抽出と免除チェックリストの描画
 	renderHataExemptList();
@@ -695,8 +945,18 @@ function renderHataSchedulePreview(explicitSchedule) {
 	}
 
 	const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-	const viewMode = isMobile ? 'list' : 'grid';
+	const viewMode = isMobile ? 'list' : 'sheet';
 	previewContainer.innerHTML = buildHataScheduleHtml(hataCurrentSchedule, viewMode);
+
+	// 当番回数アコーディオンの更新
+	const summaryContainer = document.getElementById('hata-summary-container') || document.getElementById('summaryContainer');
+	if (summaryContainer && currentDistrict.hata) {
+		const rawMembers = typeof currentDistrict.hata.members === 'string'
+			? currentDistrict.hata.members.split('\n').map(m => m.trim()).filter(Boolean)
+			: (Array.isArray(currentDistrict.hata.members) ? currentDistrict.hata.members : []);
+		const stats = calculateHataStats(hataCurrentSchedule, rawMembers);
+		renderHataSummary(stats, summaryContainer);
+	}
 }
 
 /**
@@ -707,19 +967,19 @@ function printHataSchedule() {
 		runAutoHataGeneration();
 	}
 	const printContent = buildHataPrintHtml(hataCurrentSchedule, currentDistrict.hata);
-	const printArea = document.getElementById('hata-print-area') || document.body;
-	const origHtml = printArea.innerHTML;
 
 	// 印刷ウィンドウまたはインライン印刷
 	const printEl = document.createElement('div');
 	printEl.id = 'hata-print-active-sheet';
 	printEl.innerHTML = printContent;
 	document.body.appendChild(printEl);
+	document.body.classList.add('printing-hata');
 
 	if (typeof window !== 'undefined' && typeof window.print === 'function') {
 		window.print();
 	}
 
+	document.body.classList.remove('printing-hata');
 	if (printEl.parentElement) {
 		printEl.parentElement.removeChild(printEl);
 	}
@@ -731,6 +991,8 @@ if (typeof module !== 'undefined' && module.exports) {
 		copyHataList,
 		extractHouseholdsFromStudents,
 		generateJapaneseHolidays,
+		normalizeDateStr,
+		expandDateOrRange,
 		getPeriodPresetDates,
 		generateHataSchedule,
 		swapScheduleDates,
@@ -738,6 +1000,9 @@ if (typeof module !== 'undefined' && module.exports) {
 		clearDateOverride,
 		exportHataOfficialJson,
 		importHataOfficialJson,
+		calculateHataStats,
+		renderHataSummary,
+		toggleHataSummary,
 		buildHataScheduleHtml,
 		buildHataPrintHtml,
 		renderHataCard,

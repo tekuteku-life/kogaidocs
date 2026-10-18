@@ -243,7 +243,7 @@ test('hata: generateHataSchedule allocates duties evenly and respects exclusions
 		endDate: '2026-05-15',
 		weekdays: [1, 2, 3, 4, 5],
 		holidays: '2026-05-04,みどりの日\n2026-05-05,こどもの日\n2026-05-06,振替休日',
-		specials: '2026-05-01,交通安全週間,校外役員',
+		specials: '2026-05-01,校外役員,交通安全週間',
 		exemptHouseholds: ['1-2_佐藤'],
 		members: members.join('\n'),
 		manualOverrides: {
@@ -261,9 +261,12 @@ test('hata: generateHataSchedule allocates duties evenly and respects exclusions
 	assert.strictEqual(may1.person, '校外役員');
 	assert.strictEqual(may1.isSpecial, true);
 
-	// 5/4, 5/5, 5/6: 祝日除外によりスケジュール日として含まれないか、isHoliday=true
+	// 5/4, 5/5, 5/6: 祝日・休校日行（type: 'holiday'）として保持され、当番は割り当てられない（person: '-'）
 	const may4 = schedule.find(s => s.date === '2026-05-04');
-	assert.strictEqual(may4, undefined, 'Holiday should not be a duty day');
+	assert.ok(may4);
+	assert.strictEqual(may4.type, 'holiday');
+	assert.strictEqual(may4.person, '-');
+	assert.strictEqual(may4.note, 'みどりの日');
 
 	// 5/11: manualOverrides が反映されていること
 	const may11 = schedule.find(s => s.date === '2026-05-11');
@@ -495,13 +498,16 @@ test('hata: branch coverage boosters for generateHataSchedule and edge cases', a
 	};
 	const schedule = hata.generateHataSchedule(config);
 	assert.ok(Array.isArray(schedule));
-	// 7/1 は祝日除外、7/2 は特別枠、7/3 はメンバー全員免除で person=''
-	assert.strictEqual(schedule.length, 2);
-	assert.strictEqual(schedule[0].date, '2026-07-02');
-	assert.strictEqual(schedule[0].isSpecial, true);
-	assert.strictEqual(schedule[0].person, '特別当番枠');
-	assert.strictEqual(schedule[1].date, '2026-07-03');
-	assert.strictEqual(schedule[1].person, '');
+	// 7/1 は祝日行、7/2 は特別枠、7/3 はメンバー全員免除で person=''
+	assert.strictEqual(schedule.length, 3);
+	assert.strictEqual(schedule[0].date, '2026-07-01');
+	assert.strictEqual(schedule[0].type, 'holiday');
+	assert.strictEqual(schedule[0].note, '行事除外');
+	assert.strictEqual(schedule[1].date, '2026-07-02');
+	assert.strictEqual(schedule[1].isSpecial, true);
+	assert.strictEqual(schedule[1].person, '特別当番枠');
+	assert.strictEqual(schedule[2].date, '2026-07-03');
+	assert.strictEqual(schedule[2].person, '');
 
 	// 3. copyHataList で clipboard 例外スロー時の textarea.select フォールバック
 	setupDomEnvironment();
@@ -646,7 +652,7 @@ test('hata: ultimate branch coverage booster', () => {
 		exemptHouseholds: ['田中'] // 直接マッチ
 	};
 	const sched1 = hata.generateHataSchedule(edgeConfig);
-	assert.strictEqual(sched1.length, 1);
+	assert.strictEqual(sched1.length, 2);
 
 	const edgeConfig2 = {
 		startDate: '2026-08-03',
@@ -661,8 +667,13 @@ test('hata: ultimate branch coverage booster', () => {
 		}
 	};
 	const sched2 = hata.generateHataSchedule(edgeConfig2);
-	assert.strictEqual(sched2.length, 2);
-	assert.strictEqual(sched2[0].person, '鈴木');
+	assert.strictEqual(sched2.length, 3);
+	assert.strictEqual(sched2[0].date, '2026-08-03');
+	assert.strictEqual(sched2[0].type, 'holiday');
+	assert.strictEqual(sched2[1].date, '2026-08-04');
+	assert.strictEqual(sched2[1].person, '鈴木');
+	assert.strictEqual(sched2[2].date, '2026-08-05');
+	assert.strictEqual(sched2[2].person, '佐藤');
 
 	// 3. setDateOverride with existing manualOverrides
 	const cfgWithOvr = { manualOverrides: { '2026-08-01': { note: '既存' } } };
@@ -744,3 +755,356 @@ test('hata: ultimate branch coverage booster', () => {
 	hata.printHataSchedule();
 });
 
+test('hata: expandDateOrRange correctly expands tilde ranges and single dates (A-3, T-4)', () => {
+	// 全角波線、半角チルダ、スラッシュ、ハイフン
+	const r1 = hata.expandDateOrRange('2026-12-25〜2026-12-27');
+	assert.deepStrictEqual(r1, ['2026-12-25', '2026-12-26', '2026-12-27']);
+
+	const r2 = hata.expandDateOrRange('2026/08/01~2026/08/03');
+	assert.deepStrictEqual(r2, ['2026-08-01', '2026-08-02', '2026-08-03']);
+
+	const r3 = hata.expandDateOrRange('2026-05-03');
+	assert.deepStrictEqual(r3, ['2026-05-03']);
+
+	// T-4 境界値: 年またぎ (12/28〜1/5: 9日間)
+	const rYear = hata.expandDateOrRange('2026-12-28〜2027-01-05');
+	assert.strictEqual(rYear.length, 9);
+	assert.strictEqual(rYear[0], '2026-12-28');
+	assert.strictEqual(rYear[8], '2027-01-05');
+
+	// T-4 境界値: 1桁月日のゼロ埋め正規化
+	const rSingleDigit = hata.expandDateOrRange('2026/8/1~2026/8/3');
+	assert.deepStrictEqual(rSingleDigit, ['2026-08-01', '2026-08-02', '2026-08-03']);
+
+	// T-4 境界値: 逆転期間で安全に空配列
+	const rReverse = hata.expandDateOrRange('2026-12-27〜2026-12-25');
+	assert.deepStrictEqual(rReverse, []);
+
+	// T-4 境界値: 片側不正値・空・null
+	assert.deepStrictEqual(hata.expandDateOrRange('2026-12-25〜invalid'), []);
+	assert.deepStrictEqual(hata.expandDateOrRange(''), []);
+	assert.deepStrictEqual(hata.expandDateOrRange(null), []);
+	assert.deepStrictEqual(hata.expandDateOrRange('invalid-date'), []);
+});
+
+test('hata: genuine Hatafurotto A4 multi-column print layout and empty padding rows (A-1, A-2, A-4, A-5, T-1, T-2)', () => {
+	const config = {
+		title: '見守り活動・挨拶運動シフト表 令和8年度 前期分',
+		createdDate: '作成日：2026年4月1日',
+		district: '第1地区',
+		location: '小学校正門前',
+		time: '7:55 〜 8:25',
+		weekdays: [1, 3], // 月・水
+		layoutColumns: 3,
+		headerMsg: '・旗振り終了後、〇をつけてください\n・次の方へ回してください',
+		footerMsg: '●当番日に活動できない場合\n・保護者間で調整する',
+		contactMsg: '校外委員連絡先：鈴木（TEL: 090-XXXX-XXXX）'
+	};
+
+	const schedule = [
+		{ date: '2026-04-06', dayOfWeek: '月', type: 'regular', person: '山田', note: '' },
+		{ date: '2026-04-08', dayOfWeek: '水', type: 'regular', person: '佐藤', note: '' },
+		{ date: '2026-04-13', dayOfWeek: '月', type: 'holiday', person: '-', note: '創立記念日' },
+		{ date: '2026-04-15', dayOfWeek: '水', type: 'special', person: '役員A', note: '重点見守り日' },
+		{ date: '2026-04-20', dayOfWeek: '月', type: 'regular', person: '鈴木', note: '' }
+	];
+
+	const html = hata.buildHataPrintHtml(schedule, config);
+
+	// T-2: CSSカプセル化 (.hata-sheet)
+	assert.ok(html.includes('class="hata-print-sheet hata-sheet"'), 'Root should contain hata-sheet class');
+
+	// 1. 最上部作成日 (sheet-top-date)
+	assert.ok(html.includes('class="sheet-top-date"'), 'Should contain sheet-top-date');
+	assert.ok(html.includes('作成日：2026年4月1日'));
+
+	// 2. 表題および2行メタ情報テーブル (sheet-header, sheet-title, sheet-meta-table)
+	assert.ok(html.includes('class="sheet-header"'), 'Should contain sheet-header');
+	assert.ok(html.includes('class="sheet-title"'), 'Should contain sheet-title');
+	assert.ok(html.includes('見守り活動・挨拶運動シフト表 令和8年度 前期分'));
+	assert.ok(html.includes('class="sheet-meta-table"'), 'Should contain sheet-meta-table');
+	assert.ok(html.includes('第1地区'));
+	assert.ok(html.includes('小学校正門前'));
+	assert.ok(html.includes('7:55 〜 8:25'));
+	assert.ok(html.includes('月曜・水曜（祝日・学校休校日を除く）') || html.includes('月・水'));
+
+	// 3. ヘッダー連絡事項 (sheet-msg-box)
+	assert.ok(html.includes('class="sheet-msg-box"'), 'Should contain sheet-msg-box');
+	assert.ok(html.includes('・旗振り終了後、〇をつけてください'));
+
+	// 4. 多段組みシフト表 (columns-container, column-table-wrapper, table.schedule-table)
+	assert.ok(html.includes('class="columns-container"'), 'Should contain columns-container');
+	assert.ok(html.includes('class="column-table-wrapper"'), 'Should contain column-table-wrapper');
+	assert.ok(html.includes('class="schedule-table"'), 'Should contain schedule-table');
+	assert.ok(html.includes('月日(曜)'), 'Header should have 月日(曜)');
+	assert.ok(html.includes('担当 / 事由'), 'Header should have 担当 / 事由');
+
+	// 5. 状態別行スタイル (row-holiday, row-special, 通常)
+	assert.ok(html.includes('class="row-holiday"'), 'Should format holiday row with row-holiday class');
+	assert.ok(html.includes('創立記念日'));
+	assert.ok(html.includes('class="row-special"'), 'Should format special row with row-special class');
+	assert.ok(html.includes('badge-special') || html.includes('重点見守り日'));
+
+	// 6. T-1: 空行パディングの厳密性検証 (total=5, numCols=3 -> itemsPerCol = Math.ceil(5/3) = 2)
+	// 列1: 2件, 列2: 2件, 列3: 1件 + 1件空行パディング (<tr><td>&nbsp;</td><td></td></tr>)
+	const paddingCount = (html.match(/<td>&nbsp;<\/td><td><\/td>/g) || []).length;
+	assert.strictEqual(paddingCount, 1, 'Padding row should appear exactly once for 5 items in 3 columns');
+
+	// 余り0件のテストケース (6件、3段組 -> 各2件、パディング0件)
+	const sched6 = [
+		...schedule,
+		{ date: '2026-04-22', dayOfWeek: '水', type: 'regular', person: '加藤', note: '' }
+	];
+	const html6 = hata.buildHataPrintHtml(sched6, config);
+	const paddingCount6 = (html6.match(/<td>&nbsp;<\/td><td><\/td>/g) || []).length;
+	assert.strictEqual(paddingCount6, 0, 'No padding row when items divide evenly into columns');
+
+	// 7. フッター連絡事項 (sheet-footer-box) & 校外委員連絡先 (sheet-contact-box)
+	assert.ok(html.includes('sheet-footer-box'), 'Should contain sheet-footer-box');
+	assert.ok(html.includes('●当番日に活動できない場合'));
+	assert.ok(html.includes('class="sheet-contact-box"'), 'Should contain sheet-contact-box');
+	assert.ok(html.includes('校外委員連絡先：鈴木'));
+});
+
+test('hata: generateHataSchedule includes holidays as rows, supports tilde ranges, and calculates stats (A-2, A-3, T-3)', () => {
+	const config = {
+		startDate: '2026-12-23',
+		endDate: '2026-12-28',
+		weekdays: [1, 2, 3, 4, 5],
+		holidays: '2026-12-25〜2026-12-28,冬季休業', // 波線範囲指定
+		specials: '2026-12-24,山田,重点警戒日', // 山田が特別枠を担当
+		members: '山田\n佐藤',
+		exemptHouseholds: []
+	};
+
+	const schedule = hata.generateHataSchedule(config);
+	assert.ok(Array.isArray(schedule));
+
+	// 12/23: 通常 (山田)
+	// 12/24: 特別枠 (山田 - 特別枠指定)
+	// 12/25: 祝日/休校日 (冬季休業) - 当番消費せず
+	// 12/28: 祝日/休校日 (冬季休業)
+	assert.strictEqual(schedule.length, 4);
+	assert.strictEqual(schedule[0].date, '2026-12-23');
+	assert.strictEqual(schedule[0].type, 'regular');
+	assert.strictEqual(schedule[0].person, '山田');
+
+	assert.strictEqual(schedule[1].date, '2026-12-24');
+	assert.strictEqual(schedule[1].type, 'special');
+	assert.strictEqual(schedule[1].person, '山田');
+
+	assert.strictEqual(schedule[2].date, '2026-12-25');
+	assert.strictEqual(schedule[2].type, 'holiday');
+	assert.strictEqual(schedule[2].note, '冬季休業');
+
+	assert.strictEqual(schedule[3].date, '2026-12-28');
+	assert.strictEqual(schedule[3].type, 'holiday');
+	assert.strictEqual(schedule[3].note, '冬季休業');
+
+	// T-3: stats集計で山田の regular:1, special:1 を検証
+	const stats = hata.calculateHataStats(schedule, ['山田', '佐藤']);
+	assert.strictEqual(stats['山田'].regular, 1);
+	assert.strictEqual(stats['山田'].special, 1);
+	assert.strictEqual(stats['佐藤'].regular, 0);
+	assert.strictEqual(stats['佐藤'].special, 0);
+
+	// T-3: renderHataSummary UIテスト
+	setupDomEnvironment();
+	const summaryContainer = document.createElement('div');
+	summaryContainer.id = 'hata-summary-container';
+	document.body.appendChild(summaryContainer);
+
+	hata.renderHataSummary(stats, summaryContainer);
+	assert.ok(summaryContainer.innerHTML.includes('山田'));
+	assert.ok(summaryContainer.innerHTML.includes('通常: 1回'));
+	assert.ok(summaryContainer.innerHTML.includes('特別: 1回'));
+	assert.ok(summaryContainer.innerHTML.includes('佐藤'));
+	assert.ok(summaryContainer.innerHTML.includes('通常: 0回'));
+
+	// メンバーなしのフォールバック
+	hata.renderHataSummary({}, summaryContainer);
+	assert.ok(summaryContainer.innerHTML.includes('メンバーが登録されていません'));
+
+	// toggleHataSummary テスト
+	const accordion = document.getElementById('hata-summary-accordion');
+	const arrow = document.getElementById('hata-accordion-arrow');
+	arrow.innerText = '▼';
+
+	hata.toggleHataSummary();
+	assert.ok(accordion.classList.contains('open'));
+	assert.strictEqual(arrow.innerText, '▲');
+
+	hata.toggleHataSummary();
+	assert.strictEqual(accordion.classList.contains('open'), false);
+	assert.strictEqual(arrow.innerText, '▼');
+});
+
+test('hata: precision branch booster to achieve 100% line and >95% branch coverage', () => {
+	setupDomEnvironment();
+
+	// 1. normalizeDateStr & expandDateOrRange 境界値
+	assert.strictEqual(hata.normalizeDateStr(null), null);
+	assert.strictEqual(hata.normalizeDateStr(''), null);
+	assert.strictEqual(hata.normalizeDateStr('not-a-date'), null);
+	assert.deepStrictEqual(hata.expandDateOrRange('invalid〜2026-05-01'), []);
+	assert.deepStrictEqual(hata.expandDateOrRange('2026-05-01〜invalid'), []);
+
+	// 2. generateHataSchedule: 不正日程、空行、配列祝日空要素、activeMembers空特別枠/通常枠
+	assert.deepStrictEqual(hata.generateHataSchedule({ startDate: 'invalid', endDate: '2026-05-01' }), []);
+	assert.deepStrictEqual(hata.generateHataSchedule({ startDate: '2026-05-01', endDate: 'invalid' }), []);
+	assert.deepStrictEqual(hata.generateHataSchedule({ startDate: '2026-05-01' }), []); // endDate なし
+
+	const edgeConfigAll = {
+		startDate: '2026-05-01',
+		endDate: '2026-05-03',
+		weekdays: [1, 2, 3, 4, 5],
+		holidays: '\n2026-05-01,\n  ,  \n', // 空行・空理由
+		specials: '\n2026-05-02,\n2026-05-03,,\n', // 空行・担当者空（自動順送りだがメンバー0名）
+		members: '', // メンバー0名
+		exemptHouseholds: null,
+		manualOverrides: {
+			'2026-05-02': { person: '手動太郎', note: '調整', type: 'special', isSwapped: true, originalPerson: '元太郎' }
+		}
+	};
+	const schedEdge = hata.generateHataSchedule(edgeConfigAll);
+	assert.strictEqual(schedEdge.length, 3);
+	assert.strictEqual(schedEdge[1].person, '手動太郎');
+	assert.strictEqual(schedEdge[1].isSwapped, true);
+	assert.strictEqual(schedEdge[1].originalPerson, '元太郎');
+	assert.strictEqual(schedEdge[2].person, ''); // activeMembers なしで空
+
+	// holidays が配列で null や name なし
+	const schedHoliArr = hata.generateHataSchedule({
+		startDate: '2026-05-01',
+		endDate: '2026-05-01',
+		weekdays: [5],
+		holidays: [null, { date: '2026-05-01' }] // name なし
+	});
+	assert.strictEqual(schedHoliArr[0].note, '祝日');
+
+	// 3. swapScheduleDates: config なし、manualOverrides 初期化
+	hata.swapScheduleDates(null, '2026-05-01', 'A', '2026-05-02', 'B');
+	const swapCfg = {};
+	hata.swapScheduleDates(swapCfg, '2026-05-01', 'A', '2026-05-02', 'B');
+	assert.strictEqual(swapCfg.manualOverrides['2026-05-01'].person, 'B');
+
+	// 4. setDateOverride & clearDateOverride: config なし、manualOverrides 初期化
+	hata.setDateOverride(null, '2026-05-01', {});
+	const setCfg = {};
+	hata.setDateOverride(setCfg, '2026-05-01', { person: 'C' });
+	assert.strictEqual(setCfg.manualOverrides['2026-05-01'].person, 'C');
+
+	hata.clearDateOverride(null, '2026-05-01');
+	hata.clearDateOverride({}, '2026-05-01');
+	hata.clearDateOverride(setCfg, '2026-05-01');
+	assert.strictEqual(setCfg.manualOverrides['2026-05-01'], undefined);
+
+	// 5. exportHataOfficialJson & importHataOfficialJson: null / 空 / オブジェクト直接
+	const expNull = JSON.parse(hata.exportHataOfficialJson(null));
+	assert.strictEqual(expNull.scheduleTitle, '登校見守り活動シフト表');
+	assert.deepStrictEqual(hata.importHataOfficialJson(null), {});
+	const impDirect = hata.importHataOfficialJson({ title: '直接オブジェクト', metaLocation: '地点A' });
+	assert.strictEqual(impDirect.title, '直接オブジェクト');
+	assert.strictEqual(impDirect.location, '地点A');
+
+	// 6. calculateHataStats: 未登録メンバー（stats[item.person] 新規作成）、item.type なし/isSpecial なし、item.person === '-'
+	const unlistedStats = hata.calculateHataStats([
+		{ date: '2026-05-01', person: '外部役員', type: 'special' },
+		{ date: '2026-05-02', person: '臨時保護者' }, // typeなし、isSpecialなし -> regular
+		{ date: '2026-05-03', person: '-' }, // スキップ
+		null
+	], '登録メンバー'); // 文字列引数の members
+	assert.strictEqual(unlistedStats['外部役員'].special, 1);
+	assert.strictEqual(unlistedStats['臨時保護者'].regular, 1);
+	assert.strictEqual(unlistedStats['登録メンバー'].regular, 0);
+
+	assert.deepStrictEqual(hata.calculateHataStats(null, null), {});
+
+	// 7. renderHataSummary: containerEl が渡されず、DOM にどちらの ID もない場合
+	document.elements['hata-summary-container'] = null;
+	document.elements['summaryContainer'] = null;
+	hata.renderHataSummary({ テスト: { regular: 1, special: 0 } }); // 何も起きず正常終了
+
+	// 8. toggleHataSummary: content なし、arrow なし
+	document.elements['hata-summary-accordion'] = null;
+	document.elements['summaryAccordion'] = null;
+	hata.toggleHataSummary(); // 何も起きず正常終了
+
+	const mockAcc = document.createElement('div');
+	mockAcc.id = 'hata-summary-accordion';
+	document.elements['hata-summary-accordion'] = mockAcc;
+	document.elements['hata-accordion-arrow'] = null;
+	document.elements['accordionArrow'] = null;
+	hata.toggleHataSummary(); // arrow が null でも open トグル動作
+	assert.ok(mockAcc.classList.contains('open'));
+
+	// 9. buildHataPrintHtml: config が null, schedule が空, 全オプション網羅
+	const emptySheet = hata.buildHataPrintHtml([], null);
+	assert.ok(emptySheet.includes('シフトがまだ生成されていません'));
+
+	// scheduleCreatedDate, scheduleTitle, contactMsg, weekdays が空配列 -> '指定なし'
+	const customSheet = hata.buildHataPrintHtml([
+		{ date: '2026-05-01', day: '金', person: '佐々木', type: 'regular', isSwapped: true },
+		{ date: '2026-05-02', day: '土', person: '役員B', type: 'special', isSpecial: true, tag: '補導' },
+		{ date: '2026-05-03', day: '日', person: '-', type: 'holiday', note: '憲法記念日' }
+	], {
+		scheduleTitle: 'カスタム見守り表',
+		scheduleCreatedDate: '2026/05/01作成',
+		district: '',
+		location: '',
+		time: '',
+		weekdays: [], // 空配列 -> '指定なし'
+		layoutColumns: 1,
+		headerMsg: '',
+		footerMsg: '',
+		contactMsg: '連絡先: 担当役員'
+	});
+	assert.ok(customSheet.includes('カスタム見守り表'));
+	assert.ok(customSheet.includes('指定なし'));
+	assert.ok(customSheet.includes('連絡先: 担当役員'));
+	assert.ok(customSheet.includes('badge-special'));
+	assert.ok(customSheet.includes('交代'));
+
+	// weekdays が null (非配列) の場合 -> デフォルト平日 [1,2,3,4,5]
+	const nullWkSheet = hata.buildHataPrintHtml([
+		{ date: '2026-05-01', day: '金', person: '佐々木', type: 'regular' }
+	], { weekdays: null });
+	assert.ok(nullWkSheet.includes('月曜・火曜・水曜・木曜・金曜'));
+
+	// 10. renderHataSchedulePreview: previewContainer が null, explicitSchedule なしで district.hata なし
+	document.elements['hata-schedule-preview'] = null;
+	hata.renderHataSchedulePreview();
+
+	const previewEl = document.createElement('div');
+	previewEl.id = 'hata-schedule-preview';
+	document.elements['hata-schedule-preview'] = previewEl;
+	state.currentDistrict = {};
+	hata.renderHataSchedulePreview();
+	assert.ok(previewEl.innerHTML.includes('シフトがまだ生成されていません'));
+
+	// 11. printHataSchedule: hataCurrentSchedule が空のときに runAutoHataGeneration を自動呼び出し
+	state.currentDistrict = {
+		hata: {
+			startDate: '2026-06-01',
+			endDate: '2026-06-05',
+			weekdays: [1, 2, 3, 4, 5],
+			members: '高橋'
+		}
+	};
+	hata.printHataSchedule();
+
+	// 12. renderHataCard & renderHataExemptList & toggleHataExempt & applyHataPeriodPreset
+	state.currentDistrict = {};
+	hata.renderHataCard();
+	assert.ok(state.currentDistrict.hata.title);
+
+	state.currentDistrict = { hata: null };
+	hata.toggleHataExempt('key1', true);
+	hata.toggleHataExempt('key1', false);
+
+	state.currentDistrict = { hata: {} };
+	hata.applyHataPeriodPreset('kouki');
+	assert.strictEqual(state.currentDistrict.hata.startDate.slice(5), '10-01');
+	hata.applyHataPeriodPreset('full');
+	assert.strictEqual(state.currentDistrict.hata.startDate.slice(5), '04-06');
+});

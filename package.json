@@ -1,6 +1,6 @@
 {
 	"name": "kogaidocs",
-	"version": "2.6.0",
+	"version": "2.7.0",
 	"description": "PTA校外委員会 名簿・帳票・スクールゾーン協議会管理システム",
 	"scripts": {
 		"test": "node --test --experimental-test-coverage tests/unit/*.test.js tests/integration/*.test.js tests/system/*.test.js",

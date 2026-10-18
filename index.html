@@ -250,7 +250,7 @@
 						</div>
 						<div>
 							<label>活動時間帯</label>
-							<input type="text" id="hata-time" value="7:45〜8:15" placeholder="例: 7:45〜8:15" oninput="if(currentDistrict.hata) currentDistrict.hata.time=this.value; saveDistrictLocal();">
+							<input type="text" id="hata-time" value="7:55 〜 8:25" placeholder="例: 7:55 〜 8:25" oninput="if(currentDistrict.hata) currentDistrict.hata.time=this.value; saveDistrictLocal();">
 						</div>
 						<div>
 							<label>活動期間（開始日 〜 終了日）</label>
@@ -265,12 +265,28 @@
 								<button type="button" class="btn btn-outline btn-xs" onclick="applyHataPeriodPreset('full')">通年（4月〜3月）</button>
 							</div>
 						</div>
+						<div>
+							<label>印刷用紙の向き</label>
+							<select id="hata-orientation" onchange="if(currentDistrict.hata) currentDistrict.hata.orientation=this.value; saveDistrictLocal();">
+								<option value="landscape" selected>横向き（推奨）</option>
+								<option value="portrait">縦向き</option>
+							</select>
+						</div>
+						<div>
+							<label>多段組み列数</label>
+							<select id="hata-columns" onchange="if(currentDistrict.hata) { currentDistrict.hata.layoutColumns=this.value; saveDistrictLocal(); renderHataSchedulePreview(); }">
+								<option value="3" selected>3段（推奨）</option>
+								<option value="2">2段</option>
+								<option value="4">4段</option>
+								<option value="1">1段</option>
+							</select>
+						</div>
 					</div>
 				</div>
 
-				<!-- 詳細アコーディオン：対象世帯・免除・祝日設定 -->
+				<!-- 詳細アコーディオン：対象世帯・免除・祝日・連絡事項設定 -->
 				<details style="background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;">
-					<summary style="font-weight: 600; cursor: pointer; color: #334155;">⚙️ 詳細設定（対象世帯・免除世帯・祝日・除外日）</summary>
+					<summary style="font-weight: 600; cursor: pointer; color: #334155;">⚙️ 詳細設定（免除世帯・祝日・特別枠・連絡事項・連絡先）</summary>
 					<div style="margin-top: 10px; border-top: 1px dashed #e2e8f0; padding-top: 10px;">
 						<div style="margin-bottom: 12px;">
 							<div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 4px;">免除世帯の選択（チェックを入れた世帯は当番から除外されます）</div>
@@ -281,12 +297,23 @@
 
 						<div class="grid-form">
 							<div>
-								<label>除外する祝日・行事日（カンマ区切り: 日付,名称）</label>
-								<textarea id="hata-holidays" rows="3" placeholder="2026-05-04,みどりの日&#10;2026-05-05,こどもの日" style="font-size:0.85rem;" oninput="if(currentDistrict.hata) currentDistrict.hata.holidays=this.value; saveDistrictLocal();"></textarea>
+								<label>除外する祝日・行事日（日付,理由）</label>
+								<textarea id="hata-holidays" rows="3" placeholder="2026-05-04,みどりの日&#10;2026-07-21〜2026-08-31,夏季休業" style="font-size:0.85rem;" oninput="if(currentDistrict.hata) currentDistrict.hata.holidays=this.value; saveDistrictLocal();"></textarea>
+								<span class="help-text">※波線（〜）による期間指定（例: 2026-12-25〜2027-01-07,冬休み）に対応</span>
 							</div>
 							<div>
-								<label>特別枠・固定枠（日付,特別枠名,担当者）</label>
-								<textarea id="hata-specials" rows="3" placeholder="2026-05-01,交通安全週間,校外役員" style="font-size:0.85rem;" oninput="if(currentDistrict.hata) currentDistrict.hata.specials=this.value; saveDistrictLocal();"></textarea>
+								<label>特別追加枠（日付,担当者,事由）</label>
+								<textarea id="hata-specials" rows="3" placeholder="2026-05-01,校外役員,交通安全週間&#10;2026-05-02,,重点見守り日" style="font-size:0.85rem;" oninput="if(currentDistrict.hata) currentDistrict.hata.specials=this.value; saveDistrictLocal();"></textarea>
+								<span class="help-text">※担当者空欄で自動順送り。波線（〜）による期間指定も可能</span>
+							</div>
+							<div>
+								<label>ヘッダー連絡事項（シフト表上部ボックス）</label>
+								<textarea id="hata-header-msg" rows="2" placeholder="例: ・旗振り終了後、〇をつけてください&#10;・次の方へ回してください" style="font-size:0.85rem;" oninput="if(currentDistrict.hata) currentDistrict.hata.headerMsg=this.value; saveDistrictLocal();"></textarea>
+							</div>
+							<div>
+								<label>フッター連絡事項 ＆ 連絡先（シフト表下部ボックス）</label>
+								<textarea id="hata-footer-msg" rows="2" placeholder="例: ●当番日に活動できない場合&#10;・保護者間で交代をお願いします" style="font-size:0.85rem;" oninput="if(currentDistrict.hata) currentDistrict.hata.footerMsg=this.value; saveDistrictLocal();"></textarea>
+								<input type="text" id="hata-contact-msg" placeholder="校外委員連絡先：〇〇（TEL: 090-XXXX-XXXX）" style="margin-top:4px; font-size:0.85rem;" oninput="if(currentDistrict.hata) currentDistrict.hata.contactMsg=this.value; saveDistrictLocal();">
 							</div>
 						</div>
 
@@ -310,16 +337,27 @@
 				<div class="flex-row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
 					<button type="button" class="btn btn-primary" onclick="runAutoHataGeneration()">⚡ シフトを自動均等生成</button>
 					<div class="flex-row" style="gap: 6px;">
-						<button type="button" class="btn btn-outline btn-sm" onclick="printHataSchedule()">🖨️ A4印刷プレビュー</button>
+						<button type="button" class="btn btn-success" onclick="printHataSchedule()">🖨️ A4印刷 / PDF保存</button>
 						<label class="btn btn-outline btn-sm" style="cursor:pointer; margin-bottom:0;">
 							📥 公式JSON読込
 							<input type="file" accept=".json" style="display:none;" onchange="const f=this.files[0]; if(f){ const r=new FileReader(); r.onload=ev=>{ currentDistrict.hata = importHataOfficialJson(ev.target.result); renderHataCard(); saveDistrictLocal(); }; r.readAsText(f); }">
 						</label>
-						<button type="button" class="btn btn-outline btn-sm" onclick="downloadTextFile(exportHataOfficialJson(currentDistrict.hata), `hatafurotto_${(currentDistrict.district||'district')}_${(new Date().toISOString().slice(0,10))}.json`)">💾 公式JSON保存</button>
+						<button type="button" class="btn btn-outline btn-sm" onclick="downloadTextFile(exportHataOfficialJson(currentDistrict.hata), `HataFuRotto設定_${(currentDistrict.district||'PTA')}_${(new Date().toISOString().slice(0,10).replace(/-/g,''))}.json`)">💾 公式JSON保存</button>
 					</div>
 				</div>
 
-				<!-- シフトプレビュー表示エリア -->
+				<!-- 当番回数アコーディオン -->
+				<button type="button" class="hata-accordion-toggle" onclick="toggleHataSummary()">
+					<span>📊 各自の当番回数を確認（※印刷物には含まれません）</span>
+					<span id="hata-accordion-arrow">▼</span>
+				</button>
+				<div id="hata-summary-accordion" class="hata-accordion-content">
+					<div style="background:#fff; border:1px solid #cbd5e1; border-radius:6px; padding:8px 10px; margin-bottom:10px;">
+						<div id="hata-summary-container" class="summary-grid"></div>
+					</div>
+				</div>
+
+				<!-- シフトプレビュー表示エリア（本家A4多段組シート） -->
 				<div id="hata-schedule-preview">
 					<div class="help-text" style="text-align:center; padding:1.5rem;">「⚡ シフトを自動均等生成」を押すと、当番シフト表が表示されます。</div>
 				</div>
