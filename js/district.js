@@ -717,7 +717,7 @@ async function integrateTransferDataIntoDistrict(payload, password) {
 		};
 
 		const promptMsg = `転入児童「${normChild.lastName} ${normChild.firstName}」（${normChild.grade}年${normChild.class}組）の所属班を入力してください：`;
-		const assignedHan = prompt(promptMsg, defaultHan);
+		const assignedHan = safePrompt(promptMsg, defaultHan);
 		if (assignedHan === null) {
 			currentDistrict.students = backupStudents;
 			return false;
@@ -762,7 +762,7 @@ async function loadTransferFileIntoDistrict(e) {
 		try {
 			data = await parseTxtContent(text, pass);
 		} catch (err) {
-			const promptPass = prompt("転入児童データの復号パスワードを入力してください：");
+			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) { if (e.target) e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass);
 		}
@@ -782,7 +782,7 @@ async function loadPastedTransferTextIntoDistrict(text) {
 		try {
 			data = await parseTxtContent(raw, pass);
 		} catch (err) {
-			const promptPass = prompt("転入児童データの復号パスワードを入力してください：");
+			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass);
 		}
@@ -804,7 +804,7 @@ async function loadNeighborFileIntoDistrict(e) {
 		try {
 			data = await parseTxtContent(text, pass);
 		} catch (err) {
-			const promptPass = prompt("自治会ファイルの復号パスワードを入力してください：");
+			const promptPass = safePrompt("自治会ファイルの復号パスワードを入力してください：");
 			if (!promptPass) { e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass);
 		}
@@ -826,7 +826,7 @@ async function loadPastedNeighborTextIntoDistrict() {
 		try {
 			data = await parseTxtContent(raw, pass);
 		} catch (err) {
-			const promptPass = prompt("自治会データの復号パスワードを入力してください：");
+			const promptPass = safePrompt("自治会データの復号パスワードを入力してください：");
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass);
 		}

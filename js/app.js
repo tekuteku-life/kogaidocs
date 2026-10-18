@@ -178,8 +178,8 @@ async function shareAppUrl(specificMode) {
 		} catch (e) {}
 	}
 
-	if (typeof prompt === 'function') {
-		prompt("アプリのURLをコピーして共有してください:", shareData.url);
+	if (typeof safePrompt === 'function') {
+		safePrompt("アプリのURLをコピーして共有してください:", shareData.url);
 	}
 }
 

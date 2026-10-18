@@ -408,6 +408,30 @@ function isNewerVersion(remote, current) {
 	return false;
 }
 
+/**
+ * prompt() が非サポートまたは例外をスローする環境でも安全に入力を取得します
+ * @param {string} message ダイアログに表示するメッセージ
+ * @param {string} [defaultValue=""] デフォルトの入力値
+ * @returns {string|null} 入力された文字列。キャンセルまたは非サポート時はnull
+ */
+function safePrompt(message, defaultValue = "") {
+	try {
+		if (typeof window !== 'undefined' && typeof window.prompt === 'function') {
+			return window.prompt(message, defaultValue);
+		}
+		if (typeof globalThis !== 'undefined' && typeof globalThis.prompt === 'function') {
+			return globalThis.prompt(message, defaultValue);
+		}
+	} catch (e) {
+		console.warn("prompt() is not supported in this environment:", e);
+	}
+	return null;
+}
+
+if (typeof window !== 'undefined') {
+	window.safePrompt = safePrompt;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		esc,
@@ -427,7 +451,8 @@ if (typeof module !== 'undefined' && module.exports) {
 		compareStudents,
 		getUniqueNeighborhoodDistricts,
 		getDistrictWideValidStudents,
-		isNewerVersion
+		isNewerVersion,
+		safePrompt
 	};
 	Object.assign(global, module.exports);
 }

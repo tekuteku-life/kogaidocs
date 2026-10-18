@@ -482,7 +482,7 @@ async function integrateTransferDataIntoRep(payload, password) {
 		? `転入児童を統合する地区名を入力してください（既存地区: ${existingDistricts.join(', ')}）：`
 		: `転入児童を統合する地区名を入力してください：`;
 	const defaultDist = existingDistricts[0] || "1丁目";
-	const selectedDist = prompt(distPromptMsg, defaultDist);
+	const selectedDist = safePrompt(distPromptMsg, defaultDist);
 	if (!selectedDist || !selectedDist.trim()) {
 		return false;
 	}
@@ -523,7 +523,7 @@ async function integrateTransferDataIntoRep(payload, password) {
 		};
 
 		const promptMsg = `転入児童「${normChild.lastName} ${normChild.firstName}」（${normChild.grade}年${normChild.class}組）の所属班を入力してください：`;
-		const assignedHan = prompt(promptMsg, defaultHan);
+		const assignedHan = safePrompt(promptMsg, defaultHan);
 		if (assignedHan === null) {
 			targetDistrict.students = backupStudents;
 			return false;
@@ -570,7 +570,7 @@ async function loadTransferFileIntoRep(e) {
 		try {
 			data = await parseTxtContent(text, pass);
 		} catch (err) {
-			const promptPass = prompt("転入児童データの復号パスワードを入力してください：");
+			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) { if (e.target) e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass);
 		}
@@ -590,7 +590,7 @@ async function loadPastedTransferTextIntoRep(text) {
 		try {
 			data = await parseTxtContent(raw, pass);
 		} catch (err) {
-			const promptPass = prompt("転入児童データの復号パスワードを入力してください：");
+			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass);
 		}
@@ -615,9 +615,20 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 		pass = passInput ? passInput.value : '';
 	}
 	if (!pass) {
-		pass = prompt(`地区「${src.district || ''}」の切り出し出力用パスワードを入力してください：`);
+		pass = safePrompt(`地区「${src.district || ''}」の切り出し出力用パスワードを入力してください：`);
 	}
 	if (!pass) {
+		alert(`地区「${src.district || ''}」の切り出し出力にはパスワードが必要です。\n「5. 代表統合マスターデータ保存・読み込み」欄のパスワードを入力してください。`);
+		const card = document.getElementById('card-rep-master');
+		if (card && card.classList.contains('is-collapsed')) {
+			if (typeof toggleCard === 'function') {
+				toggleCard(card);
+			} else {
+				card.classList.remove('is-collapsed');
+			}
+		}
+		const passInput = document.getElementById('rep-pass');
+		if (passInput) passInput.focus();
 		return false;
 	}
 

@@ -225,7 +225,7 @@ async function loadNeighborTxt(e) {
 		try {
 			data = await parseTxtContent(text, pass);
 		} catch (err) {
-			const promptPass = prompt("自治会ファイルの復号パスワードを入力してください：");
+			const promptPass = safePrompt("自治会ファイルの復号パスワードを入力してください：");
 			if (!promptPass) { e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass);
 			pass = promptPass;
@@ -260,7 +260,7 @@ async function loadPastedTextToNeighbor() {
 		try {
 			data = await parseTxtContent(raw, pass);
 		} catch (err) {
-			const promptPass = prompt("復号パスワードを入力してください：");
+			const promptPass = safePrompt("復号パスワードを入力してください：");
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass);
 			pass = promptPass;

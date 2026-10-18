@@ -1025,3 +1025,45 @@ test('rep: exportSingleDistrictFromRep extracts single district with deep clone,
 	const resInvalid = await rep.exportSingleDistrictFromRep(999, pass, 'download');
 	assert.strictEqual(resInvalid, false);
 });
+
+test('rep: exportSingleDistrictFromRep gracefully handles "prompt() is not supported" environment and triggers rep-pass guidance UX', async () => {
+	setupDomEnvironment();
+	state.repState = {
+		districts: [
+			createMockDistrict({ district: '不具合検証地区', han: '1班' })
+		],
+		szExternals: [],
+		seatConfig: { cols: 4, rows: 5, cells: {} }
+	};
+
+	// パスワード未入力状態
+	document.getElementById('rep-pass').value = '';
+	const cardMaster = document.getElementById('card-rep-master');
+	if (cardMaster) cardMaster.classList.add('is-collapsed');
+
+	// ユーザー環境を再現: prompt() を呼ぶと "Error: prompt() is not supported." がスローされる
+	global.prompt = window.prompt = () => {
+		throw new Error('prompt() is not supported.');
+	};
+
+	let alertShown = '';
+	global.alert = (msg) => { alertShown = msg; };
+
+	let focusedInput = null;
+	const repPassInput = document.getElementById('rep-pass');
+	if (repPassInput) {
+		repPassInput.focus = () => { focusedInput = repPassInput; };
+	}
+
+	// 実行: 例外がスローされず安全に false を返し、案内が表示されること
+	const result = await rep.exportSingleDistrictFromRep(0, null, 'download');
+	assert.strictEqual(result, false, 'Should return false instead of throwing Uncaught Error');
+	assert.ok(alertShown.includes('パスワードが必要です'), 'Should alert user that password is required');
+	assert.ok(alertShown.includes('代表統合マスターデータ保存'), 'Should guide user to card 5 rep-pass field');
+	if (cardMaster) {
+		assert.strictEqual(cardMaster.classList.contains('is-collapsed'), false, 'Should expand card 5');
+	}
+	if (repPassInput) {
+		assert.strictEqual(focusedInput, repPassInput, 'Should autofocus on rep-pass input');
+	}
+});
