@@ -2,7 +2,7 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
-const CURRENT_APP_VERSION = "2.5.0";
+const CURRENT_APP_VERSION = "2.7.1";
 let deferredInstallPrompt = null;
 
 function switchTab(mode) {
@@ -757,6 +757,49 @@ async function loadAppDataFromStorage() {
 	}
 }
 
+const UPDATE_ATTEMPT_TTL_MS = 60 * 60 * 1000; // 1時間
+
+/**
+ * sessionStorage から安全に直前の更新試行情報を取得します
+ * @returns {{ version: string | null, time: number | null }}
+ */
+function getUpdateAttemptInfo() {
+	try {
+		if (typeof sessionStorage === 'undefined') return { version: null, time: null };
+		const version = sessionStorage.getItem('kogai_update_attempted_version');
+		const timeStr = sessionStorage.getItem('kogai_update_attempted_time');
+		const time = timeStr ? parseInt(timeStr, 10) : null;
+		return { version, time };
+	} catch (e) {
+		return { version: null, time: null };
+	}
+}
+
+/**
+ * sessionStorage の更新試行情報を安全に消去します
+ */
+function clearUpdateAttemptInfo() {
+	try {
+		if (typeof sessionStorage !== 'undefined') {
+			sessionStorage.removeItem('kogai_update_attempted_version');
+			sessionStorage.removeItem('kogai_update_attempted_time');
+		}
+	} catch (e) {}
+}
+
+/**
+ * sessionStorage に更新試行情報を安全に記録します
+ * @param {string} version
+ */
+function recordUpdateAttemptInfo(version) {
+	try {
+		if (typeof sessionStorage !== 'undefined' && version) {
+			sessionStorage.setItem('kogai_update_attempted_version', version);
+			sessionStorage.setItem('kogai_update_attempted_time', String(Date.now()));
+		}
+	} catch (e) {}
+}
+
 /**
  * PWAアプリのバージョンを確認し、最新版があればアップデートを促します
  * @param {boolean} [isManual=false] 手動実行（設定画面から）かどうか
@@ -789,6 +832,19 @@ async function checkAppVersion(isManual = false) {
 		const remoteVersion = data && data.version ? data.version : null;
 
 		if (remoteVersion && isNewerVersion(remoteVersion, CURRENT_APP_VERSION)) {
+			// セーフティガード: 直前に同一バージョンへの更新を試行済みか判定
+			if (!isManual) {
+				const attempt = getUpdateAttemptInfo();
+				const isRecentAttempt = attempt.version === remoteVersion &&
+					typeof attempt.time === 'number' && !isNaN(attempt.time) && attempt.time > 0 &&
+					(Date.now() - attempt.time) < UPDATE_ATTEMPT_TTL_MS;
+
+				if (isRecentAttempt) {
+					console.warn(`Update was already attempted for v${remoteVersion} but CURRENT_APP_VERSION is still v${CURRENT_APP_VERSION}. Skipping auto update prompt to prevent infinite loop.`);
+					return;
+				}
+			}
+
 			if (statusEl) {
 				statusEl.textContent = `新しいバージョン（v${remoteVersion}）が利用可能です。`;
 			}
@@ -797,11 +853,12 @@ async function checkAppVersion(isManual = false) {
 				const doUpdate = (typeof module !== 'undefined' && module.exports && module.exports.performAppUpdate)
 					? module.exports.performAppUpdate
 					: performAppUpdate;
-				await doUpdate();
+				await doUpdate(remoteVersion);
 			} else if (isManual && statusEl) {
 				statusEl.textContent = '更新がキャンセルされました。';
 			}
 		} else {
+			clearUpdateAttemptInfo();
 			if (isManual) {
 				alert(`お使いのアプリは最新バージョン（v${CURRENT_APP_VERSION}）です。`);
 				if (statusEl) statusEl.textContent = '最新バージョンです。';
@@ -823,8 +880,13 @@ async function checkAppVersion(isManual = false) {
 
 /**
  * 現在の作業状態を保存し、キャッシュを全消去して最新リソースを強制リロードします
+ * @param {string} [targetVersion=null] 更新対象バージョン（sessionStorageに記録）
  */
-async function performAppUpdate() {
+async function performAppUpdate(targetVersion = null) {
+	if (targetVersion) {
+		recordUpdateAttemptInfo(targetVersion);
+	}
+
 	// A-3: 防御的マルチモード状態保存（独立try-catch）
 	const saveDistFn = (typeof global !== 'undefined' && global.saveDistrictLocal) || (typeof saveDistrictLocal === 'function' ? saveDistrictLocal : null);
 	if (typeof saveDistFn === 'function') {
@@ -979,7 +1041,11 @@ if (typeof module !== 'undefined' && module.exports) {
 		quickSetupEncryptionFromCard,
 		loadAppDataFromStorage,
 		checkAppVersion,
-		performAppUpdate
+		performAppUpdate,
+		UPDATE_ATTEMPT_TTL_MS,
+		getUpdateAttemptInfo,
+		clearUpdateAttemptInfo,
+		recordUpdateAttemptInfo
 	};
 	Object.assign(global, module.exports);
 }

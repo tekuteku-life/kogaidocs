@@ -1,7 +1,7 @@
 # 校外委員会 名簿・帳票・スクールゾーン協議会管理システム システム設計書
-**文書バージョン**: 2.7.0<br>
+**文書バージョン**: 2.7.1<br>
 **策定日**: 2026年10月<br>
-**改訂日**: 2026年10月18日 (v2.7.0: ハタフロット本家完全準拠組版アーキテクチャ・多段組空行パディング・シートヘッダー/連絡先枠・回数集計・印刷CSS完全移植)<br>
+**改訂日**: 2026年10月18日 (v2.7.1: バージョン定義SSOT整合性保証、無限更新通知ループ防止セーフティガードの策定)<br>
 **対象システム**: kogaidocs (PTA Off-Campus Committee & School Zone Management System)
 
 ---
@@ -264,7 +264,7 @@ flowchart LR
 | **モード選択肢の動的折りたたみUX** | ・初期画面およびモード選択時、ヘッダー直下の4モード選択ボタンが自動的にコンパクトな「アクティブモード表示バッジ（例：`① 各地区役員モード ▼ [モード切替]`）」へと折りたたまれる。<br/>・スマートフォン等の狭小画面において、作業領域（名簿テーブルや入力フォーム）の視認性を劇的に向上。<br/>・バッジをクリックすると即座に4つのモード選択ボタンが展開され、いつでも自由に他モードへ移動可能。 |
 | **前回選択モードの永続化と自動復元** | ・`switchTab(mode)` 実行時に選択されたモード（`district`, `rep`, `neighbor`, `transfer`）を `localStorage.setItem('kogai_active_mode', mode)` として永続化。<br/>・次回アクセス時やページ再読み込み時（`DOMContentLoaded`）、直前に開いていたモードを自動復元し、同一画面から作業をシームレスに再開可能（URLパラメータ指定時はURLパラメータが最優先）。 |
 | **アプリ共有機能（PWA対応）** | ・PWAインストール後（スタンドアロン起動時）にブラウザのアドレスバーが消滅し、他の役員へURLを伝えられなくなる問題を解消。<br/>・ヘッダー右側に「🔗 アプリを共有」ボタンを常設。<br/>・Web Share API（`navigator.share`）により、LINE、メール、AirDrop等へワンタップでアプリURLおよび紹介文を送信可能。<br/>・Web Share API非対応ブラウザではクリップボード自動コピーおよびプロンプトフォールバック。 |
-| **PWAバージョンチェック＆強制・手動アップデート機構** | ・**課題の根本解決**: PWAインストール（スタンドアロン起動）環境下において、Service WorkerやブラウザのHTTPキャッシュにより新版が反映されない問題を解消。<br/>・**`version.json` による静的バージョン公開**: サーバー直下に `version.json`（`version`, `updatedAt`, `description`）を配備。Service Workerキャッシュから除外し、常に最新の公開バージョンを取得。<br/>・**起動時自動チェック（オンライン時）**: アプリ起動時（DOMContentLoaded後1秒遅延）、`navigator.onLine` が有効であればキャッシュ無効化クエリ（`version.json?_t=${Date.now()}`）で自動取得。現在のバージョン（`CURRENT_APP_VERSION = "2.6.0"`）と比較し、最新版があれば確認ダイアログを表示し、OK選択時に強制アップデート。<br/>・**設定欄最下部の手動確認＆更新UI**: セキュリティ設定モーダル最下部に「📱 アプリバージョン情報」セクションを常設。現在のバージョン表示と「🔄 最新バージョンを確認・更新」ボタンを配備。手動クリック時に即時チェックし、最新版更新または最新状態フィードバックを提供（オフライン時はエラー通知）。<br/>・**ゼロデータロスト強制アップデート (`performAppUpdate`)**: 更新実行前に必ず `saveDistrictLocal()`, `saveRepLocal()`, `saveNeighborLocal()`, `saveTransferLocal()` を独立try-catchで安全実行して入力データを保全。Service Workerキャッシュ全消去（`caches.delete()`）およびSW登録全解除を行い、キャッシュバスティングパラメータ付きURLで最新版を再取得。<br/>・**HTTPキャッシュ制御**: `navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })` により、ブラウザのHTTPキャッシュをバイパスして `sw.js` の変更を確実に検知。 |
+| **PWAバージョンチェック＆強制・手動アップデート機構** | ・**課題の根本解決**: PWAインストール（スタンドアロン起動）環境下において、Service WorkerやブラウザのHTTPキャッシュにより新版が反映されない問題を解消。<br/>・**`version.json` による静的バージョン公開**: サーバー直下に `version.json`（`version`, `updatedAt`, `description`）を配備。Service Workerキャッシュから除外し、常に最新の公開バージョンを取得。<br/>・**起動時自動チェック（オンライン時）**: アプリ起動時（DOMContentLoaded後1秒遅延）、`navigator.onLine` が有効であればキャッシュ無効化クエリ（`version.json?_t=${Date.now()}`）で自動取得。現在のバージョン（`CURRENT_APP_VERSION = "2.7.1"`）と比較し、最新版があれば確認ダイアログを表示し、OK選択時に強制アップデート。<br/>・**設定欄最下部の手動確認＆更新UI**: セキュリティ設定モーダル最下部に「📱 アプリバージョン情報」セクションを常設。現在のバージョン表示と「🔄 最新バージョンを確認・更新」ボタンを配備。手動クリック時に即時チェックし、最新版更新または最新状態フィードバックを提供（オフライン時はエラー通知）。<br/>・**ゼロデータロスト強制アップデート (`performAppUpdate`)**: 更新実行前に必ず `saveDistrictLocal()`, `saveRepLocal()`, `saveNeighborLocal()`, `saveTransferLocal()` を独立try-catchで安全実行して入力データを保全。Service Workerキャッシュ全消去（`caches.delete()`）およびSW登録全解除を行い、キャッシュバスティングパラメータ付きURLで最新版を再取得。<br/>・**無限更新ループ防止セーフティガード（フェイルセーフ仕様）**: `performAppUpdate` 実行時に `sessionStorage` へ更新試行対象バージョン（`kogai_update_attempted_version`）および試行時刻（`kogai_update_attempted_time`）を記録。リロード後の自動チェック（`checkAppVersion(false)`）時に、直前の更新試行記録が存在しかつ現在の `CURRENT_APP_VERSION` が依然として `remoteVersion` 未満である場合、キャッシュ未反映やデプロイ遅延等と判断して**自動更新ダイアログの表示をスキップ（抑制）**。手動更新チェック（`checkAppVersion(true)`）ではスキップせず常に再試行可能。最新バージョンへの更新成功時には試行記録を自動消去。<br/>・**HTTPキャッシュ制御**: `navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })` により、ブラウザのHTTPキャッシュをバイパスして `sw.js` の変更を確実に検知。 |
 | **全削除操作における安全確認セーフティガード** | ・システム内の全削除ボタン（集約地区削除、スクゾ関係者削除、自治会役員削除、児童名簿削除、転入児童削除）において、誤タップ・誤クリックによる即時消失を完全に防止するため、確認ダイアログ（`confirm`）を必ず表示。<br/>・キャンセル時は配列操作を行わず安全に中断。対象の名前等をダイアログ内に明示して誤削除を防止。 |
 
 ### 5.2 各地区役員モード（タブ①）
@@ -671,6 +671,9 @@ erDiagram
 18. **[C-15] ハタフロットネイティブ統合および代表モード完全除外（PoLP）**:
 	- 外部ツール（`tekuteku-life/hatafurotto`）のロジックを `js/hata.js` にネイティブ移植し、児童名簿からの世帯自動集約、免除世帯管理、祝日自動計算、個別スワップ保持、スマホ・PC・A4印刷、公式JSON双方向連携を実現。
 	- 代表モード取り込み時（`upsertRepDistrict`）で `d.hata` を無条件物理削除し、代表マスターに地区ローカル情報が混入することを完全に排除。地区側読み込み時は既存 `hata` を保護マージ。
+19. **[C-16] アプリケーションバージョン単一情報源（SSOT）整合性保証と無限更新ループ防止セーフティガード**:
+	- `package.json`、`version.json`、`sw.js`（`CACHE_NAME`）、`js/app.js`（`CURRENT_APP_VERSION`）の4ファイル間に発生しうるバージョンの不一致を根絶し、`tests/unit/version-consistency.test.js` で恒久的に機械検証。
+	- アップデートリロード後の無限通知ループを防ぐため、`sessionStorage` を用いた試行履歴記録と自動確認ダイアログ抑制セーフティガードを配備。
 
 ---
 
@@ -698,8 +701,10 @@ Node.js 24組み込みのテストランナー（`node:test`）、アサーシ�
 		- モード指定URL共有（`shareAppUrl(specificMode)`）: クエリ付加、Web Share API呼び出し、クリップボードフォールバック。
 		- 4モード選択肢の動的折りたたみUX: 初期状態、各モード選択後の自動折りたたみ、展開バッジのクリックによる再展開。
 		- 前回選択モードの永続化と復元: `switchTab` での `localStorage` 記録、起動時の自動復元、不正モード名の安全なフォールバック。
-		- PWAバージョンチェック（`checkAppVersion`）: オンライン時の最新バージョン検知、更新確認ダイアログ、手動更新ボタンのdisabled制御と復帰。
-		- 強制アップデート（`performAppUpdate`）: 独立try-catchによる全4モード（地区・代表・自治会・転入者）状態同期保存、キャッシュ破棄、登録解除、リロード。
+		- PWAバージョンチェック（`checkAppVersion`）: オンライン時の最新バージョン検知、更新確認ダイアログ、手動更新ボタンのdisabled制御と復帰、直前更新試行履歴（`sessionStorage`）による自動ダイアログ抑制（無限ループ防止フェイルセーフ）、手動更新時のバイパス。
+		- 強制アップデート（`performAppUpdate`）: 独立try-catchによる全4モード（地区・代表・自治会・転入者）状態同期保存、`sessionStorage` への更新試行バージョン・時刻の記録、キャッシュ破棄、登録解除、リロード。
+	- `version-consistency.test.js`（新設）:
+		- `package.json`、`version.json`、`sw.js`（`CACHE_NAME`）、`js/app.js`（`CURRENT_APP_VERSION`）の4ファイル間にバージョン乖離がないことを恒久的に機械アサート。
 	- `crypto.js`:
 		- 固定 `WEBAUTHN_USER_ID` の検証: 1Password等パスキー管理ツールでの上書き更新互換性。
 		- ストレージ暗号化とWebAuthn一本化: ストレージ暗号化済み環境での重複登録抑止。
