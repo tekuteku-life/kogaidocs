@@ -2,7 +2,7 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
-const CURRENT_APP_VERSION = "2.4.0";
+const CURRENT_APP_VERSION = "2.5.0";
 let deferredInstallPrompt = null;
 
 function switchTab(mode) {
@@ -35,6 +35,18 @@ function switchTab(mode) {
 		localStorage.setItem('kogai_active_mode', mode);
 	} catch (e) {
 		console.warn("Failed to persist active mode", e);
+	}
+
+	// ブラウザURLのHistory同期（Action Item A-2）
+	try {
+		if (typeof window !== 'undefined' && window.history && typeof window.history.replaceState === 'function') {
+			const origin = window.location.origin || '';
+			const pathname = window.location.pathname || '';
+			const newUrl = (origin && pathname) ? `${origin}${pathname}?mode=${mode}` : `?mode=${mode}`;
+			window.history.replaceState({ mode }, '', newUrl);
+		}
+	} catch (e) {
+		console.warn("Failed to sync history state", e);
 	}
 
 	// モード選択肢の動的折りたたみUX
@@ -74,12 +86,26 @@ function switchTab(mode) {
 }
 
 /**
- * 直前のアクティブモードを復元します（ホワイトリスト検証）
+ * URLパラメータまたは直前のアクティブモードを復元します（ホワイトリスト検証）
  */
 function restoreActiveMode() {
 	try {
-		const savedMode = localStorage.getItem('kogai_active_mode');
 		const whitelist = ['district', 'rep', 'neighbor', 'transfer'];
+		const aliasMap = { '1': 'district', '2': 'rep', '3': 'neighbor', '4': 'transfer' };
+		let queryMode = null;
+		if (typeof window !== 'undefined' && window.location && window.location.search) {
+			const params = new URLSearchParams(window.location.search);
+			const m = params.get('mode');
+			if (m) {
+				queryMode = aliasMap[m] || m;
+			}
+		}
+		if (queryMode && whitelist.includes(queryMode)) {
+			switchTab(queryMode);
+			return;
+		}
+
+		const savedMode = localStorage.getItem('kogai_active_mode');
 		if (savedMode && whitelist.includes(savedMode)) {
 			switchTab(savedMode);
 		} else {
@@ -108,16 +134,32 @@ function toggleModeSelector() {
 }
 
 /**
- * PWA・ブラウザアプリのURLを他役員へ共有します
+ * PWA・ブラウザアプリのURLを他役員・転入家庭へ共有します
+ * @param {string} [specificMode] 特定モードを指定して共有する場合（例: 'transfer'）
  */
-async function shareAppUrl() {
+async function shareAppUrl(specificMode) {
+	const origin = (typeof window !== 'undefined' && window.location.origin) ? window.location.origin : '';
+	const pathname = (typeof window !== 'undefined' && window.location.pathname) ? window.location.pathname : '';
+	let shareUrl = (typeof window !== 'undefined' && window.location.href) ? window.location.href : (origin + pathname);
+	if (specificMode) {
+		shareUrl = origin ? `${origin}${pathname}?mode=${specificMode}` : `?mode=${specificMode}`;
+	}
+
+	const mode = specificMode || (typeof localStorage !== 'undefined' ? localStorage.getItem('kogai_active_mode') : null) || 'district';
+	let title = "校外委員会 名簿・帳票作成システム";
+	let text = "校外委員会および自治会の名簿・帳票作成ツールです。";
+	if (specificMode === 'transfer' || (!specificMode && mode === 'transfer')) {
+		title = "校外委員会 転入児童・家庭情報入力";
+		text = "新しく転入されたご家庭用の児童情報入力画面です。安全に暗号化して提出できます。";
+	}
+
 	const shareData = {
-		title: "校外委員会 名簿・帳票作成システム",
-		text: "校外委員会および自治会の名簿・帳票作成ツールです。",
-		url: window.location.href
+		title,
+		text,
+		url: shareUrl
 	};
 
-	if (navigator.share) {
+	if (typeof navigator !== 'undefined' && navigator.share) {
 		try {
 			await navigator.share(shareData);
 			return;
@@ -128,7 +170,7 @@ async function shareAppUrl() {
 		}
 	}
 
-	if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+	if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
 		try {
 			await navigator.clipboard.writeText(shareData.url);
 			alert("アプリのURLをクリップボードにコピーしました。\nLINEやメールに貼り付けて共有してください。");
@@ -136,7 +178,9 @@ async function shareAppUrl() {
 		} catch (e) {}
 	}
 
-	prompt("アプリのURLをコピーして共有してください:", shareData.url);
+	if (typeof safePrompt === 'function') {
+		safePrompt("アプリのURLをコピーして共有してください:", shareData.url);
+	}
 }
 
 /**

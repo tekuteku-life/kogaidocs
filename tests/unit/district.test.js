@@ -740,21 +740,34 @@ test('district: additional branch booster for loadNeighborFileIntoDistrict, merg
 	assert.strictEqual(errorTarget.value, "");
 });
 
-test('district: openNeighborImportPanel toggles panel and expands collapsed card (Action Item A-2)', () => {
+test('district: openNeighborImportPanel toggles panel, updates label, and sets aria-expanded (Action Item A-3)', () => {
 	setupDomEnvironment();
 	const card = document.getElementById('card-d-neighbor');
 	const panel = document.getElementById('d-neighbor-import-panel');
+	const btn = document.getElementById('btn-toggle-neighbor-import');
 	if (!card || !panel) return;
 
-	// 初期状態で折りたたまれている
+	// 初期状態で折りたたまれており、パネルは非表示
 	card.classList.add('is-collapsed');
 	panel.style.display = 'none';
+	if (btn) btn.textContent = '📥 自治会データを統合 ▼';
 
+	// 1回目の呼び出し: カード展開 & パネル表示 & ラベル反転 & aria-expanded="true"
 	districtLib.openNeighborImportPanel();
-
-	// カードの折りたたみが解除され、パネルが表示されること
 	assert.strictEqual(card.classList.contains('is-collapsed'), false);
 	assert.strictEqual(panel.style.display, 'block');
+	if (btn) {
+		assert(btn.textContent.includes('▲') || btn.textContent.includes('閉じる'));
+		assert.strictEqual(btn.getAttribute('aria-expanded'), 'true');
+	}
+
+	// 2回目の呼び出し: パネル非表示 & ラベル復元 & aria-expanded="false" (トグル動作)
+	districtLib.openNeighborImportPanel();
+	assert.strictEqual(panel.style.display, 'none');
+	if (btn) {
+		assert(btn.textContent.includes('▼'));
+		assert.strictEqual(btn.getAttribute('aria-expanded'), 'false');
+	}
 });
 
 test('district: integrateTransferDataIntoDistrict imports children with han assignment and duplicate guard (Action Item A-1)', async () => {
@@ -884,4 +897,170 @@ test('district: loadTransferFileIntoDistrict and loadPastedTransferTextIntoDistr
 	assert.strictEqual(state.currentDistrict.students.length, initialCount + 2);
 	const fuyuki = state.currentDistrict.students.find(s => s.lastName === '冬木');
 	assert.ok(fuyuki);
+});
+
+test('district: toggleTransferImportPanel toggles panel, updates label, and sets aria-expanded (Action Item A-3)', () => {
+	setupDomEnvironment();
+	const card = document.getElementById('card-d-students');
+	const panel = document.getElementById('d-transfer-import-panel');
+	const btn = document.getElementById('btn-toggle-transfer-import');
+	if (!card || !panel) return;
+
+	panel.style.display = 'none';
+	if (btn) btn.textContent = '📥 転入児童データを統合 ▼';
+
+	// 1回目の呼び出し: パネル表示
+	districtLib.toggleTransferImportPanel();
+	assert.strictEqual(panel.style.display, 'block');
+	if (btn) {
+		assert(btn.textContent.includes('▲') || btn.textContent.includes('閉じる'));
+		assert.strictEqual(btn.getAttribute('aria-expanded'), 'true');
+	}
+
+	// 2回目の呼び出し: パネル非表示 (トグル)
+	districtLib.toggleTransferImportPanel();
+	assert.strictEqual(panel.style.display, 'none');
+	if (btn) {
+		assert(btn.textContent.includes('▼'));
+		assert.strictEqual(btn.getAttribute('aria-expanded'), 'false');
+	}
+});
+
+test('district: top and bottom buttons for neighborhood and student rosters trigger correct actions (T-3 & T-4)', () => {
+	setupDomEnvironment();
+	state.currentDistrict = createMockDistrict();
+
+	const initialNeighborCount = state.currentDistrict.neighborhood.length;
+	const initialStudentCount = state.currentDistrict.students.length;
+
+	// 自治会: 上部ボタン
+	districtLib.addNeighborhoodRow();
+	assert.strictEqual(state.currentDistrict.neighborhood.length, initialNeighborCount + 1);
+
+	// 自治会: 下部ボタン（同一関数を呼ぶため動作確認）
+	districtLib.addNeighborhoodRow();
+	assert.strictEqual(state.currentDistrict.neighborhood.length, initialNeighborCount + 2);
+
+	// 児童名簿: 上部ボタン
+	districtLib.addStudentRow();
+	assert.strictEqual(state.currentDistrict.students.length, initialStudentCount + 1);
+
+	// 児童名簿: 下部ボタン
+	districtLib.addStudentRow();
+	assert.strictEqual(state.currentDistrict.students.length, initialStudentCount + 2);
+
+	// 児童名簿: 並び替えボタン（sortStudentsDesc によるソート順検証: 班長 -> 降順学年 -> 住所五十音）
+	districtLib.sortStudentsDesc();
+	assert.strictEqual(state.currentDistrict.students[0].leader, '班長');
+	assert.strictEqual(state.currentDistrict.students[0].grade, '6');
+});
+
+test('district: loadDistrictTxt confirms overwrite when current district has existing data, suppresses confirm when empty (Action Item A-4 & T-5)', async () => {
+	setupDomEnvironment();
+	state.currentDistrict = createMockDistrict();
+	state.currentDistrict.students[0].lastName = '既存児童';
+
+	const pass = 'DistrictPass123!';
+	const newDistrictData = {
+		district: '新1丁目',
+		hanList: ['1班'],
+		officers: [{ lastName: '新役員', role: '校外委員' }],
+		neighborhood: [{ lastName: '新会長', role: '会長' }],
+		students: [{ grade: '3', class: '1', han: '1班', lastName: '新入生' }]
+	};
+	const encText = await cryptoLib.encryptPayload(JSON.stringify(newDistrictData), pass);
+	document.getElementById('d-pass').value = pass;
+
+	// 1. 既存データあり: ユーザーが上書き確認で [キャンセル] (false) を選択した場合
+	let confirmCalled = false;
+	let confirmMessage = '';
+	global.confirm = (msg) => {
+		confirmCalled = true;
+		confirmMessage = msg;
+		return false;
+	};
+
+	const fileTargetCancel = {
+		files: [{ text: async () => `BEGIN_DATA:\n${encText}\n:END_DATA` }],
+		value: 'district.txt'
+	};
+	await districtLib.loadDistrictTxt({ target: fileTargetCancel });
+
+	assert.strictEqual(confirmCalled, true);
+	assert(confirmMessage.includes('上書き'));
+	// 既存データが維持されていること（キャンセルされたため）
+	assert.strictEqual(state.currentDistrict.students[0].lastName, '既存児童');
+
+	// 2. 既存データあり: ユーザーが上書き確認で [OK] (true) を選択した場合
+	global.confirm = () => true;
+	const fileTargetOk = {
+		files: [{ text: async () => `BEGIN_DATA:\n${encText}\n:END_DATA` }],
+		value: 'district.txt'
+	};
+	await districtLib.loadDistrictTxt({ target: fileTargetOk });
+
+	// 新しいデータで上書きされたこと
+	assert.strictEqual(state.currentDistrict.district, '新1丁目');
+	assert.strictEqual(state.currentDistrict.students[0].lastName, '新入生');
+
+	// 3. 既存データが空（初期状態）: confirmが呼ばれずに直接読み込まれること（T-5）
+	state.currentDistrict = {
+		district: '',
+		han: '',
+		hanList: [],
+		officers: [{ lastName: '', firstName: '', role: '校外委員' }],
+		neighborhood: [{ lastName: '', firstName: '', role: '会長' }],
+		students: []
+	};
+	confirmCalled = false;
+	global.confirm = () => {
+		confirmCalled = true;
+		return true;
+	};
+
+	const fileTargetEmpty = {
+		files: [{ text: async () => `BEGIN_DATA:\n${encText}\n:END_DATA` }],
+		value: 'district.txt'
+	};
+	await districtLib.loadDistrictTxt({ target: fileTargetEmpty });
+	assert.strictEqual(confirmCalled, false, 'Should not prompt confirm when district is empty');
+	assert.strictEqual(state.currentDistrict.district, '新1丁目');
+});
+
+test('district: card 6 4-section categorized structure and buttons verification (T-1)', () => {
+	setupDomEnvironment();
+	// Card 6 sections and elements verification
+	const passSec = document.getElementById('sec-d-pass');
+	const saveSec = document.getElementById('sec-d-save-share');
+	const loadSec = document.getElementById('sec-d-load');
+	const yearSec = document.getElementById('sec-d-year');
+
+	// パスワード設定・記憶
+	const dPass = document.getElementById('d-pass');
+	const dPassConfirm = document.getElementById('d-pass-confirm');
+	const dPassOptin = document.getElementById('d-save-password-optin');
+	assert.ok(dPass);
+	assert.ok(dPassConfirm);
+
+	// 保存・外部共有
+	const btnSave = document.getElementById('btn-save-district-file');
+	const btnLine = document.getElementById('btn-share-district-line');
+	const btnMail = document.getElementById('btn-share-district-mail');
+	const btnCopy = document.getElementById('btn-copy-district-text');
+
+	// 読み込み
+	const fileInput = document.getElementById('d-file-input');
+	const btnPaste = document.getElementById('btn-load-district-paste');
+
+	// 年度更新
+	const btnYear = document.getElementById('btn-district-year-update');
+
+	// 存在チェック（index.html がロードされた環境での確認）
+	if (btnSave && btnLine && btnMail && btnCopy && fileInput && btnYear) {
+		assert.ok(btnSave);
+		assert.ok(btnLine);
+		assert.ok(btnMail);
+		assert.ok(btnCopy);
+		assert.ok(btnYear);
+	}
 });

@@ -964,3 +964,88 @@ test('system [機能19]: 全コードベースおよびUIにおける「マー�
 		);
 	}
 });
+
+/* =========================================================================
+	機能20: URLパラメータ起動・モード指定共有・トグル開閉・名簿ボタン直結・カード6ジャンル別・代表切り出し配付 E2E
+========================================================================= */
+test('system [機能20]: URLパラメータ起動、トグルパネル、名簿ボタン直結、ジャンル別カード6、代表切り出し配付 E2E', async () => {
+	setupDomEnvironment();
+	const pass = 'SystemMatrixPass123!';
+
+	// 1. URLパラメータ起動 (?mode=transfer)
+	window.location.search = '?mode=transfer';
+	app.restoreActiveMode();
+	assert.strictEqual(document.getElementById('tab-transfer').style.display, 'block');
+
+	// 2. モード指定共有
+	let sharedUrl = '';
+	navigator.share = async (data) => { sharedUrl = data.url; };
+	await app.shareAppUrl('transfer');
+	assert(sharedUrl.includes('mode=transfer'));
+
+	// 3. 地区役員モードへ切り替え (History API 同期)
+	app.switchTab('district');
+	assert.strictEqual(document.getElementById('tab-district').style.display, 'block');
+	assert(window.location.search.includes('mode=district') || window.location.href.includes('mode=district'));
+
+	// 4. 自治会統合パネルのトグル開閉
+	const nPanel = document.getElementById('d-neighbor-import-panel');
+	if (nPanel) {
+		district.openNeighborImportPanel();
+		assert.strictEqual(nPanel.style.display, 'block');
+		district.openNeighborImportPanel();
+		assert.strictEqual(nPanel.style.display, 'none');
+	}
+
+	// 5. 転入児童取り込みパネルのトグル開閉
+	const tPanel = document.getElementById('d-transfer-import-panel');
+	if (tPanel) {
+		district.toggleTransferImportPanel();
+		assert.strictEqual(tPanel.style.display, 'block');
+		district.toggleTransferImportPanel();
+		assert.strictEqual(tPanel.style.display, 'none');
+	}
+
+	// 6. 代表切り出し出力から地区受入のE2E
+	state.repState = {
+		districts: [
+			{
+				district: 'システム地区',
+				han: 'A班',
+				hanList: ['A班'],
+				officers: [{ role: '校外委員', lastName: '代表経由', firstName: '役員' }],
+				neighborhood: [{ role: '会長', lastName: '地域', firstName: '会長' }],
+				students: [{ grade: '5', class: '1', han: 'A班', lastName: '転入生', firstName: '代表割当' }]
+			}
+		],
+		seatConfig: { cols: 4, rows: 5, cells: {} }
+	};
+
+	let splitFileContent = '';
+	global.downloadTextFile = (content, name) => { splitFileContent = content; };
+	const splitSuccess = await rep.exportSingleDistrictFromRep(0, pass, 'download');
+	assert.strictEqual(splitSuccess, true);
+
+	// 地区役員側で受入
+	state.currentDistrict = {
+		district: '',
+		han: '',
+		hanList: [],
+		officers: [],
+		neighborhood: [],
+		students: []
+	};
+	document.getElementById('d-pass').value = pass;
+	global.confirm = () => true;
+
+	await district.loadDistrictTxt({
+		target: {
+			files: [{ text: async () => splitFileContent }],
+			value: 'district.txt'
+		}
+	});
+
+	assert.strictEqual(state.currentDistrict.district, 'システム地区');
+	assert.strictEqual(state.currentDistrict.students.length, 1);
+	assert.strictEqual(state.currentDistrict.students[0].firstName, '代表割当');
+});

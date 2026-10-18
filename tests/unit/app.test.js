@@ -666,6 +666,7 @@ test('app: 4-tab switching, persistence in kogai_active_mode, and badge label sy
 	if (badge) assert(badge.textContent.includes('地区役員'));
 
 	// 5. Restore active mode on init with whitelist validation (A-3)
+	window.location.search = '';
 	// 5a. Valid stored mode 'transfer'
 	localStorage.setItem('kogai_active_mode', 'transfer');
 	app.restoreActiveMode();
@@ -673,6 +674,7 @@ test('app: 4-tab switching, persistence in kogai_active_mode, and badge label sy
 	if (tabTransfer) assert.strictEqual(tabTransfer.style.display, 'block');
 
 	// 5b. Invalid/unknown mode falls back to 'district'
+	window.location.search = '';
 	localStorage.setItem('kogai_active_mode', 'malicious_tab<script>');
 	app.restoreActiveMode();
 	const tabDistrict = document.getElementById('tab-district');
@@ -721,4 +723,98 @@ test('app: WebAuthn unification - quickSetupEncryptionFromCard suppresses creden
 	} finally {
 		navigator.credentials.create = origCreate;
 	}
+});
+
+test('app: URL parameter direct mode selection and numeric aliases in restoreActiveMode', () => {
+	setupDomEnvironment();
+	localStorage.clear();
+
+	// 1. ?mode=transfer
+	window.location.search = '?mode=transfer';
+	app.restoreActiveMode();
+	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'transfer');
+	assert.strictEqual(document.getElementById('tab-transfer').style.display, 'block');
+
+	// 2. ?mode=rep
+	window.location.search = '?mode=rep';
+	app.restoreActiveMode();
+	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'rep');
+	assert.strictEqual(document.getElementById('tab-rep').style.display, 'block');
+
+	// 3. ?mode=neighbor
+	window.location.search = '?mode=neighbor';
+	app.restoreActiveMode();
+	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'neighbor');
+	assert.strictEqual(document.getElementById('tab-neighbor').style.display, 'block');
+
+	// 4. ?mode=district
+	window.location.search = '?mode=district';
+	app.restoreActiveMode();
+	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'district');
+	assert.strictEqual(document.getElementById('tab-district').style.display, 'block');
+
+	// 5. Numeric aliases: ?mode=4 -> transfer, ?mode=3 -> neighbor, ?mode=2 -> rep, ?mode=1 -> district
+	window.location.search = '?mode=4';
+	app.restoreActiveMode();
+	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'transfer');
+
+	window.location.search = '?mode=3';
+	app.restoreActiveMode();
+	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'neighbor');
+
+	window.location.search = '?mode=2';
+	app.restoreActiveMode();
+	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'rep');
+
+	window.location.search = '?mode=1';
+	app.restoreActiveMode();
+	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'district');
+
+	// 6. Invalid mode query falls back to localStorage or default
+	localStorage.setItem('kogai_active_mode', 'neighbor');
+	window.location.search = '?mode=invalid_hack<script>';
+	app.restoreActiveMode();
+	assert.strictEqual(document.getElementById('tab-neighbor').style.display, 'block');
+
+	// 7. No query parameter uses localStorage
+	window.location.search = '';
+	localStorage.setItem('kogai_active_mode', 'transfer');
+	app.restoreActiveMode();
+	assert.strictEqual(document.getElementById('tab-transfer').style.display, 'block');
+});
+
+test('app: switchTab synchronizes browser history state (Action Item A-2)', () => {
+	setupDomEnvironment();
+	let replacedState = null;
+	let replacedUrl = null;
+
+	window.history.replaceState = (state, title, url) => {
+		replacedState = state;
+		replacedUrl = url;
+	};
+
+	app.switchTab('rep');
+	assert.strictEqual(replacedUrl.includes('mode=rep'), true);
+
+	app.switchTab('transfer');
+	assert.strictEqual(replacedUrl.includes('mode=transfer'), true);
+});
+
+test('app: shareAppUrl supports specificMode parameter for targeted mode URL sharing', async () => {
+	setupDomEnvironment();
+	let sharedData = null;
+	navigator.share = async (data) => {
+		sharedData = data;
+		return Promise.resolve();
+	};
+
+	// 1. Share transfer mode specifically
+	await app.shareAppUrl('transfer');
+	assert(sharedData.url.includes('mode=transfer'));
+	assert(sharedData.text.includes('転入') || sharedData.title.includes('名簿'));
+
+	// 2. Share with clipboard fallback
+	delete navigator.share;
+	await app.shareAppUrl('neighbor');
+	assert(navigator.clipboard.text.includes('mode=neighbor'));
 });

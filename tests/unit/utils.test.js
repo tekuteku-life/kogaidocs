@@ -455,3 +455,40 @@ test('utils: isNewerVersion handles semantic version comparisons and edge cases 
 	assert.strictEqual(utils.isNewerVersion('2.3.0', null), false);
 	assert.strictEqual(utils.isNewerVersion('2.3.0', ''), false);
 });
+
+test('utils: safePrompt safely handles standard prompt, exceptions, and non-supported environments', () => {
+	const originalWindow = typeof window !== 'undefined' ? window : undefined;
+	const originalWindowPrompt = typeof window !== 'undefined' ? window.prompt : undefined;
+	const originalGlobalPrompt = typeof global !== 'undefined' ? global.prompt : undefined;
+
+	try {
+		// 1. Standard window.prompt returns value
+		window.prompt = (msg, def) => `input:${msg}:${def}`;
+		assert.strictEqual(utils.safePrompt('Enter password', 'default123'), 'input:Enter password:default123');
+
+		// 2. prompt throws error ("Error: prompt() is not supported.") -> returns null safely
+		window.prompt = () => {
+			throw new Error('prompt() is not supported.');
+		};
+		assert.strictEqual(utils.safePrompt('Test message'), null);
+
+		// 3. prompt returns null (user canceled)
+		window.prompt = () => null;
+		assert.strictEqual(utils.safePrompt('Cancel test'), null);
+
+		// 4. prompt is not a function / undefined -> returns null safely
+		window.prompt = undefined;
+		global.prompt = undefined;
+		assert.strictEqual(utils.safePrompt('No prompt test'), null);
+
+		// 5. Only globalThis.prompt is function (no window object)
+		delete global.window;
+		global.prompt = (msg) => `global:${msg}`;
+		assert.strictEqual(utils.safePrompt('Global test'), 'global:Global test');
+	} finally {
+		if (originalWindow !== undefined) global.window = originalWindow;
+		if (originalWindowPrompt !== undefined && global.window) global.window.prompt = originalWindowPrompt;
+		if (originalGlobalPrompt !== undefined) global.prompt = originalGlobalPrompt;
+		else delete global.prompt;
+	}
+});

@@ -567,6 +567,17 @@ async function loadDistrictTxt(e) {
 			e.target.value = "";
 			return;
 		}
+
+		const hasExistingData = (currentDistrict.students && currentDistrict.students.length > 0) ||
+			(currentDistrict.officers && currentDistrict.officers.some(o => (o.lastName || "").trim() !== "" || (o.firstName || "").trim() !== "")) ||
+			Boolean((currentDistrict.district || "").trim());
+		if (hasExistingData) {
+			if (!confirm("現在の入力内容が提出ファイルの内容で上書きされますが、よろしいですか？")) {
+				e.target.value = "";
+				return;
+			}
+		}
+
 		if (!data.officers || !data.officers.length) {
 			data.officers = [data.officer || {}];
 		}
@@ -619,15 +630,57 @@ function mergeNeighborDataIntoDistrict(data) {
 function openNeighborImportPanel() {
 	const card = document.getElementById('card-d-neighbor');
 	const panel = document.getElementById('d-neighbor-import-panel');
+	const btn = document.getElementById('btn-toggle-neighbor-import');
 	if (card) {
 		card.classList.remove('is-collapsed');
 		const toggleBtn = card.querySelector('.btn-card-toggle');
 		if (toggleBtn) toggleBtn.textContent = '▲ 閉じる';
 	}
-	if (panel) {
+	if (!panel) return;
+	const isHidden = !panel.style.display || panel.style.display === 'none' || panel.style.display === '';
+	if (isHidden) {
 		panel.style.display = 'block';
+		if (btn) {
+			btn.textContent = '📥 自治会データを統合 ▲ 閉じる';
+			btn.setAttribute('aria-expanded', 'true');
+		}
 		if (panel.scrollIntoView) {
 			panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+		}
+	} else {
+		panel.style.display = 'none';
+		if (btn) {
+			btn.textContent = '📥 自治会データを統合 ▼';
+			btn.setAttribute('aria-expanded', 'false');
+		}
+	}
+}
+
+function toggleTransferImportPanel() {
+	const card = document.getElementById('card-d-students');
+	const panel = document.getElementById('d-transfer-import-panel');
+	const btn = document.getElementById('btn-toggle-transfer-import');
+	if (card) {
+		card.classList.remove('is-collapsed');
+		const toggleBtn = card.querySelector('.btn-card-toggle');
+		if (toggleBtn) toggleBtn.textContent = '▲ 閉じる';
+	}
+	if (!panel) return;
+	const isHidden = !panel.style.display || panel.style.display === 'none' || panel.style.display === '';
+	if (isHidden) {
+		panel.style.display = 'block';
+		if (btn) {
+			btn.textContent = '📥 転入児童データを統合 ▲ 閉じる';
+			btn.setAttribute('aria-expanded', 'true');
+		}
+		if (panel.scrollIntoView) {
+			panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+		}
+	} else {
+		panel.style.display = 'none';
+		if (btn) {
+			btn.textContent = '📥 転入児童データを統合 ▼';
+			btn.setAttribute('aria-expanded', 'false');
 		}
 	}
 }
@@ -664,7 +717,7 @@ async function integrateTransferDataIntoDistrict(payload, password) {
 		};
 
 		const promptMsg = `転入児童「${normChild.lastName} ${normChild.firstName}」（${normChild.grade}年${normChild.class}組）の所属班を入力してください：`;
-		const assignedHan = prompt(promptMsg, defaultHan);
+		const assignedHan = safePrompt(promptMsg, defaultHan);
 		if (assignedHan === null) {
 			currentDistrict.students = backupStudents;
 			return false;
@@ -709,7 +762,7 @@ async function loadTransferFileIntoDistrict(e) {
 		try {
 			data = await parseTxtContent(text, pass);
 		} catch (err) {
-			const promptPass = prompt("転入児童データの復号パスワードを入力してください：");
+			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) { if (e.target) e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass);
 		}
@@ -729,7 +782,7 @@ async function loadPastedTransferTextIntoDistrict(text) {
 		try {
 			data = await parseTxtContent(raw, pass);
 		} catch (err) {
-			const promptPass = prompt("転入児童データの復号パスワードを入力してください：");
+			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass);
 		}
@@ -751,7 +804,7 @@ async function loadNeighborFileIntoDistrict(e) {
 		try {
 			data = await parseTxtContent(text, pass);
 		} catch (err) {
-			const promptPass = prompt("自治会ファイルの復号パスワードを入力してください：");
+			const promptPass = safePrompt("自治会ファイルの復号パスワードを入力してください：");
 			if (!promptPass) { e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass);
 		}
@@ -773,7 +826,7 @@ async function loadPastedNeighborTextIntoDistrict() {
 		try {
 			data = await parseTxtContent(raw, pass);
 		} catch (err) {
-			const promptPass = prompt("自治会データの復号パスワードを入力してください：");
+			const promptPass = safePrompt("自治会データの復号パスワードを入力してください：");
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass);
 		}
@@ -830,6 +883,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		mergeNeighborDataIntoDistrict,
 		integrateNeighborDataIntoDistrict: mergeNeighborDataIntoDistrict,
 		openNeighborImportPanel,
+		toggleTransferImportPanel,
 		integrateTransferDataIntoDistrict,
 		loadTransferFileIntoDistrict,
 		loadPastedTransferTextIntoDistrict,

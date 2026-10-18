@@ -403,8 +403,49 @@ function setupDomEnvironment() {
 	global.window.location = {
 		protocol: 'https:',
 		hostname: 'localhost',
+		origin: 'https://localhost',
+		pathname: '/',
+		search: '',
+		href: 'https://localhost/',
 		reload: () => {}
 	};
+	global.window.history = {
+		state: null,
+		replaceState: (state, title, url) => {
+			global.window.history.state = state;
+			if (typeof url === 'string') {
+				const qIdx = url.indexOf('?');
+				if (qIdx >= 0) {
+					global.window.location.search = url.slice(qIdx);
+					const pathPart = url.slice(0, qIdx);
+					if (pathPart.startsWith('http')) {
+						try {
+							const u = new (globalThis.URL || URL)(url);
+							global.window.location.pathname = u.pathname;
+							global.window.location.href = u.href;
+						} catch (e) {
+							global.window.location.href = url;
+						}
+					} else {
+						global.window.location.pathname = pathPart || global.window.location.pathname;
+						global.window.location.href = global.window.location.origin + global.window.location.pathname + global.window.location.search;
+					}
+				} else {
+					global.window.location.search = '';
+					if (url.startsWith('http')) {
+						global.window.location.href = url;
+					} else {
+						global.window.location.pathname = url || '/';
+						global.window.location.href = global.window.location.origin + global.window.location.pathname;
+					}
+				}
+			}
+		},
+		pushState: (state, title, url) => {
+			global.window.history.replaceState(state, title, url);
+		}
+	};
+	global.history = global.window.history;
 	global.__lastAlert = '';
 	global.print = () => {};
 	global.alert = (msg) => { global.__lastAlert = String(msg || ''); };
@@ -455,10 +496,22 @@ function setupDomEnvironment() {
 		}
 	};
 
-	global.URL = {
-		createObjectURL: () => 'blob:mock-url-' + Math.random(),
-		revokeObjectURL: () => {}
-	};
+	class MockURL {
+		constructor(url, base) {
+			const u = new (globalThis.URL || Object)(url, base);
+			this.protocol = u.protocol || 'https:';
+			this.hostname = u.hostname || 'localhost';
+			this.origin = u.origin || 'https://localhost';
+			this.pathname = u.pathname || '/';
+			this.search = u.search || '';
+			this.href = u.href || String(url);
+		}
+		static createObjectURL() {
+			return 'blob:mock-url-' + Math.random();
+		}
+		static revokeObjectURL() {}
+	}
+	global.URL = MockURL;
 
 	// index.html に存在するIDの初期要素を登録
 	try {
@@ -471,16 +524,19 @@ function setupDomEnvironment() {
 				mockDoc.getElementById(id);
 			});
 
-			// タブ切り替えボタンの登録
+			// タブ切り替えボタンの登録（4タブ）
 			const b1 = mockDoc.createElement('button');
 			b1.className = 'tab-btn active';
 			const b2 = mockDoc.createElement('button');
 			b2.className = 'tab-btn';
 			const b3 = mockDoc.createElement('button');
 			b3.className = 'tab-btn';
+			const b4 = mockDoc.createElement('button');
+			b4.className = 'tab-btn';
 			mockDoc.body.appendChild(b1);
 			mockDoc.body.appendChild(b2);
 			mockDoc.body.appendChild(b3);
+			mockDoc.body.appendChild(b4);
 		}
 	} catch (e) {}
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kogai-cache-v2.4.0';
+const CACHE_NAME = 'kogai-cache-v2.5.1';
 const ASSETS = [
 	'./',
 	'./index.html',

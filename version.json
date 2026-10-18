@@ -1,5 +1,5 @@
 {
-	"version": "2.4.0",
+	"version": "2.5.1",
 	"updatedAt": "2026-10-18",
-	"description": "自治会統合UI改善、用語統一、転入者モード新設、モード復元、WebAuthn一本化"
+	"description": "prompt非サポート環境クラッシュ防護（safePrompt）、代表地区切り出しパスワードフォールバック案内UX改善"
 }
