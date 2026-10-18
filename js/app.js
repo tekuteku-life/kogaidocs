@@ -2,7 +2,7 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
-const CURRENT_APP_VERSION = "2.8.0";
+const CURRENT_APP_VERSION = "2.8.1";
 let deferredInstallPrompt = null;
 
 function switchTab(mode) {

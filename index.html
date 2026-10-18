@@ -998,6 +998,30 @@
 	</div>
 </div>
 
+<!-- ==================== 代表モード：地区手動追加モーダル ==================== -->
+<div id="rep-add-district-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeAddDistrictModal()" role="dialog" aria-modal="true" aria-labelledby="rep-add-modal-title">
+	<div class="modal-card" style="max-width: 440px;" onclick="event.stopPropagation()">
+		<div class="modal-header">
+			<h3 id="rep-add-modal-title">➕ 地区の手動追加</h3>
+			<button type="button" class="btn-close" onclick="closeAddDistrictModal()" aria-label="閉じる">&times;</button>
+		</div>
+		<div class="modal-body">
+			<p class="modal-desc">追加する地区名を入力してください（例: 5丁目、南地区）。</p>
+			<form onsubmit="confirmAddRepDistrict(); return false;" autocomplete="off">
+				<div class="form-group" style="margin-bottom: 16px;">
+					<label for="rep-new-district-name" style="display:block; font-weight:bold; margin-bottom:6px;">地区名 <span class="badge badge-required">* 必須</span></label>
+					<input type="text" id="rep-new-district-name" class="input-field" placeholder="例: 5丁目" maxlength="50" style="width:100%; font-size:1rem; padding:8px 10px;" oninput="const err=document.getElementById('rep-new-district-error'); if(err){ err.textContent=''; err.style.display='none'; }" required>
+					<div id="rep-new-district-error" class="pass-feedback-msg pass-msg-ng" style="display:none; margin-top:6px;"></div>
+				</div>
+				<div class="modal-actions" style="display:flex; justify-content:flex-end; gap:8px;">
+					<button type="button" class="btn btn-outline" onclick="closeAddDistrictModal()">キャンセル</button>
+					<button type="submit" class="btn btn-primary" id="btn-confirm-add-district">追加する</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>
+
 <!-- ==================== 代表モード：地区名簿閲覧・編集モーダル ==================== -->
 <div id="rep-district-detail-modal" class="modal-overlay" style="display:none;">
 	<div class="modal-card" style="max-width: 900px; width: 95%;">

@@ -377,10 +377,81 @@ function saveAndCloseRepDistrictDetailModal() {
 	saveRepLocal();
 }
 
-function addNewRepDistrict() {
-	const rawName = safePrompt("追加する地区名を入力してください（例: 5丁目、南地区）:", "");
-	if (rawName === null) return;
-	const dName = rawName.trim();
+function openAddDistrictModal() {
+	const modal = document.getElementById('rep-add-district-modal');
+	if (modal) {
+		modal.style.display = 'flex';
+	}
+	const input = document.getElementById('rep-new-district-name');
+	if (input) {
+		input.value = '';
+		if (typeof input.focus === 'function') input.focus();
+	}
+	const errorEl = document.getElementById('rep-new-district-error');
+	if (errorEl) {
+		errorEl.textContent = '';
+		errorEl.style.display = 'none';
+	}
+}
+
+function closeAddDistrictModal() {
+	const modal = document.getElementById('rep-add-district-modal');
+	if (modal) {
+		modal.style.display = 'none';
+	}
+	const input = document.getElementById('rep-new-district-name');
+	if (input) {
+		input.value = '';
+	}
+	const errorEl = document.getElementById('rep-new-district-error');
+	if (errorEl) {
+		errorEl.textContent = '';
+		errorEl.style.display = 'none';
+	}
+}
+
+function confirmAddRepDistrict() {
+	const input = document.getElementById('rep-new-district-name');
+	const errorEl = document.getElementById('rep-new-district-error');
+	const rawName = input ? input.value : '';
+	const dName = (rawName || '').replace(/[\r\n\t]/g, '').trim();
+
+	if (!dName) {
+		if (errorEl) {
+			errorEl.textContent = '地区名を入力してください。';
+			errorEl.style.display = 'block';
+		}
+		if (input && typeof input.focus === 'function') input.focus();
+		return;
+	}
+
+	if (repState.districts && repState.districts.some(d => d.district === dName)) {
+		if (errorEl) {
+			errorEl.textContent = `地区「${dName}」は既に存在します。`;
+			errorEl.style.display = 'block';
+		}
+		if (input && typeof input.focus === 'function') input.focus();
+		return;
+	}
+
+	closeAddDistrictModal();
+	addNewRepDistrict(dName);
+
+	const card = document.getElementById('card-rep-districts');
+	if (card) {
+		card.classList.remove('is-collapsed');
+		const toggleText = card.querySelector('.btn-card-toggle');
+		if (toggleText) toggleText.textContent = '▲ 閉じる';
+	}
+}
+
+function addNewRepDistrict(directName) {
+	if (typeof directName !== 'string') {
+		openAddDistrictModal();
+		return;
+	}
+
+	const dName = directName.replace(/[\r\n\t]/g, '').trim();
 	if (!dName) return;
 
 	if (repState.districts && repState.districts.some(d => d.district === dName)) {
@@ -421,6 +492,17 @@ function addNewRepDistrict() {
 	renderRepDistrictsTable();
 	if (typeof renderSzNeighborhoodSelector === 'function') renderSzNeighborhoodSelector();
 	saveRepLocal();
+}
+
+if (typeof window !== 'undefined' && window.addEventListener) {
+	window.addEventListener('keydown', (e) => {
+		if (e.key === 'Escape') {
+			const modal = document.getElementById('rep-add-district-modal');
+			if (modal && modal.style.display !== 'none') {
+				closeAddDistrictModal();
+			}
+		}
+	});
 }
 
 function renderRepDistrictDetailModal() {
@@ -1041,6 +1123,10 @@ if (typeof module !== 'undefined' && module.exports) {
 		updateSzEx,
 		addSzExternalRow,
 		deleteSzExternalRow,
+		addNewRepDistrict,
+		openAddDistrictModal,
+		closeAddDistrictModal,
+		confirmAddRepDistrict,
 		mergeNeighborDataIntoRep,
 		integrateNeighborDataIntoRep: mergeNeighborDataIntoRep,
 		integrateTransferDataIntoRep,
@@ -1049,4 +1135,11 @@ if (typeof module !== 'undefined' && module.exports) {
 		exportSingleDistrictFromRep
 	};
 	Object.assign(global, module.exports);
+}
+
+if (typeof window !== 'undefined') {
+	window.openAddDistrictModal = openAddDistrictModal;
+	window.closeAddDistrictModal = closeAddDistrictModal;
+	window.confirmAddRepDistrict = confirmAddRepDistrict;
+	window.addNewRepDistrict = addNewRepDistrict;
 }

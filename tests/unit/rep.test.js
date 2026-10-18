@@ -116,6 +116,16 @@ test('rep: loadMultipleDistrictFiles handles master files, district files, and e
 		name: "district.txt",
 		text: async () => `BEGIN_DATA:\n${encDistrict}\n:END_DATA`
 	};
+	const neighborData = {
+		isNeighborhoodData: true,
+		district: "テスト自治会",
+		neighborhood: [{ role: "会長", lastName: "自治", firstName: "太郎" }]
+	};
+	const encNeighbor = await cryptoLib.encryptPayload(JSON.stringify(neighborData), "Password123!@#");
+	const mockFileNeighbor = {
+		name: "neighbor.txt",
+		text: async () => `BEGIN_DATA:\n${encNeighbor}\n:END_DATA`
+	};
 	const mockFileError = {
 		name: "bad.txt",
 		text: async () => `BEGIN_DATA:\ninvalid_base64_or_bad_payload\n:END_DATA`
@@ -123,13 +133,13 @@ test('rep: loadMultipleDistrictFiles handles master files, district files, and e
 
 	const evt = {
 		target: {
-			files: [mockFileMaster, mockFileDistrict, mockFileError],
+			files: [mockFileMaster, mockFileDistrict, mockFileNeighbor, mockFileError],
 			value: "fake_path"
 		}
 	};
 
 	await rep.loadMultipleDistrictFiles(evt);
-	assert(alertMsg.includes("2件のファイルを読み込みました。"));
+	assert(alertMsg.includes("3件のファイルを読み込みました。"));
 	assert(alertMsg.includes("1件はパスワード不一致等で失敗"));
 	assert.strictEqual(evt.target.value, "");
 });
@@ -1646,41 +1656,194 @@ test('rep: final precision branch booster', async () => {
 	global.parseTxtContent = origParseTxt;
 });
 
-test('rep: addNewRepDistrict adds a new empty district to repState and saves', () => {
+test('rep: openAddDistrictModal opens modal, clears input, resets error, and focuses input', () => {
 	setupDomEnvironment();
-	global.safePrompt = utils.safePrompt;
+	const modal = document.getElementById('rep-add-district-modal');
+	const input = document.getElementById('rep-new-district-name');
+	const errorEl = document.getElementById('rep-new-district-error');
+
+	modal.style.display = 'none';
+	input.value = '既存入力ゴミ';
+	errorEl.style.display = 'block';
+	errorEl.textContent = '過去のエラー';
+
+	let focused = false;
+	input.focus = () => { focused = true; };
+
+	rep.openAddDistrictModal();
+
+	assert.strictEqual(modal.style.display, 'flex');
+	assert.strictEqual(input.value, '');
+	assert.strictEqual(errorEl.style.display, 'none');
+	assert.strictEqual(errorEl.textContent, '');
+	assert.strictEqual(focused, true);
+});
+
+test('rep: closeAddDistrictModal closes modal, clears input and error', () => {
+	setupDomEnvironment();
+	const modal = document.getElementById('rep-add-district-modal');
+	const input = document.getElementById('rep-new-district-name');
+	const errorEl = document.getElementById('rep-new-district-error');
+
+	modal.style.display = 'flex';
+	input.value = '入力途中';
+	errorEl.style.display = 'block';
+	errorEl.textContent = 'エラー表示中';
+
+	rep.closeAddDistrictModal();
+
+	assert.strictEqual(modal.style.display, 'none');
+	assert.strictEqual(input.value, '');
+	assert.strictEqual(errorEl.style.display, 'none');
+	assert.strictEqual(errorEl.textContent, '');
+});
+
+test('rep: confirmAddRepDistrict validates empty and duplicate district names with inline error', () => {
+	setupDomEnvironment();
+	state.repState = {
+		districts: [
+			{ district: '既存地区1', han: '1班', hanList: ['1班'], students: [], neighborhood: [], officers: [] }
+		],
+		szExternals: [],
+		szDistricts: []
+	};
+
+	const modal = document.getElementById('rep-add-district-modal');
+	const input = document.getElementById('rep-new-district-name');
+	const errorEl = document.getElementById('rep-new-district-error');
+	modal.style.display = 'flex';
+
+	// 1. Empty string validation
+	input.value = '';
+	rep.confirmAddRepDistrict();
+	assert.strictEqual(state.repState.districts.length, 1);
+	assert.strictEqual(errorEl.style.display, 'block');
+	assert(errorEl.textContent.includes('地区名を入力してください'));
+	assert.strictEqual(modal.style.display, 'flex');
+
+	// 2. Whitespace only validation (A-1)
+	input.value = '   ';
+	rep.confirmAddRepDistrict();
+	assert.strictEqual(state.repState.districts.length, 1);
+	assert.strictEqual(errorEl.style.display, 'block');
+	assert(errorEl.textContent.includes('地区名を入力してください'));
+	assert.strictEqual(modal.style.display, 'flex');
+
+	// 3. Duplicate district name validation
+	input.value = ' 既存地区1 ';
+	rep.confirmAddRepDistrict();
+	assert.strictEqual(state.repState.districts.length, 1);
+	assert.strictEqual(errorEl.style.display, 'block');
+	assert(errorEl.textContent.includes('既に存在します'));
+	assert.strictEqual(modal.style.display, 'flex');
+});
+
+test('rep: confirmAddRepDistrict successfully creates new district, closes modal, expands card, and saves', () => {
+	setupDomEnvironment();
 	state.repState = { districts: [], szExternals: [], szDistricts: [] };
 
-	// 1. Cancelled prompt
-	global.prompt = window.prompt = () => null;
-	rep.addNewRepDistrict();
-	assert.strictEqual(state.repState.districts.length, 0);
+	const card = document.getElementById('card-rep-districts');
+	card.classList.add('is-collapsed');
+	const modal = document.getElementById('rep-add-district-modal');
+	const input = document.getElementById('rep-new-district-name');
+	const errorEl = document.getElementById('rep-new-district-error');
+	modal.style.display = 'flex';
 
-	// 2. Empty or whitespace prompt
-	global.prompt = window.prompt = () => '   ';
-	rep.addNewRepDistrict();
-	assert.strictEqual(state.repState.districts.length, 0);
+	input.value = '  新規5丁目地区  ';
+	rep.confirmAddRepDistrict();
 
-	// 3. Normal addition
-	global.prompt = window.prompt = () => '新規追加地区';
-	rep.addNewRepDistrict();
+	// Modal should be closed
+	assert.strictEqual(modal.style.display, 'none');
+	assert.strictEqual(input.value, '');
+	assert.strictEqual(errorEl.style.display, 'none');
+
+	// Card 1 should be auto-expanded
+	assert.strictEqual(card.classList.contains('is-collapsed'), false);
+
+	// District should be added to repState
 	assert.strictEqual(state.repState.districts.length, 1);
 	const newDist = state.repState.districts[0];
-	assert.strictEqual(newDist.district, '新規追加地区');
+	assert.strictEqual(newDist.district, '新規5丁目地区');
 	assert.strictEqual(newDist.han, '1班');
+	assert.deepStrictEqual(newDist.hanList, ['1班']);
 	assert.deepStrictEqual(newDist.students, []);
 	assert.deepStrictEqual(newDist.neighborhood, []);
+	assert.strictEqual(newDist.selectedForPrint, true);
 	assert(Array.isArray(newDist.officers));
 	assert.strictEqual(newDist.officers.length, 1);
 	assert.strictEqual(newDist.officers[0].role, '校外委員');
+});
 
-	// 4. Duplicate district addition alert
+test('rep: addNewRepDistrict with argument directly adds district, without argument opens modal', () => {
+	setupDomEnvironment();
+	state.repState = { districts: [], szExternals: [], szDistricts: [] };
+	const modal = document.getElementById('rep-add-district-modal');
+	modal.style.display = 'none';
+
+	// Call without argument -> opens modal
+	rep.addNewRepDistrict();
+	assert.strictEqual(modal.style.display, 'flex');
+	assert.strictEqual(state.repState.districts.length, 0);
+
+	// Call with direct string argument -> directly creates district
+	rep.addNewRepDistrict('直接追加地区');
+	assert.strictEqual(state.repState.districts.length, 1);
+	assert.strictEqual(state.repState.districts[0].district, '直接追加地区');
+
+	// Direct call with duplicate -> alerts and skips
 	let alertMsg = '';
 	global.alert = (m) => { alertMsg = m; };
-	global.prompt = window.prompt = () => '新規追加地区';
-	rep.addNewRepDistrict();
-	assert.strictEqual(state.repState.districts.length, 1, 'Duplicate district should not be added');
+	rep.addNewRepDistrict('直接追加地区');
+	assert.strictEqual(state.repState.districts.length, 1);
 	assert(alertMsg.includes('既に存在します'));
+});
+
+test('rep: addNewRepDistrict functions reliably even when window.prompt throws not supported error', () => {
+	setupDomEnvironment();
+	state.repState = { districts: [], szExternals: [], szDistricts: [] };
+
+	// Simulate environment where prompt() is not supported (throwing exception)
+	global.prompt = window.prompt = () => {
+		throw new Error('prompt() is not supported in this environment.');
+	};
+
+	const modal = document.getElementById('rep-add-district-modal');
+	const input = document.getElementById('rep-new-district-name');
+
+	// Step 1: Open modal without crash
+	assert.doesNotThrow(() => {
+		rep.addNewRepDistrict();
+	});
+	assert.strictEqual(modal.style.display, 'flex');
+
+	// Step 2: Input district name and submit without prompt() call
+	input.value = '非prompt安全地区';
+	assert.doesNotThrow(() => {
+		rep.confirmAddRepDistrict();
+	});
+
+	assert.strictEqual(modal.style.display, 'none');
+	assert.strictEqual(state.repState.districts.length, 1);
+	assert.strictEqual(state.repState.districts[0].district, '非prompt安全地区');
+});
+
+test('rep: keydown Escape closes rep-add-district-modal when displayed', () => {
+	setupDomEnvironment();
+	const modal = document.getElementById('rep-add-district-modal');
+	modal.style.display = 'flex';
+
+	// 1. Non-Escape key does not close modal
+	window.dispatchEvent({ type: 'keydown', key: 'Enter' });
+	assert.strictEqual(modal.style.display, 'flex');
+
+	// 2. Escape key closes modal when open
+	window.dispatchEvent({ type: 'keydown', key: 'Escape' });
+	assert.strictEqual(modal.style.display, 'none');
+
+	// 3. Escape key when already closed does nothing
+	assert.doesNotThrow(() => {
+		window.dispatchEvent({ type: 'keydown', key: 'Escape' });
+	});
 });
 
 test('rep: modal officer CRUD operations (add, update, remove) and state synchronization', () => {
