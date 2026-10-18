@@ -639,6 +639,182 @@ test('app: performAppUpdate saves all states, clears caches, unregisters SW, and
 	assert(replacedLocation.includes('?_update='));
 });
 
+test('app: checkAppVersion infinite update loop prevention safety guard with sessionStorage', async () => {
+	setupDomEnvironment();
+	sessionStorage.clear();
+	navigator.onLine = true;
+
+	let confirmCount = 0;
+	let confirmMsg = '';
+	global.confirm = (m) => {
+		confirmCount++;
+		confirmMsg = m;
+		return false; // Cancel
+	};
+
+	let consoleWarnMsg = '';
+	const origWarn = console.warn;
+	console.warn = (...args) => {
+		consoleWarnMsg = args.join(' ');
+		origWarn(...args);
+	};
+
+	// 1. Remote has newer version 9.9.9
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ version: '9.9.9', updatedAt: '2026-10-18' })
+	});
+
+	// Case A: No previous update attempt recorded -> normal auto check triggers confirm
+	confirmCount = 0;
+	sessionStorage.clear();
+	await app.checkAppVersion(false);
+	assert.strictEqual(confirmCount, 1, 'First time new version is found, auto check prompts confirm');
+
+	// Case B: sessionStorage records update was already attempted for 9.9.9 within 1 hour
+	// -> Auto check (isManual=false) MUST suppress confirm dialog to prevent infinite reload loop!
+	confirmCount = 0;
+	consoleWarnMsg = '';
+	sessionStorage.setItem('kogai_update_attempted_version', '9.9.9');
+	sessionStorage.setItem('kogai_update_attempted_time', String(Date.now()));
+
+	await app.checkAppVersion(false);
+	assert.strictEqual(confirmCount, 0, 'Auto check suppresses confirm dialog if update was already attempted');
+	assert(consoleWarnMsg.includes('Skipping auto update prompt') || consoleWarnMsg.includes('prevent infinite loop'), 'Warning is logged when skipping auto prompt');
+
+	// Case C: Manual check (isManual=true) bypasses suppression so user can explicitly retry
+	confirmCount = 0;
+	await app.checkAppVersion(true);
+	assert.strictEqual(confirmCount, 1, 'Manual check bypasses loop guard and shows confirm dialog');
+
+	// Case D: Update attempt is older than 1 hour (timeout) -> Auto check triggers confirm again
+	confirmCount = 0;
+	const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000);
+	sessionStorage.setItem('kogai_update_attempted_time', String(twoHoursAgo));
+
+	await app.checkAppVersion(false);
+	assert.strictEqual(confirmCount, 1, 'Expired attempt (> 1h) allows auto check to prompt confirm');
+
+	// Case E: Attempt was for 9.9.9, but an even newer version 10.0.0 is published -> Prompts confirm
+	confirmCount = 0;
+	sessionStorage.setItem('kogai_update_attempted_version', '9.9.9');
+	sessionStorage.setItem('kogai_update_attempted_time', String(Date.now()));
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ version: '10.0.0', updatedAt: '2026-10-18' })
+	});
+
+	await app.checkAppVersion(false);
+	assert.strictEqual(confirmCount, 1, 'Newer remote version than attempted version prompts confirm');
+
+	// Case F: App is up to date -> cleans up sessionStorage attempt records
+	sessionStorage.setItem('kogai_update_attempted_version', '9.9.9');
+	sessionStorage.setItem('kogai_update_attempted_time', String(Date.now()));
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ version: app.CURRENT_APP_VERSION, updatedAt: '2026-10-18' })
+	});
+
+	await app.checkAppVersion(false);
+	assert.strictEqual(sessionStorage.getItem('kogai_update_attempted_version'), null, 'Cleaned up attempted_version on up-to-date');
+	assert.strictEqual(sessionStorage.getItem('kogai_update_attempted_time'), null, 'Cleaned up attempted_time on up-to-date');
+
+	// Case G: Invalid timestamp in sessionStorage (NaN / corrupted) -> safe fallback (not suppressed)
+	global.fetch = async () => ({
+		ok: true,
+		json: async () => ({ version: '9.9.9', updatedAt: '2026-10-18' })
+	});
+	confirmCount = 0;
+	sessionStorage.setItem('kogai_update_attempted_version', '9.9.9');
+	sessionStorage.setItem('kogai_update_attempted_time', 'invalid_nan');
+
+	await app.checkAppVersion(false);
+	assert.strictEqual(confirmCount, 1, 'Corrupted timestamp safely falls back to prompt');
+
+	// Case H: sessionStorage throws exception (e.g. SecurityError / QuotaExceededError in private browsing)
+	const origGetItem = sessionStorage.getItem;
+	sessionStorage.getItem = () => { throw new Error('SecurityError: Access denied'); };
+	confirmCount = 0;
+	// Should not throw, should safely prompt confirm
+	await app.checkAppVersion(false);
+	assert.strictEqual(confirmCount, 1, 'sessionStorage exception is safely caught');
+	sessionStorage.getItem = origGetItem;
+
+	console.warn = origWarn;
+});
+
+test('app: performAppUpdate persists update attempt in sessionStorage', async () => {
+	setupDomEnvironment();
+	sessionStorage.clear();
+
+	// Mock environment
+	global.caches = { keys: async () => [], delete: async () => true };
+	navigator.serviceWorker.getRegistrations = async () => [];
+	window.location.replace = () => {};
+
+	// Case 1: with targetVersion
+	await app.performAppUpdate('9.9.9');
+	assert.strictEqual(sessionStorage.getItem('kogai_update_attempted_version'), '9.9.9');
+	assert.ok(sessionStorage.getItem('kogai_update_attempted_time'), 'Timestamp is recorded');
+
+	// Case 2: without targetVersion (null default)
+	sessionStorage.clear();
+	await app.performAppUpdate();
+	assert.strictEqual(sessionStorage.getItem('kogai_update_attempted_version'), null);
+});
+
+test('app: update attempt helper functions branch coverage and exception safety', () => {
+	setupDomEnvironment();
+
+	// 1. recordUpdateAttemptInfo with falsy / empty version
+	sessionStorage.clear();
+	app.recordUpdateAttemptInfo('');
+	app.recordUpdateAttemptInfo(null);
+	assert.strictEqual(sessionStorage.getItem('kogai_update_attempted_version'), null);
+
+	// 2. recordUpdateAttemptInfo with sessionStorage exception
+	const origSetItem = sessionStorage.setItem;
+	sessionStorage.setItem = () => { throw new Error('QuotaExceededError'); };
+	assert.doesNotThrow(() => {
+		app.recordUpdateAttemptInfo('1.0.0');
+	});
+	sessionStorage.setItem = origSetItem;
+
+	// 3. getUpdateAttemptInfo when sessionStorage throws
+	const origGetItem = sessionStorage.getItem;
+	sessionStorage.getItem = () => { throw new Error('SecurityError'); };
+	const res = app.getUpdateAttemptInfo();
+	assert.strictEqual(res.version, null);
+	assert.strictEqual(res.time, null);
+	sessionStorage.getItem = origGetItem;
+
+	// 4. clearUpdateAttemptInfo when sessionStorage throws
+	const origRemoveItem = sessionStorage.removeItem;
+	sessionStorage.removeItem = () => { throw new Error('SecurityError'); };
+	assert.doesNotThrow(() => {
+		app.clearUpdateAttemptInfo();
+	});
+	sessionStorage.removeItem = origRemoveItem;
+
+	// 5. getUpdateAttemptInfo when sessionStorage is undefined
+	const origSessionStorage = global.sessionStorage;
+	delete global.sessionStorage;
+	const resUndef = app.getUpdateAttemptInfo();
+	assert.strictEqual(resUndef.version, null);
+	assert.strictEqual(resUndef.time, null);
+	assert.doesNotThrow(() => {
+		app.clearUpdateAttemptInfo();
+		app.recordUpdateAttemptInfo('1.0.0');
+	});
+	global.sessionStorage = origSessionStorage;
+
+	// 6. getUpdateAttemptInfo when time is negative or zero
+	sessionStorage.setItem('kogai_update_attempted_version', '9.9.9');
+	sessionStorage.setItem('kogai_update_attempted_time', '0');
+	const resZero = app.getUpdateAttemptInfo();
+	assert.strictEqual(resZero.time, 0);
+});
+
 test('app: 4-tab switching, persistence in kogai_active_mode, and badge label sync (Action Item A-3)', () => {
 	setupDomEnvironment();
 	localStorage.clear();
