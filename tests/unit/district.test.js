@@ -503,8 +503,13 @@ test('district: shareDistrictData handles Web Share, LINE, Email, and Clipboard 
 	const confirmInput = document.getElementById('d-pass-confirm');
 	passInput.value = 'TestPass1234!';
 	confirmInput.value = 'TestPass1234!';
-	state.currentDistrict.district = '緑ヶ丘';
-	state.currentDistrict.students = [{ grade: '1', name: '生徒A' }];
+	state.currentDistrict = {
+		district: '緑ヶ丘',
+		han: '1班',
+		officers: [],
+		neighborhood: [],
+		students: [{ grade: '1', name: '生徒A' }]
+	};
 
 	let sharedData = null;
 	navigator.share = async (d) => { sharedData = d; };
@@ -1191,7 +1196,10 @@ test('district: loadDistrictTxt protects existing hata when incoming has no hata
 
 	// T-2: 両方に hata がある状態で confirm = false（上書きキャンセル）した場合、既存の hata が維持されること (GAP-TG-2)
 	state.currentDistrict.hata.title = '守るべき自地区の旗振りシフト';
-	global.confirm = () => false; // 上書きを拒否
+	global.confirm = (msg) => {
+		if (msg && msg.includes('旗振りシフト設定')) return false;
+		return true;
+	};
 	await districtLib.loadDistrictTxt(file);
 	assert.strictEqual(state.currentDistrict.hata.title, '守るべき自地区の旗振りシフト', 'Existing hata must be preserved when override is cancelled (T-2)');
 });
@@ -1234,4 +1242,151 @@ test('district: runDistrictYearUpdate preserves hata configuration while resetti
 	assert.strictEqual(state.currentDistrict.hata.startDate, '');
 	assert.strictEqual(state.currentDistrict.hata.endDate, '');
 	assert.deepStrictEqual(state.currentDistrict.hata.manualOverrides, {});
+});
+
+test('district: saveDistrictLocal synchronizes DOM hata inputs to currentDistrict.hata and persists to storage', () => {
+	setupDomEnvironment();
+	const dNameEl = document.getElementById('d-name');
+	if (dNameEl) dNameEl.value = '2丁目';
+
+	// ハタフロットDOM要素の配置
+	const titleEl = document.createElement('input');
+	titleEl.id = 'hata-title';
+	titleEl.value = '2丁目 登校見守り活動シフト表';
+	document.elements['hata-title'] = titleEl;
+
+	const locEl = document.createElement('input');
+	locEl.id = 'hata-location';
+	locEl.value = '小学校前歩道橋';
+	document.elements['hata-location'] = locEl;
+
+	const timeEl = document.createElement('input');
+	timeEl.id = 'hata-time';
+	timeEl.value = '7:50〜8:20';
+	document.elements['hata-time'] = timeEl;
+
+	const startEl = document.createElement('input');
+	startEl.id = 'hata-start-date';
+	startEl.value = '2026-04-06';
+	document.elements['hata-start-date'] = startEl;
+
+	const endEl = document.createElement('input');
+	endEl.id = 'hata-end-date';
+	endEl.value = '2026-09-30';
+	document.elements['hata-end-date'] = endEl;
+
+	const orientEl = document.createElement('select');
+	orientEl.id = 'hata-orientation';
+	orientEl.value = 'portrait';
+	document.elements['hata-orientation'] = orientEl;
+
+	const colsEl = document.createElement('select');
+	colsEl.id = 'hata-columns';
+	colsEl.value = '2';
+	document.elements['hata-columns'] = colsEl;
+
+	state.currentDistrict = { district: '2丁目' };
+
+	state.saveDistrictLocal();
+
+	assert.ok(state.currentDistrict.hata, 'currentDistrict.hata should be populated');
+	assert.strictEqual(state.currentDistrict.hata.title, '2丁目 登校見守り活動シフト表');
+	assert.strictEqual(state.currentDistrict.hata.location, '小学校前歩道橋');
+	assert.strictEqual(state.currentDistrict.hata.time, '7:50〜8:20');
+	assert.strictEqual(state.currentDistrict.hata.startDate, '2026-04-06');
+	assert.strictEqual(state.currentDistrict.hata.endDate, '2026-09-30');
+	assert.strictEqual(state.currentDistrict.hata.orientation, 'portrait');
+	assert.strictEqual(state.currentDistrict.hata.layoutColumns, '2');
+
+	// DOM要素が存在しない場合は既存hataを上書き消去せず保護する (GAP-DESIGN-1 / A-1)
+	document.elements['hata-title'] = null;
+	document.elements['hata-location'] = null;
+	state.saveDistrictLocal();
+	assert.strictEqual(state.currentDistrict.hata.title, '2丁目 登校見守り活動シフト表', 'Should preserve existing hata if DOM not present');
+});
+
+test('district: additional branch coverage booster for panels and transfer loading', async () => {
+	setupDomEnvironment();
+	state.currentDistrict = { district: '3丁目', students: [] };
+
+	// 1. scrollIntoView on panel toggle
+	let scrolledNeighbor = false;
+	const nPanel = document.getElementById('d-neighbor-import-panel');
+	nPanel.style.display = 'none';
+	nPanel.scrollIntoView = () => { scrolledNeighbor = true; };
+	districtLib.openNeighborImportPanel();
+	assert.strictEqual(scrolledNeighbor, true);
+
+	let scrolledTransfer = false;
+	const tPanel = document.getElementById('d-transfer-import-panel');
+	tPanel.style.display = 'none';
+	tPanel.scrollIntoView = () => { scrolledTransfer = true; };
+	districtLib.toggleTransferImportPanel();
+	assert.strictEqual(scrolledTransfer, true);
+
+	// 2. integrateTransferDataIntoDistrict with empty children array
+	let alertMsg = '';
+	global.alert = (m) => { alertMsg = m; };
+	const resEmpty = await districtLib.integrateTransferDataIntoDistrict({ isTransferData: true, children: [] });
+	assert.strictEqual(resEmpty, false);
+	assert(alertMsg.includes('児童が含まれていません'));
+
+	// 3. loadTransferFileIntoDistrict with prompt password fallback and failure
+	const dummyFile = {
+		name: 'transfer.txt',
+		text: async () => 'DUMMY_TRANSFER_TEXT'
+	};
+	document.getElementById('d-pass').value = 'WrongInitialPass';
+
+	// Case 3a: prompt cancelled
+	global.safePrompt = () => null;
+	global.parseTxtContent = async (text, pass) => {
+		if (pass === 'CorrectPass') return { isTransferData: true, children: [{ lastName: 'テスト' }] };
+		throw new Error('Decrypt error');
+	};
+	const fakeEvent1 = { target: { files: [dummyFile], value: 'dummy' } };
+	await districtLib.loadTransferFileIntoDistrict(fakeEvent1);
+	assert.strictEqual(fakeEvent1.target.value, '');
+
+	// Case 3b: prompt success
+	global.safePrompt = () => 'CorrectPass';
+	state.currentDistrict.students = [];
+	await districtLib.loadTransferFileIntoDistrict({ target: { files: [dummyFile] } });
+	assert.strictEqual(state.currentDistrict.students.length, 1);
+	assert.strictEqual(state.currentDistrict.students[0].lastName, 'テスト');
+
+	// Case 3c: decryption throws final error
+	global.parseTxtContent = async () => { throw new Error('Unrecoverable decrypt error'); };
+	alertMsg = '';
+	await districtLib.loadTransferFileIntoDistrict({ target: { files: [dummyFile] } });
+	assert(alertMsg.includes('読み込みに失敗しました'));
+
+	// 4. loadPastedTransferTextIntoDistrict with prompt password fallback and failure
+	const pasteBox = document.getElementById('d-transfer-paste-box');
+	pasteBox.value = 'DUMMY_PASTED_DATA';
+	document.getElementById('d-pass').value = 'WrongPass';
+
+	// Case 4a: prompt cancelled
+	global.safePrompt = () => null;
+	global.parseTxtContent = async (text, pass) => {
+		if (pass === 'CorrectPass') return { isTransferData: true, children: [{ lastName: 'テスト2' }] };
+		throw new Error('Decrypt error');
+	};
+	await districtLib.loadPastedTransferTextIntoDistrict();
+	assert.strictEqual(pasteBox.value, 'DUMMY_PASTED_DATA'); // preserved on cancel
+
+	// Case 4b: prompt success
+	global.safePrompt = () => 'CorrectPass';
+	state.currentDistrict.students = [];
+	await districtLib.loadPastedTransferTextIntoDistrict();
+	assert.strictEqual(state.currentDistrict.students.length, 1);
+	assert.strictEqual(state.currentDistrict.students[0].lastName, 'テスト2');
+	assert.strictEqual(pasteBox.value, '');
+
+	// Case 4c: decryption throws final error
+	pasteBox.value = 'DUMMY_PASTED_DATA';
+	global.parseTxtContent = async () => { throw new Error('Unrecoverable decrypt error'); };
+	alertMsg = '';
+	await districtLib.loadPastedTransferTextIntoDistrict();
+	assert(alertMsg.includes('復号に失敗しました'));
 });

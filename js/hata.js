@@ -795,8 +795,8 @@ function renderHataCard() {
 			startDate: preset.startDate,
 			endDate: preset.endDate,
 			weekdays: [1, 2, 3, 4, 5],
-			orientation: 'landscape',
-			layoutColumns: '3',
+			orientation: 'portrait',
+			layoutColumns: '2',
 			headerMsg: '※雨天時も原則実施します。ご協力をお願いいたします。',
 			footerMsg: '※都合がつかない場合は、各自で他の担当者と交代してください。',
 			contactMsg: '',
@@ -820,9 +820,9 @@ function renderHataCard() {
 	const endEl = document.getElementById('hata-end-date');
 	if (endEl) endEl.value = h.endDate || '';
 	const orientEl = document.getElementById('hata-orientation');
-	if (orientEl) orientEl.value = h.orientation || 'landscape';
+	if (orientEl) orientEl.value = h.orientation || 'portrait';
 	const colEl = document.getElementById('hata-columns');
-	if (colEl) colEl.value = h.layoutColumns || '3';
+	if (colEl) colEl.value = h.layoutColumns || '2';
 	const headEl = document.getElementById('hata-header-msg');
 	if (headEl) headEl.value = h.headerMsg || '';
 	const footEl = document.getElementById('hata-footer-msg');
@@ -975,13 +975,21 @@ function printHataSchedule() {
 	document.body.appendChild(printEl);
 	document.body.classList.add('printing-hata');
 
-	if (typeof window !== 'undefined' && typeof window.print === 'function') {
-		window.print();
-	}
+	const origTitle = document.title;
+	const hata = currentDistrict.hata;
+	const targetTitle = (hata && hata.title) ? hata.title : '旗振りシフト表';
 
-	document.body.classList.remove('printing-hata');
-	if (printEl.parentElement) {
-		printEl.parentElement.removeChild(printEl);
+	try {
+		document.title = targetTitle;
+		if (typeof window !== 'undefined' && typeof window.print === 'function') {
+			window.print();
+		}
+	} finally {
+		document.title = origTitle;
+		document.body.classList.remove('printing-hata');
+		if (printEl.parentElement) {
+			printEl.parentElement.removeChild(printEl);
+		}
 	}
 }
 

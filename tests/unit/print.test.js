@@ -533,3 +533,84 @@ test('print: exhaustive branch coverage for print options, rosters, and cards', 
 	assert(seatHtmlEdge.includes("（ご出席者 様）"));
 	assert(seatHtmlEdge.includes("is-facility"));
 });
+
+test('print: dynamic title synchronization and separate PDF print pipeline', () => {
+	setupDomEnvironment();
+	const origTitle = 'テストアプリ初期タイトル';
+	document.title = origTitle;
+	let titleHistory = [];
+	let printCount = 0;
+
+	global.print = () => {
+		printCount++;
+		titleHistory.push(document.title);
+	};
+	global.window.print = global.print;
+
+	state.currentDistrict = createMockDistrict({
+		district: '青葉台地区',
+		students: [{ lastName: 'テスト', firstName: '太郎' }],
+		neighborhood: [{ role: '会長', lastName: '自治', firstName: '一郎' }],
+		officers: [{ role: '委員長', lastName: '校外', firstName: '花子' }]
+	});
+	document.getElementById('d-name').value = '青葉台地区';
+
+	// 1. printSingleDistrictSelected with single check (students only)
+	document.getElementById('d-print-students').checked = true;
+	document.getElementById('d-print-neighbors').checked = false;
+	document.getElementById('d-print-school').checked = false;
+	document.getElementById('d-print-pta').checked = false;
+
+	print.printSingleDistrictSelected();
+	assert.strictEqual(printCount, 1);
+	assert.strictEqual(titleHistory[0], '児童名簿_青葉台地区');
+	assert.strictEqual(document.title, origTitle, 'document.title should be restored');
+
+	// 2. printSingleDistrictSelected with multiple checks
+	titleHistory = [];
+	printCount = 0;
+	document.getElementById('d-print-neighbors').checked = true;
+
+	print.printSingleDistrictSelected();
+	assert.strictEqual(printCount, 1);
+	assert.strictEqual(titleHistory[0], '自地区帳票一括_青葉台地区');
+	assert.strictEqual(document.title, origTitle);
+
+	// 3. printSingleDistrictSeparately with no checks
+	let alertMsg = '';
+	global.alert = (msg) => { alertMsg = msg; };
+	document.getElementById('d-print-students').checked = false;
+	document.getElementById('d-print-neighbors').checked = false;
+
+	print.printSingleDistrictSeparately();
+	assert(alertMsg.includes('チェックを入れてください'));
+
+	// 4. printSingleDistrictSeparately with all 4 checks (students, neighbors, school, pta)
+	titleHistory = [];
+	printCount = 0;
+	document.getElementById('d-print-students').checked = true;
+	document.getElementById('d-print-neighbors').checked = true;
+	document.getElementById('d-print-school').checked = true;
+	document.getElementById('d-print-pta').checked = true;
+
+	print.printSingleDistrictSeparately();
+	assert.strictEqual(printCount, 4);
+	assert.strictEqual(titleHistory[0], '児童名簿_青葉台地区');
+	assert.strictEqual(titleHistory[1], '自治会役員名簿_青葉台地区');
+	assert.strictEqual(titleHistory[2], '校外役員名簿_学校用_青葉台地区');
+	assert.strictEqual(titleHistory[3], '校外役員名簿_PTA用_青葉台地区');
+	assert.strictEqual(document.title, origTitle);
+
+	// 5. executeRepSelectedPrint with single check
+	titleHistory = [];
+	printCount = 0;
+	state.repState = createMockRepState();
+	state.repState.districts[0].selectedForPrint = true;
+	const container = document.getElementById('rep-print-checkboxes');
+	container.innerHTML = '<input type="checkbox" class="rep-print-chk" value="officers_pta" checked>';
+
+	print.executeRepSelectedPrint();
+	assert.strictEqual(printCount, 1);
+	assert.strictEqual(titleHistory[0], 'PTA総会・校外役員名簿');
+	assert.strictEqual(document.title, origTitle);
+});

@@ -1645,3 +1645,184 @@ test('rep: final precision branch booster', async () => {
 	await rep.loadPastedTextToRep();
 	global.parseTxtContent = origParseTxt;
 });
+
+test('rep: addNewRepDistrict adds a new empty district to repState and saves', () => {
+	setupDomEnvironment();
+	global.safePrompt = utils.safePrompt;
+	state.repState = { districts: [], szExternals: [], szDistricts: [] };
+
+	// 1. Cancelled prompt
+	global.prompt = window.prompt = () => null;
+	rep.addNewRepDistrict();
+	assert.strictEqual(state.repState.districts.length, 0);
+
+	// 2. Empty or whitespace prompt
+	global.prompt = window.prompt = () => '   ';
+	rep.addNewRepDistrict();
+	assert.strictEqual(state.repState.districts.length, 0);
+
+	// 3. Normal addition
+	global.prompt = window.prompt = () => '新規追加地区';
+	rep.addNewRepDistrict();
+	assert.strictEqual(state.repState.districts.length, 1);
+	const newDist = state.repState.districts[0];
+	assert.strictEqual(newDist.district, '新規追加地区');
+	assert.strictEqual(newDist.han, '1班');
+	assert.deepStrictEqual(newDist.students, []);
+	assert.deepStrictEqual(newDist.neighborhood, []);
+	assert(Array.isArray(newDist.officers));
+	assert.strictEqual(newDist.officers.length, 1);
+	assert.strictEqual(newDist.officers[0].role, '校外委員');
+
+	// 4. Duplicate district addition alert
+	let alertMsg = '';
+	global.alert = (m) => { alertMsg = m; };
+	global.prompt = window.prompt = () => '新規追加地区';
+	rep.addNewRepDistrict();
+	assert.strictEqual(state.repState.districts.length, 1, 'Duplicate district should not be added');
+	assert(alertMsg.includes('既に存在します'));
+});
+
+test('rep: modal officer CRUD operations (add, update, remove) and state synchronization', () => {
+	setupDomEnvironment();
+	state.repState = {
+		districts: [
+			{
+				district: '役員編集テスト地区',
+				han: '1班,2班',
+				students: [],
+				neighborhood: [],
+				officers: undefined // intentionally undefined to test initial safety
+			}
+		],
+		szExternals: [],
+		szDistricts: []
+	};
+
+	// 1. Open modal initializes officers array
+	rep.openRepDistrictDetailModal(0);
+	const modalDist = rep.getModalCurrentDistrict();
+	assert.ok(modalDist);
+	assert(Array.isArray(modalDist.officers));
+
+	// 2. Add officer row
+	rep.addModalOfficerRow();
+	assert.strictEqual(modalDist.officers.length, 1);
+	assert.strictEqual(modalDist.officers[0].role, '校外委員');
+
+	// 3. Update officer fields
+	rep.updateModalOfficer(0, 'lastName', '新渡戸');
+	rep.updateModalOfficer(0, 'firstName', '稲造');
+	rep.updateModalOfficer(0, 'tel', '090-9999-8888');
+	assert.strictEqual(modalDist.officers[0].lastName, '新渡戸');
+	assert.strictEqual(modalDist.officers[0].firstName, '稲造');
+	assert.strictEqual(modalDist.officers[0].tel, '090-9999-8888');
+
+	// Invalid update index safety
+	rep.updateModalOfficer(99, 'lastName', '無効');
+
+	// 4. Add another officer and remove with confirmation
+	rep.addModalOfficerRow();
+	assert.strictEqual(modalDist.officers.length, 2);
+	rep.updateModalOfficer(1, 'lastName', '福沢');
+
+	// Cancel removal
+	global.confirm = () => false;
+	rep.removeModalOfficerRow(1);
+	assert.strictEqual(modalDist.officers.length, 2);
+
+	// Confirm removal
+	global.confirm = () => true;
+	rep.removeModalOfficerRow(1);
+	assert.strictEqual(modalDist.officers.length, 1);
+	assert.strictEqual(modalDist.officers[0].lastName, '新渡戸');
+
+	// Remove empty officer without prompt
+	rep.addModalOfficerRow();
+	modalDist.officers[1].role = '';
+	modalDist.officers[1].lastName = '';
+	let promptCalled = false;
+	global.confirm = () => { promptCalled = true; return true; };
+	rep.removeModalOfficerRow(1);
+	assert.strictEqual(promptCalled, false);
+	assert.strictEqual(modalDist.officers.length, 1);
+
+	// 5. Save and synchronize with repState
+	rep.saveAndCloseRepDistrictDetailModal();
+	assert.strictEqual(state.repState.districts[0].officers.length, 1);
+	assert.strictEqual(state.repState.districts[0].officers[0].lastName, '新渡戸');
+
+	// Check table renders officer name
+	const tbody = document.getElementById('rep-districts-tbody');
+	assert(tbody.innerHTML.includes('新渡戸'));
+
+	// 6. Edge cases and guards for modal officer CRUD
+	rep.closeRepDistrictDetailModalWithoutSaving();
+	// When modalCurrentDistrict is null
+	rep.updateModalOfficer(0, 'role', 'test');
+	rep.addModalOfficerRow();
+	rep.removeModalOfficerRow(0);
+	rep.renderRepDistrictDetailModal();
+
+	// When modalCurrentDistrict has null/empty officers and han is empty
+	rep.openRepDistrictDetailModal(0);
+	const cur = rep.getModalCurrentDistrict ? rep.getModalCurrentDistrict() : state.repState.districts[0];
+	cur.officers = null;
+	cur.han = null;
+	rep.updateModalOfficer(0, 'role', 'test');
+	rep.removeModalOfficerRow(0);
+	rep.addModalOfficerRow(); // initializes officers and uses '' for han
+	assert.strictEqual(cur.officers.length, 1);
+	assert.strictEqual(cur.officers[0].han, '');
+
+	// Cancel confirmation on removeModalOfficerRow with name only and role only
+	cur.officers[0].lastName = '山田';
+	cur.officers[0].role = '';
+	global.confirm = () => false;
+	rep.removeModalOfficerRow(0);
+	assert.strictEqual(cur.officers.length, 1);
+
+	cur.officers[0].lastName = '';
+	cur.officers[0].role = '校外役員';
+	rep.removeModalOfficerRow(0);
+	assert.strictEqual(cur.officers.length, 1);
+
+	rep.closeRepDistrictDetailModalWithoutSaving();
+});
+
+test('rep: additional coverage for placeholder upsert and transfer error alerts', async () => {
+	setupDomEnvironment();
+	// 1. upsertRepDistrict replaces empty placeholder
+	state.repState = {
+		districts: [
+			{ district: 'プレースホルダー地区', students: [], officers: [], han: '' }
+		],
+		szDistricts: []
+	};
+	const incoming = {
+		district: 'プレースホルダー地区',
+		han: '2班',
+		students: [{ lastName: '新規' }],
+		officers: [{ role: '委員長' }]
+	};
+	rep.upsertRepDistrict(incoming);
+	assert.strictEqual(state.repState.districts.length, 1);
+	assert.strictEqual(state.repState.districts[0].han, '2班');
+	assert.strictEqual(state.repState.districts[0].students.length, 1);
+
+	// 2. loadTransferFileIntoRep error alert
+	let alertMsg = '';
+	global.alert = (m) => { alertMsg = m; };
+	global.safePrompt = () => 'PromptPass';
+	global.parseTxtContent = async () => { throw new Error('Simulated failure'); };
+	const dummyFile = { text: async () => 'INVALID' };
+	await rep.loadTransferFileIntoRep({ target: { files: [dummyFile], value: 'dummy' } });
+	assert(alertMsg.includes('読み込みに失敗しました'));
+
+	// 3. loadPastedTransferTextIntoRep error alert
+	alertMsg = '';
+	const pBox = document.getElementById('rep-transfer-paste-box');
+	pBox.value = 'DUMMY_PASTE';
+	await rep.loadPastedTransferTextIntoRep();
+	assert(alertMsg.includes('復号に失敗しました'));
+});
