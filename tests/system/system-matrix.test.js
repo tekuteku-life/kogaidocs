@@ -1049,3 +1049,114 @@ test('system [機能20]: URLパラメータ起動、トグルパネル、名簿�
 	assert.strictEqual(state.currentDistrict.students.length, 1);
 	assert.strictEqual(state.currentDistrict.students[0].firstName, '代表割当');
 });
+
+/* =========================================================================
+	機能21: 削除確認セーフティガード・代表カード1ジャンル整理・代表名簿モーダル・ハタフロット統合 E2E
+========================================================================= */
+test('system [機能21]: 全削除確認ガード・代表カード1整理・代表地区名簿モーダル・ハタフロット統合E2E', async () => {
+	setupDomEnvironment();
+	const pass = "MatrixPass123!@#";
+
+	// 1. 全削除確認セーフティガードの動作検証
+	let confirmCalledWith = '';
+	global.confirm = (msg) => { confirmCalledWith = msg; return false; };
+
+	// 地区側自治会役員削除キャンセル
+	state.currentDistrict = {
+		district: '1丁目',
+		neighborhood: [{ role: '会長', lastName: '山田', firstName: '太郎' }],
+		students: [{ grade: '1', lastName: '田中', firstName: '一郎' }],
+		hata: {}
+	};
+	district.removeN(0);
+	assert.ok(confirmCalledWith.includes('山田'));
+	assert.strictEqual(state.currentDistrict.neighborhood.length, 1);
+
+	// 児童名簿削除キャンセル
+	district.removeS(0);
+	assert.ok(confirmCalledWith.includes('田中'));
+	assert.strictEqual(state.currentDistrict.students.length, 1);
+
+	// 2. 代表カード1の4大セクション存在検証 (T-3)
+	const secRepPass = document.getElementById('sec-rep-pass');
+	const secRepImport = document.getElementById('sec-rep-import');
+	const secRepExport = document.getElementById('sec-rep-export');
+	const secRepYear = document.getElementById('sec-rep-year');
+	assert.ok(secRepPass, '#sec-rep-pass must exist in card 1');
+	assert.ok(secRepImport, '#sec-rep-import must exist in card 1');
+	assert.ok(secRepExport, '#sec-rep-export must exist in card 1');
+	assert.ok(secRepYear, '#sec-rep-year must exist in card 1');
+
+	// 3. 代表モードでの地区詳細モーダル閲覧・編集E2E
+	state.repState = {
+		districts: [
+			{
+				district: '青葉区1丁目',
+				han: 'A班',
+				hanList: ['A班'],
+				officers: [{ role: '地区長', lastName: '佐々木', firstName: '健' }],
+				neighborhood: [{ role: '会長', lastName: '鈴木', firstName: '次郎' }],
+				students: [{ grade: '2', class: '1', han: 'A班', lastName: '伊藤', firstName: '花子' }]
+			}
+		],
+		szExternals: [{ category: '警察', org: '警察署', role: '課長', lastName: '安全', firstName: '太郎' }],
+		seatConfig: { cols: 4, rows: 4, cells: {} }
+	};
+
+	// 集約地区削除キャンセル
+	rep.deleteRepDistrict(0);
+	assert.ok(confirmCalledWith.includes('青葉区1丁目'));
+	assert.strictEqual(state.repState.districts.length, 1);
+
+	// モーダルを開いて編集
+	rep.openRepDistrictDetailModal(0);
+	const modal = document.getElementById('rep-district-detail-modal');
+	assert.strictEqual(modal.style.display, 'block');
+
+	// モーダル内で児童追加
+	rep.addModalStudentRow();
+	const mStudents = rep.getModalCurrentDistrict().students;
+	mStudents[1].grade = '4';
+	mStudents[1].lastName = '新規追加児童';
+	rep.saveAndCloseRepDistrictDetailModal();
+
+	assert.strictEqual(modal.style.display, 'none');
+	assert.strictEqual(state.repState.districts[0].students.length, 2);
+	assert.strictEqual(state.repState.districts[0].students[1].lastName, '新規追加児童');
+
+	// 4. ハタフロット自動シフト生成〜スワップ〜公式JSON保存E2E
+	const hataStudents = [
+		{ lastName: '山田', firstName: '一郎', address: '1-1-1', grade: '3' },
+		{ lastName: '山田', firstName: '二郎', address: '1-1-1', grade: '1' },
+		{ lastName: '佐藤', firstName: '三郎', address: '1-2-3', grade: '4' }
+	];
+	const households = hata.extractHouseholdsFromStudents(hataStudents);
+	assert.strictEqual(households.length, 2, 'Should deduplicate Yamada siblings into 1 household');
+
+	const scheduleConfig = {
+		title: '登校見守り活動シフト表',
+		startDate: '2026-06-01',
+		endDate: '2026-06-10',
+		weekdays: [1, 2, 3, 4, 5],
+		holidays: '',
+		specials: '',
+		exemptHouseholds: [],
+		members: households.map(h => h.displayName).join('\n'),
+		manualOverrides: {}
+	};
+	const schedule = hata.generateHataSchedule(scheduleConfig);
+	assert.ok(schedule.length > 0);
+
+	// スワップ実行
+	const d1 = schedule[0].date;
+	const p1 = schedule[0].person;
+	const d2 = schedule[1].date;
+	const p2 = schedule[1].person;
+	hata.swapScheduleDates(scheduleConfig, d1, p1, d2, p2);
+	assert.strictEqual(scheduleConfig.manualOverrides[d1].person, p2);
+	assert.strictEqual(scheduleConfig.manualOverrides[d2].person, p1);
+
+	// 公式JSON保存
+	const jsonStr = hata.exportHataOfficialJson(scheduleConfig);
+	assert.ok(jsonStr.includes('登校見守り活動シフト表'));
+});

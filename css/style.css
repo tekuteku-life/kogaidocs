@@ -880,4 +880,326 @@ table.edit-table th { background: #f8fafc; font-weight: bold; white-space: nowra
 	flex-direction: column;
 }
 
+/* ==================== 代表モード：4大セクション ＆ モーダル ==================== */
+#sec-rep-pass, #sec-rep-import, #sec-rep-export, #sec-rep-year {
+	transition: background-color 0.2s ease;
+}
+
+#rep-district-detail-modal .modal-card {
+	animation: modalSlideDown 0.2s ease-out;
+}
+
+@keyframes modalSlideDown {
+	from {
+		opacity: 0;
+		transform: translateY(-20px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* ==================== ハタフロット：本家完全準拠 A4多段組版 ＆ カプセル化スタイル ==================== */
+.hata-card-list {
+	display: flex;
+	flex-direction: column;
+}
+
+.hata-card-item:last-child {
+	border-bottom: none !important;
+}
+
+.hata-grid-table th, .hata-grid-table td {
+	padding: 8px 10px;
+	text-align: left;
+}
+
+/* 本家ハタフロットA4組版シート（画面表示・プレビュー・印刷共通） */
+.hata-sheet {
+	background: #fff;
+	color: #000;
+	padding: 12px;
+	border: 1px solid #cbd5e1;
+	border-radius: 6px;
+	box-sizing: border-box;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.hata-sheet .sheet-top-date {
+	text-align: right;
+	font-size: 0.8rem;
+	color: #444;
+	margin-bottom: 2px;
+}
+
+.hata-sheet .sheet-header {
+	margin-bottom: 8px;
+	border-bottom: 2px solid #333;
+	padding-bottom: 6px;
+}
+
+.hata-sheet .sheet-title {
+	font-size: 1.25rem;
+	font-weight: bold;
+	text-align: center;
+	margin-bottom: 6px;
+	letter-spacing: 1px;
+	color: #000;
+}
+
+.hata-sheet .sheet-meta-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.85rem;
+	table-layout: fixed;
+}
+
+.hata-sheet .sheet-meta-table td {
+	border: 1px solid #777;
+	padding: 4px 6px;
+	vertical-align: middle;
+	color: #000;
+}
+
+.hata-sheet .sheet-meta-label {
+	background: #eee;
+	font-weight: bold;
+	width: 8%;
+	text-align: center;
+	color: #000;
+}
+
+.hata-sheet .sheet-msg-box {
+	border: 1px solid #777;
+	background: #fff;
+	border-radius: 4px;
+	padding: 6px 10px;
+	font-size: 0.8rem;
+	line-height: 1.45;
+	white-space: pre-wrap;
+	margin-bottom: 8px;
+	color: #000;
+}
+
+.hata-sheet .sheet-footer-box {
+	margin-top: 8px;
+	margin-bottom: 6px;
+}
+
+.hata-sheet .sheet-contact-box {
+	border: 1px dashed #777;
+	background: #fafafa;
+	border-radius: 4px;
+	padding: 5px 10px;
+	font-size: 0.8rem;
+	line-height: 1.4;
+	white-space: pre-wrap;
+	margin-top: 4px;
+	color: #000;
+}
+
+/* 多段組テーブルレイアウト（行高固定・月日と曜統合・空行整列） */
+.hata-sheet .columns-container {
+	display: flex;
+	gap: 6px;
+	align-items: flex-start;
+	width: 100%;
+}
+
+.hata-sheet .column-table-wrapper {
+	flex: 1;
+	min-width: 0;
+}
+
+.hata-sheet table.schedule-table {
+	width: 100%;
+	border-collapse: collapse;
+	table-layout: fixed;
+}
+
+.hata-sheet table.schedule-table th,
+.hata-sheet table.schedule-table td {
+	border: 1px solid #777;
+	padding: 0 3px;
+	text-align: center;
+	height: 27px;
+	line-height: 25px;
+	box-sizing: border-box;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	vertical-align: middle;
+	font-size: 0.8rem;
+	color: #000;
+}
+
+.hata-sheet table.schedule-table th {
+	background: #e9ecef;
+	font-weight: bold;
+}
+
+/* 状態別行スタイル */
+.hata-sheet tr.row-holiday {
+	background-color: #e9ecef !important;
+	color: #6c757d;
+}
+
+.hata-sheet tr.row-special {
+	background-color: #fff3cd;
+}
+
+.hata-sheet .badge-special {
+	font-size: 0.68rem;
+	font-weight: bold;
+	color: #d97706;
+	margin-right: 2px;
+}
+
+/* 各自の当番回数アコーディオン（画面用・印刷時非表示） */
+.hata-accordion-toggle {
+	width: 100%;
+	background: #eef3f8;
+	color: #1e3a8a;
+	border: 1px solid #b8daff;
+	border-radius: 6px;
+	padding: 9px 14px;
+	text-align: left;
+	font-size: 0.88rem;
+	font-weight: bold;
+	cursor: pointer;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 6px;
+}
+
+.hata-accordion-toggle:hover {
+	background: #e2eaf4;
+}
+
+.hata-accordion-content {
+	max-height: 0;
+	overflow: hidden;
+	opacity: 0;
+	transition: max-height 0.35s ease, opacity 0.3s ease, margin-bottom 0.35s ease;
+	margin-bottom: 0;
+}
+
+.hata-accordion-content.open {
+	max-height: 400px;
+	opacity: 1;
+	margin-bottom: 12px;
+}
+
+.summary-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+	gap: 6px;
+	padding: 4px 0;
+}
+
+.summary-item {
+	background: #fff;
+	border: 1px solid #cbd5e1;
+	border-radius: 4px;
+	padding: 4px;
+	text-align: center;
+	font-size: 0.8rem;
+	line-height: 1.35;
+}
+
+/* A4印刷スタイル（カプセル化：body.printing-hata または #hata-print-active-sheet） */
+@media print {
+	body.printing-hata {
+		background: #fff !important;
+		padding: 0 !important;
+		font-size: 9pt !important;
+	}
+
+	body.printing-hata .container,
+	body.printing-hata #main-header,
+	body.printing-hata .mode-tabs,
+	body.printing-hata .card,
+	body.printing-hata .btn-group,
+	body.printing-hata .hata-accordion-toggle,
+	body.printing-hata .hata-accordion-content,
+	body.printing-hata .no-print {
+		display: none !important;
+	}
+
+	#hata-print-active-sheet {
+		display: block !important;
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		background: #fff;
+		z-index: 99999;
+	}
+
+	#hata-print-active-sheet .hata-sheet {
+		border: none !important;
+		box-shadow: none !important;
+		padding: 0 !important;
+		max-width: 100%;
+	}
+
+	#hata-print-active-sheet .sheet-top-date {
+		font-size: 7.5pt;
+		margin-bottom: 1px;
+	}
+
+	#hata-print-active-sheet .sheet-header {
+		margin-bottom: 4px;
+		padding-bottom: 2px;
+	}
+
+	#hata-print-active-sheet .sheet-title {
+		font-size: 1.15rem;
+		margin-bottom: 3px;
+	}
+
+	#hata-print-active-sheet .sheet-meta-table {
+		font-size: 7.8pt;
+	}
+
+	#hata-print-active-sheet .sheet-meta-table td {
+		padding: 2px 4px;
+	}
+
+	#hata-print-active-sheet .sheet-msg-box {
+		font-size: 7.2pt;
+		padding: 3px 6px;
+		margin-bottom: 5px;
+		line-height: 1.35;
+	}
+
+	#hata-print-active-sheet .sheet-footer-box {
+		margin-top: 5px;
+		margin-bottom: 3px;
+	}
+
+	#hata-print-active-sheet .sheet-contact-box {
+		font-size: 7.2pt;
+		padding: 3px 6px;
+	}
+
+	#hata-print-active-sheet .columns-container {
+		gap: 4px;
+	}
+
+	#hata-print-active-sheet table.schedule-table th,
+	#hata-print-active-sheet table.schedule-table td {
+		font-size: 7.5pt;
+		height: 23px;
+		line-height: 21px;
+		padding: 0 2px;
+	}
+
+	#hata-print-active-sheet .badge-special {
+		font-size: 6.5pt;
+	}
+}
+
 

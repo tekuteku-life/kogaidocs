@@ -388,5 +388,36 @@ describe('transfer unit tests', () => {
 			assert.strictEqual(sharedMode, 'transfer');
 		}
 	});
-});
 
+	test('removeTransferChildRow prompts confirmation when row has data and deletes only on OK (GAP-TEST-1)', () => {
+		setupDomEnvironment();
+		transfer.transferState.children = [
+			{ id: 'c1', lastName: '山田', firstName: '花子', grade: '3' },
+			{ id: 'c2', lastName: '', firstName: '', grade: '1' }
+		];
+
+		let confirmMsg = '';
+		global.confirm = (msg) => {
+			confirmMsg = msg;
+			return false; // キャンセル
+		};
+
+		// 1行目（データあり）を削除しようとすると confirm が呼ばれる。キャンセル時は削除されない
+		transfer.removeTransferChildRow(0);
+		assert.ok(confirmMsg.includes('山田') || confirmMsg.includes('花子'), 'Should mention child name in confirm');
+		assert.strictEqual(transfer.transferState.children.length, 2, 'Should remain unchanged on cancel');
+
+		// OK 時は削除される
+		global.confirm = () => true;
+		transfer.removeTransferChildRow(0);
+		assert.strictEqual(transfer.transferState.children.length, 1, 'Should delete on confirm OK');
+
+		// 2行目（空行）の削除時は confirm なしで即座に削除可能（残り1行の場合は空初期化される）
+		confirmMsg = '';
+		global.confirm = (msg) => { confirmMsg = msg; return false; };
+		transfer.removeTransferChildRow(0);
+		assert.strictEqual(confirmMsg, '', 'Should delete empty row without prompt');
+		assert.strictEqual(transfer.transferState.children.length, 1);
+		assert.strictEqual(transfer.transferState.children[0].lastName, '');
+	});
+});

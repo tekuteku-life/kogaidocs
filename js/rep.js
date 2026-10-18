@@ -10,6 +10,11 @@ function renderRepAll() {
 }
 
 function upsertRepDistrict(d) {
+	const cleanD = JSON.parse(JSON.stringify(d));
+	delete cleanD.hata;
+	delete cleanD.hatafurotto;
+	d = cleanD;
+
 	if (!d.officers || !Array.isArray(d.officers) || d.officers.length === 0) {
 		d.officers = [d.officer || {}];
 	}
@@ -310,6 +315,180 @@ function runRepYearUpdate() {
 	alert("代表データの年度更新が完了しました。「代表統合ファイル(.txt)を保存」から次年度代表への引き継ぎファイルを出力できます。");
 }
 
+function deleteRepDistrict(index) {
+	if (typeof index !== 'number' || index < 0 || !repState.districts || index >= repState.districts.length) return;
+	const dist = repState.districts[index];
+	const distName = (dist.district || '') + (dist.han ? ' (' + dist.han + ')' : '');
+	if (!confirm('地区「' + distName + '」の集約データを一覧から削除しますか？\n※他の地区データには影響しません。')) {
+		return;
+	}
+	repState.districts.splice(index, 1);
+	renderRepDistrictsTable();
+	saveRepLocal();
+}
+
+let modalDistrictIndex = -1;
+let modalCurrentDistrict = null;
+
+function getModalCurrentDistrict() {
+	return modalCurrentDistrict;
+}
+
+function openRepDistrictDetailModal(index) {
+	if (typeof index !== 'number' || index < 0 || !repState.districts || index >= repState.districts.length) return;
+	modalDistrictIndex = index;
+	modalCurrentDistrict = JSON.parse(JSON.stringify(repState.districts[index]));
+	if (!modalCurrentDistrict.students) modalCurrentDistrict.students = [];
+	if (!modalCurrentDistrict.neighborhood) modalCurrentDistrict.neighborhood = [];
+	if (!modalCurrentDistrict.officers) modalCurrentDistrict.officers = [];
+
+	const modal = document.getElementById('rep-district-detail-modal');
+	if (modal) {
+		modal.style.display = 'block';
+	}
+	renderRepDistrictDetailModal();
+}
+
+function closeRepDistrictDetailModalWithoutSaving() {
+	modalDistrictIndex = -1;
+	modalCurrentDistrict = null;
+	const modal = document.getElementById('rep-district-detail-modal');
+	if (modal) {
+		modal.style.display = 'none';
+	}
+}
+
+function saveAndCloseRepDistrictDetailModal() {
+	if (modalDistrictIndex < 0 || !modalCurrentDistrict || !repState.districts[modalDistrictIndex]) {
+		closeRepDistrictDetailModalWithoutSaving();
+		return;
+	}
+	repState.districts[modalDistrictIndex] = JSON.parse(JSON.stringify(modalCurrentDistrict));
+	(repState.districts[modalDistrictIndex].neighborhood || []).forEach(normalizeNameFields);
+	(repState.districts[modalDistrictIndex].students || []).forEach(s => {
+		normalizeNameFields(s);
+		if (s.han === undefined) s.han = repState.districts[modalDistrictIndex].han || "";
+		if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
+	});
+
+	closeRepDistrictDetailModalWithoutSaving();
+	renderRepDistrictsTable();
+	saveRepLocal();
+}
+
+function renderRepDistrictDetailModal() {
+	if (!modalCurrentDistrict) return;
+	const titleEl = document.getElementById('rep-modal-district-title');
+	if (titleEl) {
+		titleEl.textContent = `地区名簿の閲覧・編集: ${modalCurrentDistrict.district || ''} ${modalCurrentDistrict.han ? '(' + modalCurrentDistrict.han + ')' : ''}`;
+	}
+
+	const stBody = document.getElementById('rep-modal-students-tbody');
+	if (stBody) {
+		stBody.innerHTML = (modalCurrentDistrict.students || []).map((s, idx) => `
+			<tr>
+				<td><input type="text" value="${esc(s.grade || '')}" style="width:40px;" oninput="updateModalStudent(${idx}, 'grade', this.value)"></td>
+				<td><input type="text" value="${esc(s.class || '')}" style="width:45px;" oninput="updateModalStudent(${idx}, 'class', this.value)"></td>
+				<td><input type="text" value="${esc(s.han || '')}" style="width:50px;" oninput="updateModalStudent(${idx}, 'han', this.value)"></td>
+				<td>
+					<input type="text" value="${esc(s.lastName || '')}" placeholder="姓" style="width:65px;" oninput="updateModalStudent(${idx}, 'lastName', this.value)">
+					<input type="text" value="${esc(s.firstName || '')}" placeholder="名" style="width:65px;" oninput="updateModalStudent(${idx}, 'firstName', this.value)">
+				</td>
+				<td>
+					<input type="text" value="${esc(s.address || '')}" placeholder="住所" style="width:110px;" oninput="updateModalStudent(${idx}, 'address', this.value)">
+				</td>
+				<td>
+					<input type="text" value="${esc(s.tel || '')}" placeholder="電話番号" style="width:100px;" oninput="updateModalStudent(${idx}, 'tel', this.value)">
+				</td>
+				<td style="text-align:center;">
+					<button type="button" class="btn btn-danger btn-xs" onclick="removeModalStudentRow(${idx})">×</button>
+				</td>
+			</tr>
+		`).join('');
+	}
+
+	const nBody = document.getElementById('rep-modal-neighbor-tbody');
+	if (nBody) {
+		nBody.innerHTML = (modalCurrentDistrict.neighborhood || []).map((n, idx) => `
+			<tr>
+				<td><input type="text" value="${esc(n.role || '')}" placeholder="役職" style="width:80px;" oninput="updateModalNeighbor(${idx}, 'role', this.value)"></td>
+				<td>
+					<input type="text" value="${esc(n.lastName || '')}" placeholder="姓" style="width:65px;" oninput="updateModalNeighbor(${idx}, 'lastName', this.value)">
+					<input type="text" value="${esc(n.firstName || '')}" placeholder="名" style="width:65px;" oninput="updateModalNeighbor(${idx}, 'firstName', this.value)">
+				</td>
+				<td><input type="text" value="${esc(n.tel || '')}" placeholder="電話番号" style="width:110px;" oninput="updateModalNeighbor(${idx}, 'tel', this.value)"></td>
+				<td style="text-align:center;">
+					<button type="button" class="btn btn-danger btn-xs" onclick="removeModalNeighborRow(${idx})">×</button>
+				</td>
+			</tr>
+		`).join('');
+	}
+}
+
+function updateModalStudent(idx, key, val) {
+	if (!modalCurrentDistrict || !modalCurrentDistrict.students[idx]) return;
+	modalCurrentDistrict.students[idx][key] = val;
+}
+
+function addModalStudentRow() {
+	if (!modalCurrentDistrict) return;
+	if (!modalCurrentDistrict.students) modalCurrentDistrict.students = [];
+	modalCurrentDistrict.students.push({
+		grade: "1",
+		class: "1組",
+		han: modalCurrentDistrict.han || "",
+		lastName: "",
+		firstName: "",
+		lastNameKana: "",
+		firstNameKana: "",
+		address: "",
+		tel: "",
+		leader: ""
+	});
+	renderRepDistrictDetailModal();
+}
+
+function removeModalStudentRow(idx) {
+	if (!modalCurrentDistrict || !modalCurrentDistrict.students[idx]) return;
+	const s = modalCurrentDistrict.students[idx];
+	const name = ((s.lastName || '') + ' ' + (s.firstName || '')).trim();
+	if (name) {
+		if (!confirm('児童「' + name + '」を削除しますか？')) return;
+	}
+	modalCurrentDistrict.students.splice(idx, 1);
+	renderRepDistrictDetailModal();
+}
+
+function updateModalNeighbor(idx, key, val) {
+	if (!modalCurrentDistrict || !modalCurrentDistrict.neighborhood[idx]) return;
+	modalCurrentDistrict.neighborhood[idx][key] = val;
+}
+
+function addModalNeighborRow() {
+	if (!modalCurrentDistrict) return;
+	if (!modalCurrentDistrict.neighborhood) modalCurrentDistrict.neighborhood = [];
+	modalCurrentDistrict.neighborhood.push({
+		role: "",
+		lastName: "",
+		firstName: "",
+		lastNameKana: "",
+		firstNameKana: "",
+		tel: ""
+	});
+	renderRepDistrictDetailModal();
+}
+
+function removeModalNeighborRow(idx) {
+	if (!modalCurrentDistrict || !modalCurrentDistrict.neighborhood[idx]) return;
+	const n = modalCurrentDistrict.neighborhood[idx];
+	const name = ((n.lastName || '') + ' ' + (n.firstName || '')).trim() || n.role;
+	if (name) {
+		if (!confirm('自治会役員「' + name + '」を削除しますか？')) return;
+	}
+	modalCurrentDistrict.neighborhood.splice(idx, 1);
+	renderRepDistrictDetailModal();
+}
+
 function renderRepDistrictsTable() {
 	document.getElementById('rep-count').textContent = repState.districts.length;
 	const tbody = document.getElementById('rep-districts-tbody');
@@ -345,8 +524,9 @@ function renderRepDistrictsTable() {
 				<td>${c.total} 名</td>
 				<td>${validN} 名</td>
 				<td style="text-align:center; white-space:nowrap;">
+					<button type="button" class="btn btn-outline btn-xs" onclick="openRepDistrictDetailModal(${i})" title="この地区の名簿・役員情報を閲覧・編集します">📝 名簿</button>
 					<button type="button" class="btn btn-outline btn-xs" onclick="exportSingleDistrictFromRep(${i})" title="この地区のデータを暗号化して切り出し出力します">📤 切り出し</button>
-					<button type="button" class="btn btn-danger btn-xs" onclick="repState.districts.splice(${i},1);saveRepLocal();renderRepAll();">×</button>
+					<button type="button" class="btn btn-danger btn-xs" onclick="deleteRepDistrict(${i})" title="この地区データを一覧から削除します">×</button>
 				</td>
 			</tr>
 		`;
@@ -406,6 +586,19 @@ function toggleSzNeighbor(dIdx, nIdx, flag) {
 	renderSeatEditor();
 }
 
+function deleteSzExternalRow(index) {
+	if (typeof index !== 'number' || index < 0 || !repState.szExternals || index >= repState.szExternals.length) return;
+	const ex = repState.szExternals[index];
+	const name = ((ex.lastName || '') + ' ' + (ex.firstName || '')).trim() || ex.role || 'この外部関係者';
+	if (!confirm('関係者「' + name + '」を削除しますか？')) {
+		return;
+	}
+	repState.szExternals.splice(index, 1);
+	saveRepLocal();
+	renderSzExternalTable();
+	renderSeatEditor();
+}
+
 /* スクゾ外部関係者テーブル */
 function renderSzExternalTable() {
 	const tbody = document.getElementById('sz-external-tbody');
@@ -436,7 +629,7 @@ function renderSzExternalTable() {
 				</div>
 			</td>
 			<td><input type="text" value="${esc(ex.contact)}" placeholder="電話番号・備考等" oninput="updateSzEx(${i},'contact',this.value);"></td>
-			<td style="text-align:center;"><button class="btn btn-danger btn-sm" onclick="repState.szExternals.splice(${i},1);saveRepLocal();renderSzExternalTable();renderSeatEditor();">×</button></td>
+			<td style="text-align:center;"><button type="button" class="btn btn-danger btn-sm" onclick="deleteSzExternalRow(${i})">×</button></td>
 		`;
 		tbody.appendChild(tr);
 	});
@@ -618,15 +811,17 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 		pass = safePrompt(`地区「${src.district || ''}」の切り出し出力用パスワードを入力してください：`);
 	}
 	if (!pass) {
-		alert(`地区「${src.district || ''}」の切り出し出力にはパスワードが必要です。\n「5. 代表統合マスターデータ保存・読み込み」欄のパスワードを入力してください。`);
-		const card = document.getElementById('card-rep-master');
-		if (card && card.classList.contains('is-collapsed')) {
-			if (typeof toggleCard === 'function') {
-				toggleCard(card);
-			} else {
-				card.classList.remove('is-collapsed');
+		alert(`地区「${src.district || ''}」の切り出し出力にはパスワードが必要です。\n「1. 各地区データの集約 ＆ 代表統合データの保存・引き継ぎ」欄（カード1）のパスワードを入力してください。`);
+		['card-rep-file', 'card-rep-master'].forEach(cid => {
+			const card = document.getElementById(cid);
+			if (card && card.classList.contains('is-collapsed')) {
+				if (typeof toggleCard === 'function') {
+					toggleCard(card);
+				} else {
+					card.classList.remove('is-collapsed');
+				}
 			}
-		}
+		});
 		const passInput = document.getElementById('rep-pass');
 		if (passInput) passInput.focus();
 		return false;
@@ -712,11 +907,24 @@ if (typeof module !== 'undefined' && module.exports) {
 		renderRepDistrictsTable,
 		toggleAllDistrictChecks,
 		clearAllRepDistricts,
+		deleteRepDistrict,
+		openRepDistrictDetailModal,
+		closeRepDistrictDetailModalWithoutSaving,
+		saveAndCloseRepDistrictDetailModal,
+		renderRepDistrictDetailModal,
+		getModalCurrentDistrict,
+		addModalStudentRow,
+		removeModalStudentRow,
+		addModalNeighborRow,
+		removeModalNeighborRow,
+		updateModalStudent,
+		updateModalNeighbor,
 		renderSzNeighborhoodSelector,
 		toggleSzNeighbor,
 		renderSzExternalTable,
 		updateSzEx,
 		addSzExternalRow,
+		deleteSzExternalRow,
 		mergeNeighborDataIntoRep,
 		integrateNeighborDataIntoRep: mergeNeighborDataIntoRep,
 		integrateTransferDataIntoRep,
