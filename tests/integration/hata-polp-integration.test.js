@@ -7,6 +7,7 @@ const utils = require('../../js/utils.js');
 const cryptoLib = require('../../js/crypto.js');
 const state = require('../../js/state.js');
 const districtLib = require('../../js/district.js');
+require('../../js/seat.js');
 const rep = require('../../js/rep.js');
 const hata = require('../../js/hata.js');
 

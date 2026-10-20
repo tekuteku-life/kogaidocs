@@ -26,9 +26,11 @@ test('Mechanical Static Analysis: Syntax, DOM element ID consistency, and listen
 		}
 		collectTests(path.join(rootDir, 'tests'));
 
-		const allFiles = [...jsFiles, ...testFiles];
+		const allFiles = ['sw.js', ...jsFiles, ...testFiles];
 		assert.doesNotThrow(() => {
-			execFileSync('node', ['-c', ...allFiles], { cwd: rootDir, encoding: 'utf8' });
+			for (const file of allFiles) {
+				execFileSync(process.execPath, ['--check', file], { cwd: rootDir, encoding: 'utf8' });
+			}
 		}, 'node -c should pass cleanly on all JS files');
 	});
 

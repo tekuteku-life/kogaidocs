@@ -266,7 +266,8 @@ test('crypto: loadStorageDecrypted handles plain and invalid entries', async () 
 		await cryptoLib.unlockStorageWithWebAuthn();
 	}, /生体認証は登録されていません/);
 
-	// Setup with biometric failure branch (lines 353-354)
+	// Reconfiguration requires an unlocked session; a failed biometric registration falls back to password.
+	await cryptoLib.unlockStorageWithPassword(validPass);
 	navigator.credentials.noPrf = true;
 	const resBioFail = await cryptoLib.setupStorageEncryption(validPass, true);
 	assert.strictEqual(resBioFail.biometric, false);

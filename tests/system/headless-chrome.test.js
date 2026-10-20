@@ -4,7 +4,7 @@ const { runInHeadlessChrome } = require('./helpers/headless-runner');
 
 test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 	await t.test('4 tabs navigation, URL query parameter restoration, and mode badge toggle', async () => {
-		const out = runInHeadlessChrome(async () => {
+		const out = await runInHeadlessChrome(async () => {
 			// 1. Initial active tab check (District mode)
 			assert.strictEqual(document.getElementById('tab-district').style.display, 'block', 'District tab visible initially');
 			assert.strictEqual(document.getElementById('tab-rep').style.display, 'none', 'Rep tab hidden initially');
@@ -46,7 +46,7 @@ test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 	});
 
 	await t.test('URL query parameter ?mode=transfer auto-restores active mode', async () => {
-		const out = runInHeadlessChrome(async () => {
+		const out = await runInHeadlessChrome(async () => {
 			// When query parameter ?mode=transfer is present, restoreActiveMode() activates transfer mode
 			assert.strictEqual(document.getElementById('tab-transfer').style.display, 'block', 'Transfer tab auto-activated by query param');
 			assert.strictEqual(document.getElementById('tab-district').style.display, 'none', 'District tab inactive');
@@ -60,7 +60,7 @@ test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 	});
 
 	await t.test('District mode full CRUD, card collapse, sorting, and password validation', async () => {
-		const out = runInHeadlessChrome(async () => {
+		const out = await runInHeadlessChrome(async () => {
 			switchTab('district');
 
 			// 1. Card collapse and expand toggle
@@ -141,7 +141,7 @@ test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 	});
 
 	await t.test('Rep mode add district modal, validation, and split-export', async () => {
-		const out = runInHeadlessChrome(async () => {
+		const out = await runInHeadlessChrome(async () => {
 			switchTab('rep');
 			const modal = document.getElementById('rep-add-district-modal');
 			const nameInput = document.getElementById('rep-new-district-name');
@@ -191,7 +191,7 @@ test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 	});
 
 	await t.test('Neighborhood mode CRUD, move order, and password validation', async () => {
-		const out = runInHeadlessChrome(async () => {
+		const out = await runInHeadlessChrome(async () => {
 			switchTab('neighbor');
 
 			// 1. Set district name
@@ -244,7 +244,7 @@ test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 	});
 
 	await t.test('Transfer mode mandatory validation, child add/remove, and encryption flow', async () => {
-		const out = runInHeadlessChrome(async () => {
+		const out = await runInHeadlessChrome(async () => {
 			switchTab('transfer');
 
 			// 1. Initial child row rendered
@@ -301,7 +301,7 @@ test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 	});
 
 	await t.test('Hataflot native schedule generator, period preset, and orientation/layout DOM', async () => {
-		const out = runInHeadlessChrome(async () => {
+		const out = await runInHeadlessChrome(async () => {
 			switchTab('district');
 
 			// Populate students for Hataflot household extraction
@@ -346,7 +346,7 @@ test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 	});
 
 	await t.test('Print preview pipelines, document.title synchronization, and separate PDF export', async () => {
-		const out = runInHeadlessChrome(async () => {
+		const out = await runInHeadlessChrome(async () => {
 			switchTab('district');
 			document.getElementById('d-name').value = '光が丘';
 			currentDistrict.district = '光が丘';
@@ -398,7 +398,7 @@ test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 	});
 
 	await t.test('Storage encryption setup modal, validation, and auto-lock', async () => {
-		const out = runInHeadlessChrome(async () => {
+		const out = await runInHeadlessChrome(async () => {
 			// 1. Open storage security modal
 			openStorageSettingsModal();
 			const modal = document.getElementById('storage-settings-modal');

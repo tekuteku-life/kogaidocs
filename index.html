@@ -342,7 +342,7 @@
 						<button type="button" class="btn btn-success" onclick="printHataSchedule()">🖨️ A4印刷 / PDF保存</button>
 						<label class="btn btn-outline btn-sm" style="cursor:pointer; margin-bottom:0;">
 							📥 公式JSON読込
-							<input type="file" accept=".json" style="display:none;" onchange="const f=this.files[0]; if(f){ const r=new FileReader(); r.onload=ev=>{ currentDistrict.hata = importHataOfficialJson(ev.target.result); renderHataCard(); saveDistrictLocal(); }; r.readAsText(f); }">
+							<input type="file" accept=".json" style="display:none;" onchange="loadHataOfficialFile(event)">
 						</label>
 						<button type="button" class="btn btn-outline btn-sm" onclick="downloadTextFile(exportHataOfficialJson(currentDistrict.hata), `HataFuRotto設定_${(currentDistrict.district||'PTA')}_${(new Date().toISOString().slice(0,10).replace(/-/g,''))}.json`)">💾 公式JSON保存</button>
 					</div>

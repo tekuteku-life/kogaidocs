@@ -62,6 +62,7 @@ function updateHataPreview() {
 	});
 
 	previewEl.value = lines.join('\n');
+	renderHataExemptList();
 }
 
 /**
@@ -521,7 +522,7 @@ function exportHataOfficialJson(config) {
  */
 function importHataOfficialJson(jsonStr) {
 	if (!jsonStr) return {};
-	const parsed = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+	const parsed = validateHataConfig(typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr);
 	return {
 		title: parsed.scheduleTitle || parsed.title || '登校見守り活動シフト表',
 		createdDate: parsed.metaCreatedDate || parsed.createdDate || '',
@@ -541,6 +542,26 @@ function importHataOfficialJson(jsonStr) {
 		manualOverrides: parsed.manualOverrides || {},
 		members: parsed.members || ''
 	};
+}
+
+async function loadHataOfficialFile(event) {
+	const input = event.target;
+	const file = input.files[0];
+	if (!file) return;
+	const generation = getStorageSessionGeneration();
+	try {
+		const text = await file.text();
+		if (!text.trim()) throw new Error('旗振り設定ファイルが空です。');
+		const config = importHataOfficialJson(text);
+		assertStorageSession(generation);
+		currentDistrict.hata = config;
+		renderHataCard();
+		await saveDistrictLocal();
+	} catch (error) {
+		alert('旗振り設定の読み込みに失敗しました: ' + error.message);
+	} finally {
+		input.value = '';
+	}
 }
 
 /**
@@ -803,7 +824,6 @@ function renderHataCard() {
 			exemptHouseholds: [],
 			manualOverrides: {},
 			members: '',
-			holidays: '',
 			specials: ''
 		};
 	}
@@ -835,13 +855,13 @@ function renderHataCard() {
 	// 名簿からの世帯抽出と免除チェックリストの描画
 	renderHataExemptList();
 	// 祝日自動計算と祝日欄反映
-	if (!h.holidays) {
+	if (h.holidays === undefined) {
 		const yr = h.startDate ? parseInt(h.startDate.slice(0, 4), 10) : new Date().getFullYear();
 		const holis = generateJapaneseHolidays(yr, yr + 1);
 		h.holidays = holis.map(x => `${x.date},${x.name}`).join('\n');
-		const holiEl = document.getElementById('hata-holidays');
-		if (holiEl) holiEl.value = h.holidays;
 	}
+	const holiEl = document.getElementById('hata-holidays');
+	if (holiEl) holiEl.value = h.holidays;
 
 	// シフトプレビュー描画
 	renderHataSchedulePreview();
@@ -865,7 +885,7 @@ function renderHataExemptList() {
 		const checked = exemptSet.has(hh.key) || exemptSet.has(hh.displayName) ? 'checked' : '';
 		return `
 			<label style="display:inline-flex; align-items:center; gap:4px; margin-right:12px; margin-bottom:6px; font-size:0.85rem; cursor:pointer;">
-				<input type="checkbox" ${checked} onchange="toggleHataExempt('${esc(hh.key)}', this.checked)">
+				<input type="checkbox" ${checked} data-household-key="${esc(hh.key)}" onchange="toggleHataExempt(this.dataset.householdKey, this.checked)">
 				<span>${esc(hh.displayName)} (${hh.children.length}名)</span>
 			</label>
 		`;
@@ -978,6 +998,9 @@ function printHataSchedule() {
 	const origTitle = document.title;
 	const hata = currentDistrict.hata;
 	const targetTitle = (hata && hata.title) ? hata.title : '旗振りシフト表';
+	const pageStyle = document.createElement('style');
+	pageStyle.textContent = `@media print { @page { size: A4 ${hata?.orientation === 'landscape' ? 'landscape' : 'portrait'}; margin: 10mm; } }`;
+	document.head.appendChild(pageStyle);
 
 	try {
 		document.title = targetTitle;
@@ -986,6 +1009,7 @@ function printHataSchedule() {
 		}
 	} finally {
 		document.title = origTitle;
+		pageStyle.remove();
 		document.body.classList.remove('printing-hata');
 		if (printEl.parentElement) {
 			printEl.parentElement.removeChild(printEl);
@@ -1008,6 +1032,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		clearDateOverride,
 		exportHataOfficialJson,
 		importHataOfficialJson,
+		loadHataOfficialFile,
 		calculateHataStats,
 		renderHataSummary,
 		toggleHataSummary,

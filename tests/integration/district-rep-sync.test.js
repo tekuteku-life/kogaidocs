@@ -122,9 +122,9 @@ test('integration: district -> rep multi-file sync, student aggregation, neighbo
 	assert.strictEqual(officerKeys.size, 4); // All keys are unique
 
 	// Assign seats
-	state.repState.seatConfig.cells["0,0"] = officerParticipants[0].key;
-	state.repState.seatConfig.cells["0,1"] = officerParticipants[1].key;
-	state.repState.seatConfig.cells["1,0"] = "FAC_STAGE";
+	state.repState.seatConfig.cells["0_0"] = { refKey: officerParticipants[0].key, customText: "" };
+	state.repState.seatConfig.cells["0_1"] = { refKey: officerParticipants[1].key, customText: "" };
+	state.repState.seatConfig.cells["1_0"] = { refKey: "FAC_STAGE", customText: "" };
 
 	// 6. Export Representative Master file
 	document.getElementById('rep-pass-confirm').value = pass;
@@ -149,6 +149,6 @@ test('integration: district -> rep multi-file sync, student aggregation, neighbo
 
 	assert.strictEqual(state.repState.districts.length, 3);
 	assert.strictEqual(state.repState.szExternals.length, 1);
-	assert.strictEqual(state.repState.seatConfig.cells["0,0"], officerParticipants[0].key);
-	assert.strictEqual(state.repState.seatConfig.cells["1,0"], "FAC_STAGE");
+	assert.strictEqual(state.repState.seatConfig.cells["0_0"].refKey, officerParticipants[0].key);
+	assert.strictEqual(state.repState.seatConfig.cells["1_0"].refKey, "FAC_STAGE");
 });

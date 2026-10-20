@@ -195,6 +195,11 @@ async function copyNeighborEncryptedText() {
 		alert("【パスワードエラー】\n" + chk.message);
 		return;
 	}
+	const confirmEl = document.getElementById('neighbor-pass-confirm');
+	if (confirmEl && confirmEl.value !== pass) {
+		alert('確認用パスワードが一致しません。');
+		return;
+	}
 	const payload = {
 		isNeighborhoodData: true,
 		district: distName,
@@ -220,6 +225,8 @@ async function copyNeighborEncryptedText() {
 }
 
 async function loadNeighborTxt(e) {
+	const generation = getStorageSessionGeneration();
+	const importKind = 'neighbor';
 	const file = e.target.files[0];
 	if (!file) return;
 	let pass = document.getElementById('neighbor-import-pass')?.value || "";
@@ -227,33 +234,32 @@ async function loadNeighborTxt(e) {
 		const text = await file.text();
 		let data;
 		try {
-			data = await parseTxtContent(text, pass);
+			data = await parseTxtContent(text, pass, generation, importKind);
 		} catch (err) {
+			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("自治会ファイルの復号パスワードを入力してください：");
 			if (!promptPass) { e.target.value = ""; return; }
-			data = await parseTxtContent(text, promptPass);
+			data = await parseTxtContent(text, promptPass, generation, importKind);
 			pass = promptPass;
 			const passEl = document.getElementById('neighbor-import-pass');
 			if (passEl) passEl.value = promptPass;
 		}
 
-		if (data.neighborhood && Array.isArray(data.neighborhood)) {
-			neighborState.district = data.district || "";
-			neighborState.neighborhood = data.neighborhood;
-			(neighborState.neighborhood || []).forEach(normalizeNameFields);
-			renderNeighborForm();
-			saveNeighborLocal();
-			alert(`自治会役員データ「${neighborState.district}」（${neighborState.neighborhood.length}名）を読み込みました。`);
-		} else {
-			alert("自治会役員データのフォーマットが一致しません。");
-		}
+		neighborState.district = data.district;
+		neighborState.neighborhood = data.neighborhood;
+		neighborState.neighborhood.forEach(normalizeNameFields);
+		renderNeighborForm();
+		saveNeighborLocal();
+		alert(`自治会役員データ「${neighborState.district}」（${neighborState.neighborhood.length}名）を読み込みました。`);
 	} catch (err) {
-		alert("ファイルの読み込み・復号に失敗しました。パスワードをご確認ください。");
+		alert(err.code === 'INVALID_IMPORT_DATA' ? err.message : "ファイルの読み込み・復号に失敗しました。パスワードをご確認ください。");
 	}
 	e.target.value = "";
 }
 
 async function loadPastedTextToNeighbor() {
+	const generation = getStorageSessionGeneration();
+	const importKind = 'neighbor';
 	const box = document.getElementById('neighbor-paste-box');
 	if (!box) return;
 	const raw = box.value.trim();
@@ -262,29 +268,26 @@ async function loadPastedTextToNeighbor() {
 	try {
 		let data;
 		try {
-			data = await parseTxtContent(raw, pass);
+			data = await parseTxtContent(raw, pass, generation, importKind);
 		} catch (err) {
+			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("復号パスワードを入力してください：");
 			if (!promptPass) return;
-			data = await parseTxtContent(raw, promptPass);
+			data = await parseTxtContent(raw, promptPass, generation, importKind);
 			pass = promptPass;
 			const passEl = document.getElementById('neighbor-import-pass');
 			if (passEl) passEl.value = promptPass;
 		}
 
-		if (data.neighborhood && Array.isArray(data.neighborhood)) {
-			neighborState.district = data.district || "";
-			neighborState.neighborhood = data.neighborhood;
-			(neighborState.neighborhood || []).forEach(normalizeNameFields);
-			renderNeighborForm();
-			saveNeighborLocal();
-			box.value = "";
-			alert(`自治会役員データ「${neighborState.district}」（${neighborState.neighborhood.length}名）を読み込みました。`);
-		} else {
-			alert("自治会役員データのフォーマットが一致しません。");
-		}
+		neighborState.district = data.district;
+		neighborState.neighborhood = data.neighborhood;
+		neighborState.neighborhood.forEach(normalizeNameFields);
+		renderNeighborForm();
+		saveNeighborLocal();
+		box.value = "";
+		alert(`自治会役員データ「${neighborState.district}」（${neighborState.neighborhood.length}名）を読み込みました。`);
 	} catch (err) {
-		alert("復号に失敗しました。パスワードを確認してください。");
+		alert(err.code === 'INVALID_IMPORT_DATA' ? err.message : "復号に失敗しました。パスワードを確認してください。");
 	}
 }
 
@@ -341,7 +344,7 @@ function printNeighborTentCards() {
 		const role = n.role || "役員";
 		const name = getFullName(n);
 		const ruby = (n.lastNameKana || n.firstNameKana) ? `${n.lastNameKana || ''} ${n.firstNameKana || ''}`.trim() : "";
-		return buildTentCardPageHtml(org, role, name, ruby);
+		return buildTentCardPageHtml(org, name, ruby, role);
 	}).join('');
 	const origTitle = document.title;
 	const distName = neighborState.district || "自治会";

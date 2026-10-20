@@ -2,7 +2,7 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
-const CURRENT_APP_VERSION = "2.8.1";
+const CURRENT_APP_VERSION = "2.8.2";
 let deferredInstallPrompt = null;
 
 function switchTab(mode) {
@@ -253,19 +253,24 @@ function hideStorageUnlockModal() {
  * @param {boolean} [silent=false]
  */
 async function handleWebAuthnUnlock(silent = false) {
+	const generation = getStorageSessionGeneration();
 	const errEl = document.getElementById('modal-unlock-error');
 	if (errEl) errEl.textContent = "";
 
 	try {
 		await unlockStorageWithWebAuthn();
-		hideStorageUnlockModal();
-		updateSecurityBadge('unlocked');
 		await loadAppDataFromStorage();
+		assertStorageSession(generation);
 		renderDistrictForm();
 		renderRepAll();
 		if (typeof renderNeighborForm === 'function') renderNeighborForm();
 		if (typeof loadTransferLocal === 'function') await loadTransferLocal();
+		assertStorageSession(generation);
 		if (typeof renderTransferForm === 'function') renderTransferForm();
+		hideStorageUnlockModal();
+		updateSecurityBadge('unlocked');
+		const pass = document.getElementById('modal-unlock-pass');
+		if (pass) pass.value = '';
 		setAllCardsCollapse(true, 'tab-district');
 		setAllCardsCollapse(true, 'tab-rep');
 		setAllCardsCollapse(true, 'tab-neighbor');
@@ -283,6 +288,7 @@ async function handleWebAuthnUnlock(silent = false) {
  * パスワードによるロック解除を実行します
  */
 async function handlePasswordUnlock() {
+	const generation = getStorageSessionGeneration();
 	const passInput = document.getElementById('modal-unlock-pass');
 	const errEl = document.getElementById('modal-unlock-error');
 	if (errEl) errEl.textContent = "";
@@ -295,14 +301,17 @@ async function handlePasswordUnlock() {
 
 	try {
 		await unlockStorageWithPassword(password);
-		hideStorageUnlockModal();
-		updateSecurityBadge('unlocked');
 		await loadAppDataFromStorage();
+		assertStorageSession(generation);
 		renderDistrictForm();
 		renderRepAll();
 		if (typeof renderNeighborForm === 'function') renderNeighborForm();
 		if (typeof loadTransferLocal === 'function') await loadTransferLocal();
+		assertStorageSession(generation);
 		if (typeof renderTransferForm === 'function') renderTransferForm();
+		hideStorageUnlockModal();
+		updateSecurityBadge('unlocked');
+		if (passInput) passInput.value = '';
 		setAllCardsCollapse(true, 'tab-district');
 		setAllCardsCollapse(true, 'tab-rep');
 		setAllCardsCollapse(true, 'tab-neighbor');
@@ -494,6 +503,7 @@ async function handleEnableEncryptionSubmit() {
 		alert(`端末内保存（LocalStorage）の暗号化を有効化しました！\n${result.biometric ? '生体認証（WebAuthn）も登録完了しました。次回から生体認証でワンタッチ解除可能です。' : ''}`);
 		closeStorageSettingsModal();
 		updateSecurityBadge('unlocked');
+		resetAutoLockTimer();
 	} catch (err) {
 		alert("暗号化の有効化に失敗しました: " + err.message);
 	}
@@ -531,10 +541,16 @@ function clearMemoryAndDomForLock() {
 		];
 		currentDistrict.neighborhood = [{ role: "会長", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "" }];
 		currentDistrict.students = [{ grade: "1", class: "", han: "", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", leader: "", isOutOfDistrict: false }];
+		currentDistrict.hata = {};
+		if (typeof hataCurrentSchedule !== 'undefined') hataCurrentSchedule = [];
 	}
 	if (typeof repState !== 'undefined') {
 		repState.districts = [];
+		repState.szExternals = [];
+		repState.seatConfig = { cols: 4, rows: 5, leftSide: '窓側', rightSide: '廊下側', topLabel: '前方', bottomLabel: '後方', cells: {} };
 	}
+	if (typeof closeRepDistrictDetailModalWithoutSaving === 'function') closeRepDistrictDetailModalWithoutSaving();
+	if (typeof closeAddDistrictModal === 'function') closeAddDistrictModal();
 	if (typeof neighborState !== 'undefined') {
 		neighborState.district = "";
 		neighborState.neighborhood = [
@@ -555,6 +571,12 @@ function clearMemoryAndDomForLock() {
 	if (typeof renderRepAll === 'function') renderRepAll();
 	if (typeof renderNeighborForm === 'function') renderNeighborForm();
 	if (typeof clearTransferForm === 'function') clearTransferForm();
+	document.querySelectorAll('input').forEach(input => {
+		if (input.type === 'password' || input.closest('.pass-input-group') || input.id.includes('paste')) input.value = '';
+	});
+	document.querySelectorAll('textarea').forEach(input => { input.value = ''; });
+	const settingsBody = document.getElementById('settings-modal-body');
+	if (settingsBody) settingsBody.innerHTML = '';
 	const printArea = document.getElementById('print-area');
 	if (printArea) printArea.innerHTML = "";
 }
@@ -595,6 +617,8 @@ function initAutoLockListeners() {
  * 今すぐストレージをロックします
  */
 function handleImmediateLock() {
+	if (autoLockTimer) clearTimeout(autoLockTimer);
+	autoLockTimer = null;
 	lockStorage();
 	clearMemoryAndDomForLock();
 	closeStorageSettingsModal();
@@ -623,6 +647,7 @@ async function quickSetupEncryptionFromCard(inputId) {
 		const passEl = document.getElementById('d-pass');
 		if (passEl) passEl.value = password;
 		await saveDistrictLocal();
+		resetAutoLockTimer();
 		alert("ファイル保存用パスワードを暗号化ストレージに記憶しました。");
 		return;
 	}
@@ -643,6 +668,7 @@ async function quickSetupEncryptionFromCard(inputId) {
 		await saveDistrictLocal();
 		alert(`このパスワードで端末内保存（LocalStorage）の暗号化を有効化しました！\n${result.biometric ? '生体認証の登録も完了しました。' : ''}`);
 		updateSecurityBadge('unlocked');
+		resetAutoLockTimer();
 	} catch (err) {
 		alert("暗号化設定に失敗しました: " + err.message);
 	}
@@ -704,6 +730,9 @@ async function loadAppDataFromStorage() {
 
 	if (repState.districts && Array.isArray(repState.districts)) {
 		repState.districts.forEach(d => {
+			delete d.hata;
+			delete d.hatafurotto;
+			delete d.savedFilePassword;
 			if (d.han === undefined) d.han = "";
 			if (d.hanList === undefined) d.hanList = getDistrictHanList(d);
 			if (!d.officers || !Array.isArray(d.officers) || d.officers.length === 0) {

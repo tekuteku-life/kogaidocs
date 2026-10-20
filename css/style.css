@@ -1117,6 +1117,7 @@ table.edit-table th { background: #f8fafc; font-weight: bold; white-space: nowra
 		font-size: 9pt !important;
 	}
 
+	body.printing-hata #print-area,
 	body.printing-hata .container,
 	body.printing-hata #main-header,
 	body.printing-hata .mode-tabs,

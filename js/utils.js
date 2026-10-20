@@ -408,6 +408,111 @@ function isNewerVersion(remote, current) {
 	return false;
 }
 
+// ファイル種別の振分前に、描画・保存で扱える構造であることを検証する。
+function requireImportShape(condition) {
+	if (!condition) {
+		const error = new Error('データのフォーマットが一致しません。');
+		error.code = 'INVALID_IMPORT_DATA';
+		throw error;
+	}
+}
+
+function isImportObject(value) {
+	return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateHataConfig(config) {
+	requireImportShape(isImportObject(config));
+	const strings = ['scheduleTitle', 'title', 'metaCreatedDate', 'createdDate', 'metaLocation', 'location', 'metaTime', 'time', 'metaHeaderMsg', 'headerMsg', 'metaFooterMsg', 'footerMsg', 'metaContactMsg', 'contactMsg', 'startDate', 'endDate', 'specials', 'format'];
+	strings.forEach(key => requireImportShape(config[key] === undefined || typeof config[key] === 'string'));
+	if (config.weekdays !== undefined) requireImportShape(Array.isArray(config.weekdays) && config.weekdays.every(day => Number.isInteger(day) && day >= 0 && day <= 6));
+	if (config.exemptHouseholds !== undefined) requireImportShape(Array.isArray(config.exemptHouseholds) && config.exemptHouseholds.every(key => typeof key === 'string'));
+	for (const key of ['metaOrientation', 'orientation']) requireImportShape(config[key] === undefined || ['landscape', 'portrait'].includes(config[key]));
+	for (const key of ['metaLayoutColumns', 'layoutColumns']) requireImportShape(config[key] === undefined || /^[1-6]$/.test(String(config[key])));
+	if (config.manualOverrides !== undefined) {
+		requireImportShape(isImportObject(config.manualOverrides));
+		Object.values(config.manualOverrides).forEach(override => {
+			requireImportShape(isImportObject(override));
+			for (const key of ['person', 'note', 'originalPerson']) requireImportShape(override[key] === undefined || typeof override[key] === 'string');
+			requireImportShape(override.isSwapped === undefined || typeof override.isSwapped === 'boolean');
+			requireImportShape(override.type === undefined || ['regular', 'special', 'holiday'].includes(override.type));
+		});
+	}
+	const clean = { ...config };
+	if (Array.isArray(config.holidays)) {
+		config.holidays.forEach(holiday => requireImportShape(isImportObject(holiday) && typeof holiday.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(holiday.date) && (holiday.name === undefined || typeof holiday.name === 'string')));
+		clean.holidays = config.holidays.map(holiday => `${holiday.date},${holiday.name || '祝日'}`).join('\n');
+	} else requireImportShape(config.holidays === undefined || typeof config.holidays === 'string');
+	if (Array.isArray(config.members)) {
+		requireImportShape(config.members.every(member => typeof member === 'string'));
+		clean.members = config.members.join('\n');
+	} else requireImportShape(config.members === undefined || typeof config.members === 'string');
+	return clean;
+}
+
+function validateImportData(data, kind) {
+	const isObject = isImportObject;
+	const requireValid = requireImportShape;
+	const textFields = ['district', 'han', 'name', 'kana', 'lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'role', 'address', 'tel', 'email', 'note', 'org', 'category', 'contact', 'childName', 'childKana', 'childLastName', 'childFirstName', 'childLastNameKana', 'childFirstNameKana'];
+	const checkRow = row => {
+		requireValid(isObject(row));
+		for (const key of textFields) requireValid(row[key] == null || typeof row[key] === 'string');
+	};
+	const list = (value, optional = true) => {
+		if (optional && value == null) return [];
+		requireValid(Array.isArray(value));
+		value.forEach(checkRow);
+		return value;
+	};
+	requireValid(isObject(data));
+	const clean = JSON.parse(JSON.stringify(data));
+	checkRow(clean);
+	if (kind === 'rep') {
+		requireValid(Array.isArray(clean.districts));
+		clean.districts = clean.districts.map(d => {
+			const district = validateImportData(d, 'district');
+			delete district.hata;
+			delete district.hatafurotto;
+			delete district.savedFilePassword;
+			return district;
+		});
+		clean.szExternals = list(clean.szExternals);
+		if (clean.seatConfig != null) {
+			requireValid(isObject(clean.seatConfig));
+			const cfg = clean.seatConfig;
+			for (const [key, max, fallback] of [['cols', 10, 4], ['rows', 14, 5]]) {
+				const value = cfg[key] ?? fallback;
+				requireValid((typeof value === 'number' || typeof value === 'string') && Number.isInteger(Number(value)) && Number(value) >= 2 && Number(value) <= max);
+				cfg[key] = Number(value);
+			}
+			for (const key of ['topLabel', 'bottomLabel', 'leftSide', 'rightSide']) requireValid(cfg[key] === undefined || typeof cfg[key] === 'string');
+			requireValid(cfg.cells == null || isObject(cfg.cells));
+			Object.values(cfg.cells || {}).forEach(cell => {
+				requireValid(isObject(cell) && (cell.refKey == null || typeof cell.refKey === 'string') && (cell.customText == null || typeof cell.customText === 'string'));
+			});
+			cfg.cells = cfg.cells || {};
+		}
+	} else if (kind === 'transfer') {
+		requireValid(clean.isTransferData === true);
+		const children = list(clean.children || clean.students, false);
+		requireValid(children.length > 0);
+		children.forEach(child => {
+			for (const key of ['lastName', 'firstName', 'address', 'tel']) requireValid(typeof child[key] === 'string' && child[key].trim() !== '');
+		});
+	} else {
+		requireValid(typeof clean.district === 'string');
+		clean.neighborhood = list(clean.neighborhood, kind !== 'neighbor');
+		if (kind === 'district') {
+			clean.officers = list(clean.officers);
+			clean.students = list(clean.students);
+			if (clean.officer != null) checkRow(clean.officer);
+			requireValid(clean.hanList == null || (Array.isArray(clean.hanList) && clean.hanList.every(h => typeof h === 'string')));
+			if (clean.hata != null) clean.hata = validateHataConfig(clean.hata);
+		}
+	}
+	return clean;
+}
+
 /**
  * prompt() が非サポートまたは例外をスローする環境でも安全に入力を取得します
  * @param {string} message ダイアログに表示するメッセージ
@@ -434,6 +539,8 @@ if (typeof window !== 'undefined') {
 
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
+		validateImportData,
+		validateHataConfig,
 		esc,
 		getFullName,
 		getFullNameKana,

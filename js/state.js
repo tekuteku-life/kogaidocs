@@ -35,7 +35,6 @@ let currentDistrict = {
 		endDate: "",
 		orientation: "portrait",
 		layoutColumns: 2,
-		holidays: "",
 		specials: "",
 		headerMsg: "",
 		footerMsg: "",
