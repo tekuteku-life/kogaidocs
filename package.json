@@ -6,7 +6,8 @@
 		"test": "node --test --experimental-test-coverage tests/unit/*.test.js tests/integration/*.test.js tests/system/*.test.js",
 		"test:unit": "node --test --experimental-test-coverage tests/unit/*.test.js",
 		"test:integration": "node --test --experimental-test-coverage tests/integration/*.test.js",
-		"test:system": "node --test --experimental-test-coverage tests/system/*.test.js"
+		"test:system": "node --test --experimental-test-coverage tests/system/*.test.js",
+		"test:ui": "node --test tests/system/headless-chrome.test.js"
 	}
 }
 

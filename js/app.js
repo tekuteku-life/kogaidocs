@@ -53,7 +53,6 @@ function switchTab(mode) {
 	const btnContainer = document.getElementById('mode-tab-buttons');
 	const badge = document.getElementById('mode-active-badge');
 	const badgeText = document.getElementById('mode-active-badge-text');
-	const activeBadge = document.getElementById('active-mode-badge');
 
 	if (btnContainer) {
 		btnContainer.style.display = 'none';
@@ -70,17 +69,6 @@ function switchTab(mode) {
 			badgeText.textContent = '③ 自治会役員名簿モード ▼ [モード切替]';
 		} else if (mode === 'transfer') {
 			badgeText.textContent = '④ 転入者モード ▼ [モード切替]';
-		}
-	}
-	if (activeBadge) {
-		if (mode === 'district') {
-			activeBadge.textContent = '地区役員モード';
-		} else if (mode === 'rep') {
-			activeBadge.textContent = '校外代表モード';
-		} else if (mode === 'neighbor') {
-			activeBadge.textContent = '自治会役員名簿';
-		} else if (mode === 'transfer') {
-			activeBadge.textContent = '転入者モード';
 		}
 	}
 }

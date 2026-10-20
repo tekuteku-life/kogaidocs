@@ -819,7 +819,7 @@ test('app: 4-tab switching, persistence in kogai_active_mode, and badge label sy
 	setupDomEnvironment();
 	localStorage.clear();
 
-	const badge = document.getElementById('active-mode-badge');
+	const badge = document.getElementById('mode-active-badge-text');
 
 	// 1. Switch to transfer mode
 	app.switchTab('transfer');
