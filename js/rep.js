@@ -10,9 +10,11 @@ function renderRepAll() {
 }
 
 function upsertRepDistrict(d) {
+	const previous = captureSeatState();
 	const cleanD = JSON.parse(JSON.stringify(d));
 	delete cleanD.hata;
 	delete cleanD.hatafurotto;
+	delete cleanD.savedFilePassword;
 	d = cleanD;
 
 	if (!d.officers || !Array.isArray(d.officers) || d.officers.length === 0) {
@@ -76,11 +78,13 @@ function upsertRepDistrict(d) {
 
 	if (existingIdx >= 0) repState.districts[existingIdx] = wrapped;
 	else repState.districts.push(wrapped);
+	reconcileSeatState(previous);
 	saveRepLocal();
 }
 
 function mergeNeighborDataIntoRep(data) {
 	if (!data) return;
+	const previous = captureSeatState();
 	const nList = data.neighborhood || (Array.isArray(data) ? data : []);
 	const dName = (data.district || "").trim() || "未設定地区";
 	nList.forEach(normalizeNameFields);
@@ -111,44 +115,46 @@ function mergeNeighborDataIntoRep(data) {
 			szNeighborChecks: defaultChecks
 		});
 	}
+	reconcileSeatState(previous);
 	saveRepLocal();
 }
 
+async function applyRepImport(data, password) {
+	if (data.isTransferData) return integrateTransferDataIntoRep(data, password);
+	if (data.districts) {
+		data.districts.forEach(d => {
+			if (d.han === undefined) d.han = '';
+			if (!d.officers.length) d.officers = [d.officer || {}];
+			delete d.officer;
+			d.officers.forEach(off => { normalizeOfficerChildNames(off); normalizeNameFields(off); });
+			d.neighborhood.forEach(normalizeNameFields);
+			d.students.forEach(student => {
+				normalizeNameFields(student);
+				if (student.han === undefined) student.han = d.han;
+				if (student.isOutOfDistrict === undefined) student.isOutOfDistrict = false;
+			});
+		});
+		data.szExternals.forEach(normalizeNameFields);
+		if (!data.seatConfig) data.seatConfig = { cols: 4, rows: 5, cells: {} };
+		repState = data;
+		saveRepLocal();
+	} else if (data.isNeighborhoodData || (!data.students && Array.isArray(data.neighborhood))) {
+		mergeNeighborDataIntoRep(data);
+	} else upsertRepDistrict(data);
+	return true;
+}
+
 async function loadMultipleDistrictFiles(e) {
+	const generation = getStorageSessionGeneration();
+	const importKind = 'auto';
 	const files = Array.from(e.target.files);
 	if (!files.length) return;
 	const pass = document.getElementById('rep-pass').value;
 	let ok = 0, ng = 0;
 	for (const f of files) {
 		try {
-			const data = await parseTxtContent(await f.text(), pass);
-			if (data.isNeighborhoodData || (!data.students && !data.districts && Array.isArray(data.neighborhood))) {
-				mergeNeighborDataIntoRep(data);
-			} else if (data.districts && Array.isArray(data.districts)) {
-				// 代表統合ファイルが混ざっていた場合
-				(data.districts || []).forEach(d => {
-					if (!d.officers || !Array.isArray(d.officers) || d.officers.length === 0) {
-						d.officers = [d.officer || {}];
-					}
-					delete d.officer;
-					d.officers.forEach(off => {
-						normalizeOfficerChildNames(off);
-						normalizeNameFields(off);
-					});
-					(d.neighborhood || []).forEach(normalizeNameFields);
-					(d.students || []).forEach(s => {
-						normalizeNameFields(s);
-						if (s.han === undefined) s.han = d.han || "";
-						if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
-					});
-				});
-				(data.szExternals || []).forEach(normalizeNameFields);
-				if (!data.seatConfig) data.seatConfig = { cols: 4, rows: 5, cells: {} };
-				if (!data.szExternals) data.szExternals = [];
-				repState = data;
-			} else {
-				upsertRepDistrict(data);
-			}
+			const data = await parseTxtContent(await f.text(), pass, generation, importKind);
+			if (!await applyRepImport(data, pass)) continue;
 			ok++;
 		} catch (err) { ng++; }
 	}
@@ -158,25 +164,23 @@ async function loadMultipleDistrictFiles(e) {
 }
 
 async function loadPastedTextToRep() {
+	const generation = getStorageSessionGeneration();
+	const importKind = 'auto';
 	const box = document.getElementById('rep-paste-box');
 	if (!box) return;
 	const raw = box.value.trim();
 	if (!raw) return;
 	const pass = document.getElementById('rep-pass')?.value || "";
 	try {
-		const data = await parseTxtContent(raw, pass);
-		if (data.isNeighborhoodData || (!data.students && !data.districts && Array.isArray(data.neighborhood))) {
-			mergeNeighborDataIntoRep(data);
-			box.value = "";
-			renderRepAll();
-			alert(`自治会役員データ「${data.district || '自治会'}」を集約データに反映しました。`);
-			return;
-		}
-		upsertRepDistrict(data);
-		box.value = "";
+		const data = await parseTxtContent(raw, pass, generation, importKind);
+		if (!await applyRepImport(data, pass)) return;
+		box.value = '';
 		renderRepAll();
-		const hanMsg = data.han ? `（${data.han}）` : "";
-		alert(`「${data.district}${hanMsg}」を追加しました。`);
+		if (!data.isTransferData) {
+			if (data.districts) alert('代表統合マスターデータを読み込みました。');
+			else if (data.isNeighborhoodData || !data.students) alert(`自治会役員データ「${data.district || '自治会'}」を集約データに反映しました。`);
+			else alert(`「${data.district}${data.han ? `（${data.han}）` : ''}」を追加しました。`);
+		}
 	} catch (err) {
 		alert("復号に失敗しました。パスワードを確認してください。");
 	}
@@ -255,41 +259,16 @@ async function exportRepMasterTxt() {
 }
 
 async function loadRepMasterTxt(e) {
+	const generation = getStorageSessionGeneration();
+	const importKind = 'auto';
 	const file = e.target.files[0];
 	if (!file) return;
 	const pass = document.getElementById('rep-pass').value;
 	try {
-		const data = await parseTxtContent(await file.text(), pass);
-		if (data.districts) {
-			(data.districts || []).forEach(d => {
-				if (d.han === undefined) d.han = "";
-				if (!d.officers || !Array.isArray(d.officers) || d.officers.length === 0) {
-					d.officers = [d.officer || {}];
-				}
-				delete d.officer;
-				d.officers.forEach(off => {
-					normalizeOfficerChildNames(off);
-					normalizeNameFields(off);
-				});
-				(d.neighborhood || []).forEach(normalizeNameFields);
-				(d.students || []).forEach(s => {
-					normalizeNameFields(s);
-					if (s.han === undefined) s.han = d.han || "";
-					if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
-				});
-			});
-			(data.szExternals || []).forEach(normalizeNameFields);
-			if (!data.seatConfig) data.seatConfig = { cols: 4, rows: 5, cells: {} };
-			if (!data.szExternals) data.szExternals = [];
-			repState = data;
+		const data = await parseTxtContent(await file.text(), pass, generation, importKind);
+		if (await applyRepImport(data, pass)) {
 			renderRepAll();
-			saveRepLocal();
-			alert("代表統合マスターデータを読み込みました。");
-		} else {
-			upsertRepDistrict(data);
-			renderRepAll();
-			const hanMsg = data.han ? `（${data.han}）` : "";
-			alert(`地区データ「${data.district}${hanMsg}」として追加しました。`);
+			if (!data.isTransferData) alert(data.districts ? '代表統合マスターデータを読み込みました。' : `地区データ「${data.district || '自治会'}${data.han ? `（${data.han}）` : ''}」として追加しました。`);
 		}
 	} catch (err) {
 		alert("読み込みに失敗しました。パスワードを確認してください。");
@@ -322,13 +301,17 @@ function deleteRepDistrict(index) {
 	if (!confirm('地区「' + distName + '」の集約データを一覧から削除しますか？\n※他の地区データには影響しません。')) {
 		return;
 	}
+	const previous = captureSeatState();
 	repState.districts.splice(index, 1);
-	renderRepDistrictsTable();
+	reconcileSeatState(previous);
+	renderRepAll();
 	saveRepLocal();
 }
 
 let modalDistrictIndex = -1;
 let modalCurrentDistrict = null;
+let modalOfficerIndexes = [];
+let modalNeighborIndexes = [];
 
 function getModalCurrentDistrict() {
 	return modalCurrentDistrict;
@@ -341,6 +324,8 @@ function openRepDistrictDetailModal(index) {
 	if (!modalCurrentDistrict.students) modalCurrentDistrict.students = [];
 	if (!modalCurrentDistrict.neighborhood) modalCurrentDistrict.neighborhood = [];
 	if (!modalCurrentDistrict.officers) modalCurrentDistrict.officers = [];
+	modalOfficerIndexes = modalCurrentDistrict.officers.map((_, i) => i);
+	modalNeighborIndexes = modalCurrentDistrict.neighborhood.map((_, i) => i);
 
 	const modal = document.getElementById('rep-district-detail-modal');
 	if (modal) {
@@ -352,10 +337,18 @@ function openRepDistrictDetailModal(index) {
 function closeRepDistrictDetailModalWithoutSaving() {
 	modalDistrictIndex = -1;
 	modalCurrentDistrict = null;
+	modalOfficerIndexes = [];
+	modalNeighborIndexes = [];
 	const modal = document.getElementById('rep-district-detail-modal');
 	if (modal) {
 		modal.style.display = 'none';
 	}
+	['rep-modal-officer-tbody', 'rep-modal-students-tbody', 'rep-modal-neighbor-tbody'].forEach(id => {
+		const body = document.getElementById(id);
+		if (body) body.innerHTML = '';
+	});
+	const title = document.getElementById('rep-modal-district-title');
+	if (title) title.textContent = '地区名簿の閲覧・編集';
 }
 
 function saveAndCloseRepDistrictDetailModal() {
@@ -363,7 +356,34 @@ function saveAndCloseRepDistrictDetailModal() {
 		closeRepDistrictDetailModalWithoutSaving();
 		return;
 	}
+	const previous = captureSeatState();
+	const explicitKeys = {};
+	const original = repState.districts[modalDistrictIndex];
+	const oldNeighborSource = getUniqueNeighborhoodDistricts(repState.districts, true).find(({ d }) => d.district === original.district)?.dIdx;
+	(repState.districts[modalDistrictIndex].officers || []).forEach((_, oldIndex) => {
+		const newIndex = modalOfficerIndexes.indexOf(oldIndex);
+		explicitKeys[`OFF_${modalDistrictIndex}_${oldIndex}`] = newIndex < 0 ? '' : `OFF_${modalDistrictIndex}_${newIndex}`;
+	});
 	repState.districts[modalDistrictIndex] = JSON.parse(JSON.stringify(modalCurrentDistrict));
+	const edited = repState.districts[modalDistrictIndex];
+	const newNeighborSource = getUniqueNeighborhoodDistricts(repState.districts, true).find(({ d }) => d.district === original.district)?.dIdx;
+	const oldChecks = original.szNeighborChecks || {};
+	const checks = {};
+	modalNeighborIndexes.forEach((oldIndex, newIndex) => {
+		if (oldIndex !== null && Object.hasOwn(oldChecks, oldIndex)) checks[newIndex] = oldChecks[oldIndex];
+	});
+	edited.szNeighborChecks = checks;
+	const oldGroup = previous.neighbors.find(group => group.district === original.district);
+	if (oldGroup && oldGroup.sourceIndex === modalDistrictIndex) {
+		oldGroup.identities = edited.neighborhood.map(neighborIdentity);
+		oldGroup.checks = checks;
+	}
+	if (oldNeighborSource === modalDistrictIndex && newNeighborSource === modalDistrictIndex) {
+		(original.neighborhood || []).forEach((_, oldIndex) => {
+			const newIndex = modalNeighborIndexes.indexOf(oldIndex);
+			explicitKeys[`NEI_${original.district}_${oldIndex}`] = newIndex < 0 ? '' : `NEI_${original.district}_${newIndex}`;
+		});
+	}
 	(repState.districts[modalDistrictIndex].officers || []).forEach(normalizeNameFields);
 	(repState.districts[modalDistrictIndex].neighborhood || []).forEach(normalizeNameFields);
 	(repState.districts[modalDistrictIndex].students || []).forEach(s => {
@@ -372,8 +392,9 @@ function saveAndCloseRepDistrictDetailModal() {
 		if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
 	});
 
+	reconcileSeatState(previous, explicitKeys);
 	closeRepDistrictDetailModalWithoutSaving();
-	renderRepDistrictsTable();
+	renderRepAll();
 	saveRepLocal();
 }
 
@@ -605,6 +626,7 @@ function addModalOfficerRow() {
 		childLastNameKana: "",
 		childFirstNameKana: ""
 	});
+	modalOfficerIndexes.push(null);
 	renderRepDistrictDetailModal();
 }
 
@@ -616,6 +638,7 @@ function removeModalOfficerRow(idx) {
 		if (!confirm('役員「' + (name || off.role) + '」を削除しますか？')) return;
 	}
 	modalCurrentDistrict.officers.splice(idx, 1);
+	modalOfficerIndexes.splice(idx, 1);
 	renderRepDistrictDetailModal();
 }
 
@@ -669,6 +692,7 @@ function addModalNeighborRow() {
 		firstNameKana: "",
 		tel: ""
 	});
+	modalNeighborIndexes.push(null);
 	renderRepDistrictDetailModal();
 }
 
@@ -680,6 +704,7 @@ function removeModalNeighborRow(idx) {
 		if (!confirm('自治会役員「' + name + '」を削除しますか？')) return;
 	}
 	modalCurrentDistrict.neighborhood.splice(idx, 1);
+	modalNeighborIndexes.splice(idx, 1);
 	renderRepDistrictDetailModal();
 }
 
@@ -710,7 +735,7 @@ function renderRepDistrictsTable() {
 		return `
 			<tr>
 				<td style="text-align:center;">
-					<input type="checkbox" ${d.selectedForPrint ? 'checked' : ''} onchange="repState.districts[${i}].selectedForPrint=this.checked;saveRepLocal();">
+					<input type="checkbox" ${d.selectedForPrint ? 'checked' : ''} onchange="setDistrictPrintSelection(${i}, this.checked)">
 				</td>
 				<td><strong>${esc(d.district)}</strong>${hanBadge}</td>
 				<td>${officerHtml}</td>
@@ -728,14 +753,18 @@ function renderRepDistrictsTable() {
 }
 
 function toggleAllDistrictChecks(flag) {
+	const previous = captureSeatState();
 	repState.districts.forEach(d => d.selectedForPrint = flag);
+	reconcileSeatState(previous);
 	saveRepLocal();
-	renderRepDistrictsTable();
+	renderRepAll();
 }
 
 function clearAllRepDistricts() {
 	if (!confirm("集約済みの地区データをすべてクリアしますか？")) return;
+	const previous = captureSeatState();
 	repState.districts = [];
+	reconcileSeatState(previous);
 	saveRepLocal();
 	renderRepAll();
 }
@@ -787,7 +816,9 @@ function deleteSzExternalRow(index) {
 	if (!confirm('関係者「' + name + '」を削除しますか？')) {
 		return;
 	}
+	const previous = captureSeatState();
 	repState.szExternals.splice(index, 1);
+	reconcileSeatState(previous);
 	saveRepLocal();
 	renderSzExternalTable();
 	renderSeatEditor();
@@ -948,6 +979,8 @@ async function integrateTransferDataIntoRep(payload, password) {
 }
 
 async function loadTransferFileIntoRep(e) {
+	const generation = getStorageSessionGeneration();
+	const importKind = 'transfer';
 	const file = e.target?.files?.[0];
 	if (!file) return;
 	const pass = document.getElementById('rep-pass')?.value || "";
@@ -955,11 +988,12 @@ async function loadTransferFileIntoRep(e) {
 		const text = await file.text();
 		let data;
 		try {
-			data = await parseTxtContent(text, pass);
+			data = await parseTxtContent(text, pass, generation, importKind);
 		} catch (err) {
+			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) { if (e.target) e.target.value = ""; return; }
-			data = await parseTxtContent(text, promptPass);
+			data = await parseTxtContent(text, promptPass, generation, importKind);
 		}
 		await integrateTransferDataIntoRep(data, pass);
 	} catch (err) {
@@ -969,17 +1003,20 @@ async function loadTransferFileIntoRep(e) {
 }
 
 async function loadPastedTransferTextIntoRep(text) {
+	const generation = getStorageSessionGeneration();
+	const importKind = 'transfer';
 	const raw = (typeof text === 'string' ? text : (document.getElementById('rep-transfer-paste-box')?.value || "")).trim();
 	if (!raw) return;
 	let pass = document.getElementById('rep-pass')?.value || "";
 	try {
 		let data;
 		try {
-			data = await parseTxtContent(raw, pass);
+			data = await parseTxtContent(raw, pass, generation, importKind);
 		} catch (err) {
+			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) return;
-			data = await parseTxtContent(raw, promptPass);
+			data = await parseTxtContent(raw, promptPass, generation, importKind);
 		}
 		await integrateTransferDataIntoRep(data, pass);
 		const box = document.getElementById('rep-transfer-paste-box');

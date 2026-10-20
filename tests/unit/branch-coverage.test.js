@@ -1136,6 +1136,7 @@ test('branch-booster: neighbor.js, district.js, rep.js, app.js, state.js exhaust
 	document.getElementById('neighbor-district-name').value = "町会";
 	state.neighborState.district = "町会";
 	document.getElementById('neighbor-pass').value = pass;
+	document.getElementById('neighbor-pass-confirm').value = pass;
 	const pBox = document.getElementById('neighbor-paste-box');
 	delete pBox.select;
 	navigator.clipboard = null;
@@ -1745,6 +1746,7 @@ test('branch-booster: neighbor.js and rep.js 100% branch perfection', async () =
 	await neighbor.copyNeighborEncryptedText();
 
 	document.getElementById('neighbor-pass').value = pass;
+	document.getElementById('neighbor-pass-confirm').value = pass;
 	// clipboard writeText throws -> fallback to box with select
 	let selectCalled = false;
 	document.getElementById('neighbor-paste-box').select = () => { selectCalled = true; };
@@ -2345,14 +2347,14 @@ test('branch-booster: district.js transfer integration edge cases and prompt pas
 	const transferPayload = {
 		isTransferData: true,
 		children: [
-			{ lastName: '加藤', firstName: '健', grade: '4', className: '1組' },
-			{ lastName: '佐藤', firstName: '健', grade: '4', className: '', class: '' }
+			{ lastName: '加藤', firstName: '健', address: '1-1', tel: '090-1111-2222', grade: '4', className: '1組' },
+			{ lastName: '佐藤', firstName: '健', address: '1-1', tel: '090-2222-3333', grade: '4', className: '', class: '' }
 		]
 	};
 	const encryptedTxt = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(transferPayload), 'CorrectPass123!')}\n:END_DATA`;
 
 	// Duplicate check and cancel rollback
-	state.currentDistrict.students = [{ lastName: '加藤', firstName: '健', grade: '4', han: '1班' }];
+	state.currentDistrict.students = [{ lastName: '加藤', firstName: '健', address: '1-1', tel: '090-1111-2222', grade: '4', han: '1班' }];
 	global.prompt = () => '1班';
 	global.confirm = () => false; // User cancels duplicate merge
 	assert.strictEqual(await district.integrateTransferDataIntoDistrict(transferPayload, 'CorrectPass123!'), false);

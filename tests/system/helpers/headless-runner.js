@@ -1,110 +1,268 @@
-const { spawnSync } = require('child_process');
-const path = require('path');
-const fs = require('fs');
+const { spawn } = require('node:child_process');
+const { existsSync } = require('node:fs');
+const { mkdtemp, rm } = require('node:fs/promises');
+const path = require('node:path');
+const os = require('node:os');
 
 const rootDir = path.resolve(__dirname, '../../../');
 
-/**
- * Runs a test function inside a Headless Chromium browser instance with real DOM,
- * Web Cryptography API, localStorage, and full kogaidocs script suite.
- * 
- * @param {Function} testFn - Async function executed in the browser context.
- * @param {Object} [options]
- * @param {string} [options.queryMode] - Optional URL query parameter e.g. 'transfer'
- * @param {number} [options.timeoutMs=15000] - Headless browser execution timeout
- * @returns {Promise<{ success: boolean, results: Array<{name: string, passed: boolean, error?: string}>, errors: Array<any>, fatal?: any }>}
- */
-function runInHeadlessChrome(testFn, options = {}) {
-	const htmlPath = path.join(rootDir, 'index.html');
-	const runnerHtml = path.join(rootDir, `.headless-runner-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.html`);
-
-	const fnString = testFn.toString();
-	const scriptBody = `(${fnString})()`;
-
-	let html = fs.readFileSync(htmlPath, 'utf8');
-	const injection = `
-	<script>
-	window.alert = function(msg) { /* stub for headless */ };
-	window.confirm = function(msg) { return true; };
-	window.prompt = function(msg) { return ''; };
-	window.downloadTextFile = function(content, filename) { window.__lastDownloaded = { content, filename }; };
+// アプリのスクリプトより先に実行し、初期化中の例外も検知する。
+function installBrowserHarness() {
 	window.__uiTestResults = [];
 	window.__uiErrors = [];
-	window.addEventListener('error', (e) => {
-		window.__uiErrors.push({ message: e.message, filename: e.filename, lineno: e.lineno });
+	window.__dialogs = [];
+	window.__downloads = [];
+	window.__prints = [];
+	window.alert = message => window.__dialogs.push({ type: 'alert', message: String(message) });
+	window.confirm = message => {
+		window.__dialogs.push({ type: 'confirm', message: String(message) });
+		return window.__confirmAnswer ?? true;
+	};
+	window.prompt = message => {
+		window.__dialogs.push({ type: 'prompt', message: String(message) });
+		return window.__promptAnswers?.length ? window.__promptAnswers.shift() : '';
+	};
+	window.addEventListener('error', event => {
+		window.__uiErrors.push({ message: event.message, filename: event.filename, lineno: event.lineno });
 	});
+	window.addEventListener('unhandledrejection', event => {
+		window.__uiErrors.push({ message: String(event.reason?.stack || event.reason) });
+	});
+	window.assert = (condition, message = 'Assertion failed') => {
+		window.__uiTestResults.push({ name: message, passed: !!condition });
+		if (!condition) throw new Error(message);
+	};
+	window.assert.strictEqual = (actual, expected, message = 'strictEqual') => {
+		window.assert(actual === expected, `${message}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+	};
+	window.assert.notStrictEqual = (actual, expected, message = 'notStrictEqual') => {
+		window.assert(actual !== expected, `${message}: expected not ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+	};
+	window.assert.ok = (value, message = 'ok') => window.assert(!!value, message);
 
-	window.assert = function(cond, msg) {
-		if (!cond) {
-			const err = new Error(msg || 'Assertion failed');
-			window.__uiTestResults.push({ name: msg || 'Assertion', passed: false, error: err.message, stack: err.stack });
-			throw err;
-		} else {
-			window.__uiTestResults.push({ name: msg || 'Assertion', passed: true });
+	let commandId = 0;
+	const pending = new Map();
+	window.__uiCommandResult = (id, error) => {
+		const task = pending.get(id);
+		pending.delete(id);
+		if (error) task.reject(new Error(error));
+		else task.resolve();
+	};
+	const command = (method, params) => new Promise((resolve, reject) => {
+		const id = ++commandId;
+		pending.set(id, { resolve, reject });
+		window.__uiCommand(JSON.stringify({ id, method, params }));
+	});
+	const element = selector => {
+		const el = typeof selector === 'string' ? document.querySelector(selector) : selector;
+		if (!el) throw new Error(`Element missing: ${selector}`);
+		return el;
+	};
+	const visible = el => {
+		const details = el.closest('details:not([open])');
+		return (!details || details.querySelector('summary')?.contains(el)) && !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
+	};
+	window.ui = {
+		element,
+		visible: selector => visible(element(selector)),
+		async waitFor(predicate, message = 'UI condition', timeout = 5000) {
+			const start = performance.now();
+			while (!await predicate()) {
+				if (performance.now() - start > timeout) throw new Error(`Timed out: ${message}`);
+				await new Promise(resolve => setTimeout(resolve, 10));
+			}
+		},
+		async click(selector) {
+			const el = element(selector);
+			if (!visible(el) || el.disabled) throw new Error(`Control is hidden or disabled: ${selector}`);
+			el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+			const rect = el.getBoundingClientRect();
+			const x = rect.x + rect.width / 2;
+			const y = rect.y + rect.height / 2;
+			if (!el.contains(document.elementFromPoint(x, y))) throw new Error(`Control is covered: ${selector}`);
+			await command('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+			await command('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+		},
+		fill(selector, value) {
+			const el = element(selector);
+			if (!visible(el) || el.disabled) throw new Error(`Input is hidden or disabled: ${selector}`);
+			el.focus();
+			el.value = String(value);
+			el.dispatchEvent(new Event(el.tagName === 'SELECT' || el.type === 'date' || el.type === 'number' ? 'change' : 'input', { bubbles: true }));
+		},
+		async key(key) {
+			const code = { Enter: 13, Escape: 27, Tab: 9 }[key];
+			await command('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode: code, ...(key === 'Enter' ? { text: '\r' } : {}) });
+			await command('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: code });
+		},
+		async printMedia(enabled) {
+			await command('Emulation.setEmulatedMedia', { media: enabled ? 'print' : 'screen' });
+		},
+		async mode(mode) {
+			await this.click('#mode-active-badge');
+			await this.click(`.tab-btn[onclick="switchTab('${mode}')"]`);
+		},
+		async expand(mode) {
+			await this.click(`#tab-${mode} button[onclick="setAllCardsCollapse(false, 'tab-${mode}')"]`);
+		},
+		async file(selector, content, name = 'fixture.txt') {
+			const input = element(selector);
+			const data = new DataTransfer();
+			for (const file of (Array.isArray(content) ? content : [{ content, name }])) {
+				data.items.add(new File([file.content], file.name, { type: 'text/plain' }));
+			}
+			input.files = data.files;
+			input.dispatchEvent(new Event('change', { bubbles: true }));
+		},
+		captureDownloads() {
+			window.downloadTextFile = (content, filename) => window.__downloads.push({ content, filename });
+		},
+		capturePrints() {
+			window.print = () => window.__prints.push({ title: document.title, html: document.getElementById('print-area').innerHTML });
+		},
+		clipboard(reject = false) {
+			Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+				writeText: async value => {
+					if (reject) throw new Error('Clipboard denied');
+					window.__copiedText = value;
+				}
+			} });
 		}
 	};
-	window.assert.strictEqual = function(a, b, msg) {
-		window.assert(a === b, (msg || 'strictEqual') + ': expected ' + JSON.stringify(b) + ', got ' + JSON.stringify(a));
-	};
-	window.assert.notStrictEqual = function(a, b, msg) {
-		window.assert(a !== b, (msg || 'notStrictEqual') + ': expected not ' + JSON.stringify(b) + ', got ' + JSON.stringify(a));
-	};
-	window.assert.ok = function(a, msg) {
-		window.assert(!!a, msg || 'ok');
-	};
+}
 
-	window.addEventListener('load', async () => {
-		// Wait for DOMContentLoaded async initialization to complete
-		await new Promise(r => setTimeout(r, 200));
-		try {
-			await ${scriptBody};
-			window.__uiDone = { success: true, results: window.__uiTestResults, errors: window.__uiErrors };
-		} catch (err) {
-			window.__uiDone = { success: false, results: window.__uiTestResults, errors: window.__uiErrors, fatal: { message: err.message, stack: err.stack } };
-		} finally {
-			const el = document.createElement('div');
-			el.id = '__UI_TEST_OUTPUT__';
-			el.textContent = JSON.stringify(window.__uiDone);
-			document.body.appendChild(el);
-		}
-	});
-	</script>
-	`;
+/** 実ファイル起動とChrome DevTools Protocolで非同期UI・再読み込みを検証する。 */
+async function runInHeadlessChrome(testFn, options = {}) {
+	const profileDir = await mkdtemp(path.join(os.tmpdir(), 'kogai-ui-'));
 
-	html = html.replace('</body>', () => `${injection}</body>`);
-	fs.writeFileSync(runnerHtml, html);
-
-	const url = 'file://' + runnerHtml + (options.queryMode ? `?mode=${options.queryMode}` : '');
-	const profileDir = `/tmp/chr-ui-prof-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-
+	let browser;
+	let timer;
+	let stderr = '';
+	const pending = new Map();
+	const results = [];
+	const errors = [];
 	try {
-		const res = spawnSync('chromium', [
-			'--headless=new',
-			'--no-sandbox',
-			'--disable-gpu',
-			'--disable-crash-reporter',
-			`--user-data-dir=${profileDir}`,
-			'--virtual-time-budget=25000',
-			'--run-all-compositor-stages-before-draw',
-			'--dump-dom',
-			url
-		], { encoding: 'utf8', maxBuffer: 15 * 1024 * 1024, timeout: options.timeoutMs || 25000 });
 
-		const match = res.stdout && res.stdout.match(/<div id="__UI_TEST_OUTPUT__">([\s\S]*?)<\/div>/);
-		if (!match) {
-			throw new Error('Headless execution failed to return test output.\nStderr: ' + (res.stderr || '') + '\nStdout tail: ' + (res.stdout ? res.stdout.slice(-1500) : ''));
-		}
-		return JSON.parse(match[1]);
+		browser = spawn(process.env.CHROMIUM_PATH || (existsSync('/usr/lib/chromium/chromium') ? '/usr/lib/chromium/chromium' : 'chromium'), [
+			'--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+			'--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--no-proxy-server',
+			`--user-data-dir=${profileDir}`, '--remote-debugging-pipe', 'about:blank'
+		], { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+		browser.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-4000); });
+		let nextId = 0;
+		let buffer = '';
+		let sessionId;
+		const events = new Map();
+		const waitEvent = method => new Promise(resolve => events.set(method, resolve));
+		const send = (method, params = {}, session = sessionId) => new Promise((resolve, reject) => {
+			const id = ++nextId;
+			pending.set(id, { resolve, reject });
+			browser.stdio[3].write(JSON.stringify({ id, method, params, ...(session ? { sessionId: session } : {}) }) + '\0');
+		});
+		const failPending = error => {
+			for (const task of pending.values()) task.reject(error);
+			pending.clear();
+		};
+		browser.once('error', failPending);
+		browser.once('exit', (code, signal) => failPending(new Error(`Chromium exited (${code ?? signal}): ${stderr}`)));
+		browser.stdio[3].on('error', failPending);
+		browser.stdio[4].on('data', chunk => {
+			buffer += chunk;
+			let end;
+			while ((end = buffer.indexOf('\0')) >= 0) {
+				const message = JSON.parse(buffer.slice(0, end));
+				buffer = buffer.slice(end + 1);
+				if (message.id) {
+					const task = pending.get(message.id);
+					pending.delete(message.id);
+					if (!task) continue;
+					if (message.error) task.reject(new Error(JSON.stringify(message.error)));
+					else task.resolve(message.result);
+				} else if (message.method === 'Runtime.bindingCalled') {
+					const { id, method, params } = JSON.parse(message.params.payload);
+					const allowed = ['Input.dispatchMouseEvent', 'Input.dispatchKeyEvent', 'Emulation.setEmulatedMedia'];
+					(async () => {
+						let error = null;
+						try {
+							if (!allowed.includes(method)) throw new Error(`Unsupported UI command: ${method}`);
+							await send(method, params);
+						} catch (err) { error = err.message; }
+						await send('Runtime.evaluate', { expression: `window.__uiCommandResult(${id}, ${JSON.stringify(error)})` });
+					})().catch(failPending);
+				} else if (message.sessionId === sessionId && events.has(message.method)) {
+					const resolve = events.get(message.method);
+					events.delete(message.method);
+					resolve(message.params);
+				}
+			}
+		});
+		const run = async () => {
+			const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
+			sessionId = (await send('Target.attachToTarget', { targetId, flatten: true })).sessionId;
+			await send('Page.enable');
+			await send('Runtime.enable');
+			await send('Runtime.addBinding', { name: '__uiCommand' });
+			const [width, height] = options.viewport || [1280, 900];
+			await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+			await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installBrowserHarness.toString()})();` });
+			if (options.beforeLoad) {
+				await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${options.beforeLoad.toString()})();` });
+			}
+			const evaluate = async fn => {
+				const response = await send('Runtime.evaluate', { expression: `(${fn.toString()})()`, awaitPromise: true, returnByValue: true });
+				if (response.exceptionDetails) throw new Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
+				return response.result.value;
+			};
+			const ready = async () => {
+				await evaluate(async () => {
+					await ui.waitFor(() => document.readyState === 'complete' && document.getElementById('mode-active-badge')?.style.display === 'inline-flex', 'Application initialization');
+					await new Promise(resolve => setTimeout(resolve, 0));
+				});
+			};
+			const loaded = waitEvent('Page.loadEventFired');
+			await send('Page.navigate', { url: `file://${rootDir}/index.html${options.queryMode ? '?mode=' + encodeURIComponent(options.queryMode) : ''}` });
+			await loaded;
+			await ready();
+			for (const [index, fn] of [testFn, options.afterReload].filter(Boolean).entries()) {
+				if (index) {
+					const reloaded = waitEvent('Page.loadEventFired');
+					if (options.reloadSelector) await send('Runtime.evaluate', { expression: `document.querySelector(${JSON.stringify(options.reloadSelector)}).click()` });
+					else await send('Page.reload', { ignoreCache: true });
+					await reloaded;
+					await ready();
+				}
+				if (options.prepare) await evaluate(options.prepare);
+				await evaluate(fn);
+				const output = await evaluate(async () => {
+					await new Promise(resolve => setTimeout(resolve, 20));
+					return { results: __uiTestResults, errors: __uiErrors };
+				});
+				results.push(...output.results);
+				errors.push(...output.errors);
+			}
+			return { success: true, results, errors };
+		};
+		return await Promise.race([
+			run().catch(async err => {
+				// 途中失敗でもブラウザ内のアサーション・例外を失わない。
+				try {
+					const snapshot = await send('Runtime.evaluate', { expression: '({results: window.__uiTestResults || [], errors: window.__uiErrors || []})', returnByValue: true });
+					results.push(...snapshot.result.value.results);
+					errors.push(...snapshot.result.value.errors);
+				} catch (_) {}
+				return { success: false, results, errors, fatal: { message: err.message } };
+			}),
+			new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`UI test timed out: ${stderr}`)), options.timeoutMs || 20000); })
+		]);
 	} finally {
-		if (fs.existsSync(runnerHtml)) {
-			try { fs.unlinkSync(runnerHtml); } catch (_) {}
+		clearTimeout(timer);
+		if (browser && browser.exitCode === null && browser.signalCode === null) {
+			const exited = new Promise(resolve => browser.once('exit', resolve));
+			browser.kill('SIGKILL');
+			await exited;
 		}
-		if (fs.existsSync(profileDir)) {
-			try { fs.rmSync(profileDir, { recursive: true, force: true }); } catch (_) {}
-		}
+		await rm(profileDir, { recursive: true, force: true, maxRetries: 3 });
 	}
 }
 
-module.exports = {
-	runInHeadlessChrome
-};
+module.exports = { runInHeadlessChrome };

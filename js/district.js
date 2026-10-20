@@ -594,6 +594,8 @@ async function shareDistrictData(channel) {
 }
 
 async function loadDistrictTxt(e) {
+	const generation = getStorageSessionGeneration();
+	const importKind = 'districtOrNeighbor';
 	const file = (e && e.target && e.target.files) ? e.target.files[0] : (e && e.files ? e.files[0] : e);
 	if (!file) return;
 	const pass = document.getElementById('d-pass')?.value || document.getElementById('d-file-pass')?.value || '';
@@ -610,11 +612,11 @@ async function loadDistrictTxt(e) {
 			});
 		}
 
-		const data = await parseTxtContent(rawText, pass);
+		const data = await parseTxtContent(rawText, pass, generation, importKind);
 		if (data.isNeighborhoodData || (!data.students && Array.isArray(data.neighborhood))) {
 			mergeNeighborDataIntoDistrict(data);
 			if (e && e.target) e.target.value = "";
-			return;
+			return true;
 		}
 
 		const hasExistingData = (currentDistrict.students && currentDistrict.students.length > 0) ||
@@ -666,11 +668,20 @@ async function loadDistrictTxt(e) {
 		const hanMsg = currentDistrict.han ? `（${currentDistrict.han}）` : "";
 		alert(`地区データ「${currentDistrict.district || ""}」${hanMsg}を読み込みました。`);
 		if (e && e.target) e.target.value = "";
+		return true;
 	} catch (err) {
 		console.error("Failed to load district file:", err);
 		alert("読み込みに失敗しました。パスワードを確認してください。");
 		if (e && e.target) e.target.value = "";
 	}
+}
+
+async function loadPastedTextToDistrict() {
+	const box = document.getElementById('d-paste-box');
+	const text = box?.value.trim();
+	if (!text) return;
+	const restored = await loadDistrictTxt({ text: async () => text });
+	if (restored) box.value = '';
 }
 
 function mergeNeighborDataIntoDistrict(data) {
@@ -821,6 +832,8 @@ async function integrateTransferDataIntoDistrict(payload, password) {
 }
 
 async function loadTransferFileIntoDistrict(e) {
+	const generation = getStorageSessionGeneration();
+	const importKind = 'transfer';
 	const file = e.target?.files?.[0];
 	if (!file) return;
 	const pass = document.getElementById('d-pass')?.value || "";
@@ -828,11 +841,12 @@ async function loadTransferFileIntoDistrict(e) {
 		const text = await file.text();
 		let data;
 		try {
-			data = await parseTxtContent(text, pass);
+			data = await parseTxtContent(text, pass, generation, importKind);
 		} catch (err) {
+			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) { if (e.target) e.target.value = ""; return; }
-			data = await parseTxtContent(text, promptPass);
+			data = await parseTxtContent(text, promptPass, generation, importKind);
 		}
 		await integrateTransferDataIntoDistrict(data, pass);
 	} catch (err) {
@@ -842,17 +856,20 @@ async function loadTransferFileIntoDistrict(e) {
 }
 
 async function loadPastedTransferTextIntoDistrict(text) {
+	const generation = getStorageSessionGeneration();
+	const importKind = 'transfer';
 	const raw = (typeof text === 'string' ? text : (document.getElementById('d-transfer-paste-box')?.value || "")).trim();
 	if (!raw) return;
 	let pass = document.getElementById('d-pass')?.value || "";
 	try {
 		let data;
 		try {
-			data = await parseTxtContent(raw, pass);
+			data = await parseTxtContent(raw, pass, generation, importKind);
 		} catch (err) {
+			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) return;
-			data = await parseTxtContent(raw, promptPass);
+			data = await parseTxtContent(raw, promptPass, generation, importKind);
 		}
 		await integrateTransferDataIntoDistrict(data, pass);
 		const box = document.getElementById('d-transfer-paste-box');
@@ -863,6 +880,8 @@ async function loadPastedTransferTextIntoDistrict(text) {
 }
 
 async function loadNeighborFileIntoDistrict(e) {
+	const generation = getStorageSessionGeneration();
+	const importKind = 'neighbor';
 	const file = e.target.files[0];
 	if (!file) return;
 	const pass = document.getElementById('d-pass')?.value || "";
@@ -870,11 +889,12 @@ async function loadNeighborFileIntoDistrict(e) {
 		const text = await file.text();
 		let data;
 		try {
-			data = await parseTxtContent(text, pass);
+			data = await parseTxtContent(text, pass, generation, importKind);
 		} catch (err) {
+			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("自治会ファイルの復号パスワードを入力してください：");
 			if (!promptPass) { e.target.value = ""; return; }
-			data = await parseTxtContent(text, promptPass);
+			data = await parseTxtContent(text, promptPass, generation, importKind);
 		}
 		mergeNeighborDataIntoDistrict(data);
 	} catch (err) {
@@ -884,6 +904,8 @@ async function loadNeighborFileIntoDistrict(e) {
 }
 
 async function loadPastedNeighborTextIntoDistrict() {
+	const generation = getStorageSessionGeneration();
+	const importKind = 'neighbor';
 	const box = document.getElementById('d-neighbor-paste-box');
 	if (!box) return;
 	const raw = box.value.trim();
@@ -892,11 +914,12 @@ async function loadPastedNeighborTextIntoDistrict() {
 	try {
 		let data;
 		try {
-			data = await parseTxtContent(raw, pass);
+			data = await parseTxtContent(raw, pass, generation, importKind);
 		} catch (err) {
+			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("自治会データの復号パスワードを入力してください：");
 			if (!promptPass) return;
-			data = await parseTxtContent(raw, promptPass);
+			data = await parseTxtContent(raw, promptPass, generation, importKind);
 		}
 		mergeNeighborDataIntoDistrict(data);
 		box.value = "";
@@ -948,6 +971,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		exportDistrictTxt,
 		shareDistrictData,
 		loadDistrictTxt,
+		loadPastedTextToDistrict,
 		mergeNeighborDataIntoDistrict,
 		integrateNeighborDataIntoDistrict: mergeNeighborDataIntoDistrict,
 		openNeighborImportPanel,

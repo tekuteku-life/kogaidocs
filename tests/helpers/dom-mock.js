@@ -188,6 +188,9 @@ class MockElement {
 		this.selectionStart = start;
 		this.selectionEnd = end;
 	}
+	remove() {
+		if (this.parentElement) this.parentElement.removeChild(this);
+	}
 	click() {
 		this.dispatchEvent({ type: 'click', target: this, stopPropagation() {} });
 	}
@@ -348,6 +351,7 @@ function setupDomEnvironment() {
 	const mockDoc = {
 		elements: elementsMap,
 		body: new MockElement('body'),
+		head: new MockElement('head'),
 		getElementById(id) {
 			if (elementsMap[id] === null) return null;
 			if (!elementsMap[id]) {

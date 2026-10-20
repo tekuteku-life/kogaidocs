@@ -1396,7 +1396,7 @@ test('rep: comprehensive branch booster for >95% branch coverage', async () => {
 	};
 	document.getElementById('rep-pass').value = 'TestPass123!';
 	const origParse = global.parseTxtContent;
-	global.parseTxtContent = async () => multiDistMaster;
+	global.parseTxtContent = async () => validateImportData(multiDistMaster, 'rep');
 
 	const dummyEvt = {
 		target: {
@@ -1423,7 +1423,7 @@ test('rep: comprehensive branch booster for >95% branch coverage', async () => {
 		szExternals: null,
 		seatConfig: null
 	};
-	global.parseTxtContent = async () => masterWithoutHan;
+	global.parseTxtContent = async () => validateImportData(masterWithoutHan, 'rep');
 	const dummyMasterEvt = {
 		target: {
 			files: [

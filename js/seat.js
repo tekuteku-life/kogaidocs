@@ -78,7 +78,9 @@ function resizeSeatGrid() {
 }
 
 function renderSeatEditor() {
+	if (!repState.seatConfig) repState.seatConfig = { cols: 4, rows: 5, cells: {} };
 	const cfg = repState.seatConfig;
+	if (!cfg.cells) cfg.cells = {};
 	document.getElementById('seat-cols').value = cfg.cols;
 	document.getElementById('seat-rows').value = cfg.rows;
 	document.getElementById('seat-top-label').value = cfg.topLabel || "前方（演台・司会・スクリーン側）";
@@ -118,8 +120,68 @@ function updateSeatCell(cellKey, field, val) {
 	saveRepLocal();
 }
 
+function participantIdentity(participant) {
+	return JSON.stringify([participant.org, participant.name]);
+}
+
+function neighborIdentity(row) {
+	return JSON.stringify([getFullName(row), row.role || '', row.tel || '', row.address || '']);
+}
+
+function captureSeatState() {
+	return {
+		participants: getAllSzParticipantsForSeat(),
+		neighbors: getUniqueNeighborhoodDistricts(repState.districts, false).map(({ d, dIdx }) => ({
+			district: d.district,
+			sourceIndex: dIdx,
+			identities: (d.neighborhood || []).map(neighborIdentity),
+			checks: { ...d.szNeighborChecks }
+		}))
+	};
+}
+
+function reconcileSeatState(previous, explicitKeys = {}) {
+	// 同名地区の代表名簿が変わっても、出席チェックを別人へ引き継がない。
+	repState.districts.forEach(d => {
+		const old = previous.neighbors.find(group => group.district === d.district);
+		if (!old || old.identities.length === 0) return;
+		const checks = {};
+		const identities = (d.neighborhood || []).map(neighborIdentity);
+		identities.forEach((identity, index) => {
+			const matches = old.identities.map((value, i) => value === identity ? i : -1).filter(i => i >= 0);
+			if (matches.length === 1 && identities.filter(value => value === identity).length === 1 && Object.hasOwn(old.checks, matches[0])) checks[index] = old.checks[matches[0]];
+		});
+		d.szNeighborChecks = checks;
+	});
+	const current = getAllSzParticipantsForSeat();
+	Object.values(repState.seatConfig?.cells || {}).forEach(cell => {
+		const key = cell.refKey || '';
+		if (!key || key === 'CUSTOM' || key.startsWith('FAC_')) return;
+		if (Object.hasOwn(explicitKeys, key)) {
+			cell.refKey = current.some(person => person.key === explicitKeys[key]) ? explicitKeys[key] : '';
+			return;
+		}
+		const old = previous.participants.find(person => person.key === key);
+		const matches = old ? current.filter(person => participantIdentity(person) === participantIdentity(old)) : [];
+		const oldMatches = old ? previous.participants.filter(person => participantIdentity(person) === participantIdentity(old)) : [];
+		cell.refKey = matches.length === 1 && oldMatches.length === 1 ? matches[0].key : '';
+	});
+}
+
+function setDistrictPrintSelection(index, selected) {
+	const previous = captureSeatState();
+	repState.districts[index].selectedForPrint = selected;
+	reconcileSeatState(previous);
+	saveRepLocal();
+	renderRepAll();
+}
+
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
+		neighborIdentity,
+		captureSeatState,
+		reconcileSeatState,
+		setDistrictPrintSelection,
 		getAllSzParticipantsForSeat,
 		swapSeatWindowCorridor,
 		resizeSeatGrid,
