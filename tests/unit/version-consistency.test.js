@@ -31,8 +31,8 @@ test('Version Consistency Suite: SSOT verification across all configuration file
 		const swPath = path.join(rootDir, 'sw.js');
 		assert.ok(fs.existsSync(swPath), 'sw.js exists');
 		const swContent = fs.readFileSync(swPath, 'utf8');
-		const swMatch = swContent.match(/CACHE_NAME\s*=\s*['"]kogai-cache-v([0-9]+\.[0-9]+\.[0-9]+)['"]/);
-		assert.ok(swMatch, 'sw.js contains valid CACHE_NAME with semver version');
+		const swMatch = swContent.match(/CACHE_VERSION\s*=\s*['"]([0-9]+\.[0-9]+\.[0-9]+)['"]/);
+		assert.ok(swMatch, 'sw.js contains valid CACHE_VERSION with semver version');
 		const swVersion = swMatch[1];
 
 		// 4. js/app.js

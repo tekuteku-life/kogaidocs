@@ -858,15 +858,19 @@ function buildSzAttendance3BlankPageHtml() {
 
 // ⑩ スクゾ 座席表
 function buildSzSeatChartPageHtml() {
-	const cfg = repState.seatConfig;
-	const optionsMap = {};
+	const cfg = repState.seatConfig || {};
+	const dimension = (value, maximum, fallback) => Number.isFinite(Number(value))
+		? Math.max(2, Math.min(maximum, Math.trunc(Number(value)))) : fallback;
+	const cols = dimension(cfg.cols, 10, 4);
+	const rows = dimension(cfg.rows, 14, 5);
+	const optionsMap = Object.create(null);
 	getAllSzParticipantsForSeat().forEach(o => { optionsMap[o.key] = o; });
 
 	const cellsHtml = [];
-	for (let r = 0; r < cfg.rows; r++) {
-		for (let c = 0; c < cfg.cols; c++) {
-			const cellData = cfg.cells[`${r}_${c}`] || { refKey: "", customText: "" };
-			const ref = optionsMap[cellData.refKey];
+	for (let r = 0; r < rows; r++) {
+		for (let c = 0; c < cols; c++) {
+			const cellData = cfg.cells?.[`${r}_${c}`] || { refKey: "", customText: "" };
+			const ref = Object.hasOwn(optionsMap, cellData.refKey) ? optionsMap[cellData.refKey] : undefined;
 
 			if (!cellData.refKey && !cellData.customText) {
 				cellsHtml.push(`<div class="print-seat-cell is-empty"></div>`);
@@ -902,7 +906,7 @@ function buildSzSeatChartPageHtml() {
 				<div class="print-seat-side">${esc(cfg.leftSide)}</div>
 				<div class="print-seat-center">
 					<div class="print-seat-topbottom">${esc(cfg.topLabel)}</div>
-					<div class="print-seat-grid" style="grid-template-columns: repeat(${cfg.cols}, 1fr);">
+					<div class="print-seat-grid" style="grid-template-columns: repeat(${cols}, 1fr);">
 						${cellsHtml.join('')}
 					</div>
 					<div class="print-seat-topbottom">${esc(cfg.bottomLabel)}</div>

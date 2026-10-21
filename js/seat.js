@@ -106,8 +106,8 @@ function renderSeatEditor() {
 			const optsHtml = options.map(o => `<option value="${esc(o.key)}" ${cellData.refKey===o.key?'selected':''}>${esc(o.label)}</option>`).join('');
 			div.innerHTML = `
 				<div style="font-size:0.7rem; color:#64748b;">${r+1}段-${c+1}列</div>
-				<select onchange="updateSeatCell('${cellKey}','refKey',this.value)">${optsHtml}</select>
-				<input type="text" value="${esc(cellData.customText)}" placeholder="自由記述・補足メモ" oninput="updateSeatCell('${cellKey}','customText',this.value)">
+				<select data-change="updateSeatCell" data-target="${cellKey}" data-field="refKey">${optsHtml}</select>
+				<input type="text" value="${esc(cellData.customText)}" placeholder="自由記述・補足メモ" data-input="updateSeatCell" data-target="${cellKey}" data-field="customText">
 			`;
 			grid.appendChild(div);
 		}

@@ -29,46 +29,46 @@ function renderTransferForm() {
 			<div class="transfer-child-row card" style="margin-bottom: 1rem; padding: 1rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff;">
 				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.5rem;">
 					<strong style="color: #1e293b; font-size: 1rem;">児童 ${index + 1}</strong>
-					${canRemove ? `<button type="button" class="btn btn-outline-danger btn-sm" onclick="removeTransferChildRow(${index})" style="font-size: 0.8rem; padding: 2px 8px;">この児童を削除</button>` : ''}
+					${canRemove ? `<button type="button" class="btn btn-outline-danger btn-sm" data-click="removeTransferChildRow" data-index="${index}" style="font-size: 0.8rem; padding: 2px 8px;">この児童を削除</button>` : ''}
 				</div>
 				<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem;">
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">学年 <span style="color: #ef4444;">*</span></label>
-						<select class="form-control" onchange="updateTransferChild(${index}, 'grade', this.value)" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<select class="form-control" data-change="updateTransferChild" data-index="${index}" data-field="grade" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 							${[1, 2, 3, 4, 5, 6].map(g => `<option value="${g}" ${String(child.grade) === String(g) ? 'selected' : ''}>${g}年生</option>`).join('')}
 						</select>
 					</div>
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">組 <span style="color: #ef4444;">*</span></label>
-						<input type="text" class="form-control" value="${esc(child.className || child.class || '')}" placeholder="例: 1組" oninput="updateTransferChild(${index}, 'className', this.value)" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="text" class="form-control" value="${esc(child.className || child.class || '')}" placeholder="例: 1組" data-input="updateTransferChild" data-index="${index}" data-field="className" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 				</div>
 				<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem;">
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">氏名（姓） <span style="color: #ef4444;">*</span></label>
-						<input type="text" class="form-control" value="${esc(child.lastName || '')}" placeholder="例: 山田" oninput="updateTransferChild(${index}, 'lastName', this.value)" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="text" class="form-control" value="${esc(child.lastName || '')}" placeholder="例: 山田" data-input="updateTransferChild" data-index="${index}" data-field="lastName" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">氏名（名） <span style="color: #ef4444;">*</span></label>
-						<input type="text" class="form-control" value="${esc(child.firstName || '')}" placeholder="例: 太郎" oninput="updateTransferChild(${index}, 'firstName', this.value)" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="text" class="form-control" value="${esc(child.firstName || '')}" placeholder="例: 太郎" data-input="updateTransferChild" data-index="${index}" data-field="firstName" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">ふりがな（せい）</label>
-						<input type="text" class="form-control" value="${esc(child.lastNameKana || '')}" placeholder="例: やまだ" oninput="updateTransferChild(${index}, 'lastNameKana', this.value)" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="text" class="form-control" value="${esc(child.lastNameKana || '')}" placeholder="例: やまだ" data-input="updateTransferChild" data-index="${index}" data-field="lastNameKana" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">ふりがな（めい）</label>
-						<input type="text" class="form-control" value="${esc(child.firstNameKana || '')}" placeholder="例: たろう" oninput="updateTransferChild(${index}, 'firstNameKana', this.value)" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="text" class="form-control" value="${esc(child.firstNameKana || '')}" placeholder="例: たろう" data-input="updateTransferChild" data-index="${index}" data-field="firstNameKana" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 				</div>
 				<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">住所 <span style="color: #ef4444;">*</span></label>
-						<input type="text" class="form-control" value="${esc(child.address || '')}" placeholder="例: ○○町1-2-3 ○○マンション101" oninput="updateTransferChild(${index}, 'address', this.value)" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="text" class="form-control" value="${esc(child.address || '')}" placeholder="例: ○○町1-2-3 ○○マンション101" data-input="updateTransferChild" data-index="${index}" data-field="address" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">電話番号 <span style="color: #ef4444;">*</span></label>
-						<input type="tel" class="form-control" value="${esc(child.tel || '')}" placeholder="例: 090-1234-5678" oninput="updateTransferChild(${index}, 'tel', this.value)" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="tel" class="form-control" value="${esc(child.tel || '')}" placeholder="例: 090-1234-5678" data-input="updateTransferChild" data-index="${index}" data-field="tel" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 				</div>
 			</div>
@@ -243,9 +243,9 @@ async function copyTransferEncryptedText() {
 }
 
 // 提出後のワンタップリセット（個人情報保護・APPI第22条対応）
-function resetTransferForm() {
+async function resetTransferForm() {
 	if (!confirm("入力された転入児童情報をすべて消去しますか？\n（提出完了後のプライバシー保護のため、端末からの消去を推奨します）")) {
-		return;
+		return false;
 	}
 	transferState.children = [
 		{
@@ -268,7 +268,8 @@ function resetTransferForm() {
 	if (p2) p2.value = "";
 
 	renderTransferForm();
-	saveTransferLocal();
+	await saveTransferLocal();
+	return true;
 }
 
 // 画面ロック時のメモリ・DOM完全消去
@@ -306,9 +307,10 @@ function saveTransferLocal() {
 async function loadTransferLocal() {
 	try {
 		const data = await loadStorageDecrypted('kogai_transfer_v2');
-		if (data && Array.isArray(data.children) && data.children.length > 0) {
-			transferState.children = data.children;
-			transferState.memo = data.memo || "";
+		if (data !== null) {
+			const clean = validateStoredData(data, 'kogai_transfer_v2');
+			transferState.children = clean.children;
+			transferState.memo = clean.memo;
 		}
 	} catch (e) {
 		console.warn("Failed to load transfer local state", e);

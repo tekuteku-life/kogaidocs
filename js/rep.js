@@ -153,7 +153,7 @@ async function loadMultipleDistrictFiles(e) {
 	let ok = 0, ng = 0;
 	for (const f of files) {
 		try {
-			const data = await parseTxtContent(await f.text(), pass, generation, importKind);
+			const data = await parseTxtContent(await readImportFile(f), pass, generation, importKind);
 			if (!await applyRepImport(data, pass)) continue;
 			ok++;
 		} catch (err) { ng++; }
@@ -265,7 +265,7 @@ async function loadRepMasterTxt(e) {
 	if (!file) return;
 	const pass = document.getElementById('rep-pass').value;
 	try {
-		const data = await parseTxtContent(await file.text(), pass, generation, importKind);
+		const data = await parseTxtContent(await readImportFile(file), pass, generation, importKind);
 		if (await applyRepImport(data, pass)) {
 			renderRepAll();
 			if (!data.isTransferData) alert(data.districts ? '代表統合マスターデータを読み込みました。' : `地区データ「${data.district || '自治会'}${data.han ? `（${data.han}）` : ''}」として追加しました。`);
@@ -537,24 +537,24 @@ function renderRepDistrictDetailModal() {
 	if (oBody) {
 		oBody.innerHTML = (modalCurrentDistrict.officers || []).map((off, idx) => `
 			<tr>
-				<td><input type="text" value="${esc(off.role || '')}" placeholder="校外委員" style="width:100px;" oninput="updateModalOfficer(${idx}, 'role', this.value)"></td>
+				<td><input type="text" value="${esc(off.role || '')}" placeholder="校外委員" style="width:100px;" data-input="updateModalOfficer" data-index="${idx}" data-field="role"></td>
 				<td>
-					<input type="text" value="${esc(off.lastName || '')}" placeholder="姓" style="width:65px;" oninput="updateModalOfficer(${idx}, 'lastName', this.value)">
-					<input type="text" value="${esc(off.firstName || '')}" placeholder="名" style="width:65px;" oninput="updateModalOfficer(${idx}, 'firstName', this.value)">
+					<input type="text" value="${esc(off.lastName || '')}" placeholder="姓" style="width:65px;" data-input="updateModalOfficer" data-index="${idx}" data-field="lastName">
+					<input type="text" value="${esc(off.firstName || '')}" placeholder="名" style="width:65px;" data-input="updateModalOfficer" data-index="${idx}" data-field="firstName">
 				</td>
-				<td><input type="text" value="${esc(off.han || '')}" placeholder="担当班" style="width:70px;" oninput="updateModalOfficer(${idx}, 'han', this.value)"></td>
-				<td><input type="text" value="${esc(off.tel || '')}" placeholder="電話番号" style="width:100px;" oninput="updateModalOfficer(${idx}, 'tel', this.value)"></td>
-				<td><input type="text" value="${esc(off.email || '')}" placeholder="メール" style="width:120px;" oninput="updateModalOfficer(${idx}, 'email', this.value)"></td>
+				<td><input type="text" value="${esc(off.han || '')}" placeholder="担当班" style="width:70px;" data-input="updateModalOfficer" data-index="${idx}" data-field="han"></td>
+				<td><input type="text" value="${esc(off.tel || '')}" placeholder="電話番号" style="width:100px;" data-input="updateModalOfficer" data-index="${idx}" data-field="tel"></td>
+				<td><input type="text" value="${esc(off.email || '')}" placeholder="メール" style="width:120px;" data-input="updateModalOfficer" data-index="${idx}" data-field="email"></td>
 				<td>
 					<div style="display:flex; gap:2px; align-items:center;">
-						<input type="text" value="${esc(off.childGrade || '')}" placeholder="年" style="width:28px;" oninput="updateModalOfficer(${idx}, 'childGrade', this.value)">
-						<input type="text" value="${esc(off.childClass || '')}" placeholder="組" style="width:32px;" oninput="updateModalOfficer(${idx}, 'childClass', this.value)">
-						<input type="text" value="${esc(off.childLastName || '')}" placeholder="姓" style="width:50px;" oninput="updateModalOfficer(${idx}, 'childLastName', this.value)">
-						<input type="text" value="${esc(off.childFirstName || '')}" placeholder="名" style="width:50px;" oninput="updateModalOfficer(${idx}, 'childFirstName', this.value)">
+						<input type="text" value="${esc(off.childGrade || '')}" placeholder="年" style="width:28px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childGrade">
+						<input type="text" value="${esc(off.childClass || '')}" placeholder="組" style="width:32px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childClass">
+						<input type="text" value="${esc(off.childLastName || '')}" placeholder="姓" style="width:50px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childLastName">
+						<input type="text" value="${esc(off.childFirstName || '')}" placeholder="名" style="width:50px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childFirstName">
 					</div>
 				</td>
 				<td style="text-align:center;">
-					<button type="button" class="btn btn-danger btn-xs" onclick="removeModalOfficerRow(${idx})">×</button>
+					<button type="button" class="btn btn-danger btn-xs" data-click="removeModalOfficerRow" data-index="${idx}">×</button>
 				</td>
 			</tr>
 		`).join('');
@@ -564,21 +564,21 @@ function renderRepDistrictDetailModal() {
 	if (stBody) {
 		stBody.innerHTML = (modalCurrentDistrict.students || []).map((s, idx) => `
 			<tr>
-				<td><input type="text" value="${esc(s.grade || '')}" style="width:40px;" oninput="updateModalStudent(${idx}, 'grade', this.value)"></td>
-				<td><input type="text" value="${esc(s.class || '')}" style="width:45px;" oninput="updateModalStudent(${idx}, 'class', this.value)"></td>
-				<td><input type="text" value="${esc(s.han || '')}" style="width:50px;" oninput="updateModalStudent(${idx}, 'han', this.value)"></td>
+				<td><input type="text" value="${esc(s.grade || '')}" style="width:40px;" data-input="updateModalStudent" data-index="${idx}" data-field="grade"></td>
+				<td><input type="text" value="${esc(s.class || '')}" style="width:45px;" data-input="updateModalStudent" data-index="${idx}" data-field="class"></td>
+				<td><input type="text" value="${esc(s.han || '')}" style="width:50px;" data-input="updateModalStudent" data-index="${idx}" data-field="han"></td>
 				<td>
-					<input type="text" value="${esc(s.lastName || '')}" placeholder="姓" style="width:65px;" oninput="updateModalStudent(${idx}, 'lastName', this.value)">
-					<input type="text" value="${esc(s.firstName || '')}" placeholder="名" style="width:65px;" oninput="updateModalStudent(${idx}, 'firstName', this.value)">
+					<input type="text" value="${esc(s.lastName || '')}" placeholder="姓" style="width:65px;" data-input="updateModalStudent" data-index="${idx}" data-field="lastName">
+					<input type="text" value="${esc(s.firstName || '')}" placeholder="名" style="width:65px;" data-input="updateModalStudent" data-index="${idx}" data-field="firstName">
 				</td>
 				<td>
-					<input type="text" value="${esc(s.address || '')}" placeholder="住所" style="width:110px;" oninput="updateModalStudent(${idx}, 'address', this.value)">
+					<input type="text" value="${esc(s.address || '')}" placeholder="住所" style="width:110px;" data-input="updateModalStudent" data-index="${idx}" data-field="address">
 				</td>
 				<td>
-					<input type="text" value="${esc(s.tel || '')}" placeholder="電話番号" style="width:100px;" oninput="updateModalStudent(${idx}, 'tel', this.value)">
+					<input type="text" value="${esc(s.tel || '')}" placeholder="電話番号" style="width:100px;" data-input="updateModalStudent" data-index="${idx}" data-field="tel">
 				</td>
 				<td style="text-align:center;">
-					<button type="button" class="btn btn-danger btn-xs" onclick="removeModalStudentRow(${idx})">×</button>
+					<button type="button" class="btn btn-danger btn-xs" data-click="removeModalStudentRow" data-index="${idx}">×</button>
 				</td>
 			</tr>
 		`).join('');
@@ -588,14 +588,14 @@ function renderRepDistrictDetailModal() {
 	if (nBody) {
 		nBody.innerHTML = (modalCurrentDistrict.neighborhood || []).map((n, idx) => `
 			<tr>
-				<td><input type="text" value="${esc(n.role || '')}" placeholder="役職" style="width:80px;" oninput="updateModalNeighbor(${idx}, 'role', this.value)"></td>
+				<td><input type="text" value="${esc(n.role || '')}" placeholder="役職" style="width:80px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="role"></td>
 				<td>
-					<input type="text" value="${esc(n.lastName || '')}" placeholder="姓" style="width:65px;" oninput="updateModalNeighbor(${idx}, 'lastName', this.value)">
-					<input type="text" value="${esc(n.firstName || '')}" placeholder="名" style="width:65px;" oninput="updateModalNeighbor(${idx}, 'firstName', this.value)">
+					<input type="text" value="${esc(n.lastName || '')}" placeholder="姓" style="width:65px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="lastName">
+					<input type="text" value="${esc(n.firstName || '')}" placeholder="名" style="width:65px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="firstName">
 				</td>
-				<td><input type="text" value="${esc(n.tel || '')}" placeholder="電話番号" style="width:110px;" oninput="updateModalNeighbor(${idx}, 'tel', this.value)"></td>
+				<td><input type="text" value="${esc(n.tel || '')}" placeholder="電話番号" style="width:110px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="tel"></td>
 				<td style="text-align:center;">
-					<button type="button" class="btn btn-danger btn-xs" onclick="removeModalNeighborRow(${idx})">×</button>
+					<button type="button" class="btn btn-danger btn-xs" data-click="removeModalNeighborRow" data-index="${idx}">×</button>
 				</td>
 			</tr>
 		`).join('');
@@ -735,7 +735,7 @@ function renderRepDistrictsTable() {
 		return `
 			<tr>
 				<td style="text-align:center;">
-					<input type="checkbox" ${d.selectedForPrint ? 'checked' : ''} onchange="setDistrictPrintSelection(${i}, this.checked)">
+					<input type="checkbox" ${d.selectedForPrint ? 'checked' : ''} data-change="setDistrictPrintSelection" data-index="${i}">
 				</td>
 				<td><strong>${esc(d.district)}</strong>${hanBadge}</td>
 				<td>${officerHtml}</td>
@@ -743,9 +743,9 @@ function renderRepDistrictsTable() {
 				<td>${c.total} 名</td>
 				<td>${validN} 名</td>
 				<td style="text-align:center; white-space:nowrap;">
-					<button type="button" class="btn btn-outline btn-xs" onclick="openRepDistrictDetailModal(${i})" title="この地区の名簿・役員情報を閲覧・編集します">📝 名簿</button>
-					<button type="button" class="btn btn-outline btn-xs" onclick="exportSingleDistrictFromRep(${i})" title="この地区のデータを暗号化して切り出し出力します">📤 切り出し</button>
-					<button type="button" class="btn btn-danger btn-xs" onclick="deleteRepDistrict(${i})" title="この地区データを一覧から削除します">×</button>
+					<button type="button" class="btn btn-outline btn-xs" data-click="openRepDistrictDetailModal" data-index="${i}" title="この地区の名簿・役員情報を閲覧・編集します">📝 名簿</button>
+					<button type="button" class="btn btn-outline btn-xs" data-click="exportSingleDistrictFromRep" data-index="${i}" title="この地区のデータを暗号化して切り出し出力します">📤 切り出し</button>
+					<button type="button" class="btn btn-danger btn-xs" data-click="deleteRepDistrict" data-index="${i}" title="この地区データを一覧から削除します">×</button>
 				</td>
 			</tr>
 		`;
@@ -785,7 +785,7 @@ function renderSzNeighborhoodSelector() {
 			const fullName = getFullName(n);
 			return `
 				<label class="check-item">
-					<input type="checkbox" ${checked} onchange="toggleSzNeighbor(${dIdx}, ${n.nIdx}, this.checked)">
+					<input type="checkbox" ${checked} data-change="toggleSzNeighbor" data-index="${dIdx}" data-index2="${n.nIdx}">
 					${esc(n.role)}：${esc(fullName || '（氏名未定）')}
 				</label>
 			`;
@@ -833,28 +833,28 @@ function renderSzExternalTable() {
 		normalizeNameFields(ex);
 		const tr = document.createElement('tr');
 		tr.innerHTML = `
-			<td style="text-align:center;"><input type="checkbox" ${ex.attend?'checked':''} onchange="updateSzEx(${i},'attend',this.checked);renderSeatEditor();"></td>
+			<td style="text-align:center;"><input type="checkbox" ${ex.attend?'checked':''} data-change="updateSzEx" data-index="${i}" data-field="attend"></td>
 			<td>
-				<select onchange="updateSzEx(${i},'category',this.value);renderSeatEditor();">
+				<select data-change="updateSzEx" data-index="${i}" data-field="category">
 					${cats.map(c => `<option value="${c}" ${ex.category===c?'selected':''}>${c}</option>`).join('')}
 				</select>
 			</td>
-			<td><input type="text" value="${esc(ex.org)}" placeholder="〇〇区役所 地域振興課" oninput="updateSzEx(${i},'org',this.value);renderSeatEditor();"></td>
-			<td><input type="text" value="${esc(ex.role)}" placeholder="校長・会長・課長等" oninput="updateSzEx(${i},'role',this.value);renderSeatEditor();"></td>
+			<td><input type="text" value="${esc(ex.org)}" placeholder="〇〇区役所 地域振興課" data-input="updateSzEx" data-index="${i}" data-field="org"></td>
+			<td><input type="text" value="${esc(ex.role)}" placeholder="校長・会長・課長等" data-input="updateSzEx" data-index="${i}" data-field="role"></td>
 			<td>
 				<div class="name-field-box">
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(ex.lastNameKana)}" placeholder="せい" class="input-kana" oninput="updateSzEx(${i},'lastNameKana',this.value);renderSeatEditor();">
-						<input type="text" value="${esc(ex.firstNameKana)}" placeholder="めい" class="input-kana" oninput="updateSzEx(${i},'firstNameKana',this.value);renderSeatEditor();">
+						<input type="text" value="${esc(ex.lastNameKana)}" placeholder="せい" class="input-kana" data-input="updateSzEx" data-index="${i}" data-field="lastNameKana">
+						<input type="text" value="${esc(ex.firstNameKana)}" placeholder="めい" class="input-kana" data-input="updateSzEx" data-index="${i}" data-field="firstNameKana">
 					</div>
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(ex.lastName)}" placeholder="姓" oninput="updateSzEx(${i},'lastName',this.value);renderSeatEditor();">
-						<input type="text" value="${esc(ex.firstName)}" placeholder="名" oninput="updateSzEx(${i},'firstName',this.value);renderSeatEditor();">
+						<input type="text" value="${esc(ex.lastName)}" placeholder="姓" data-input="updateSzEx" data-index="${i}" data-field="lastName">
+						<input type="text" value="${esc(ex.firstName)}" placeholder="名" data-input="updateSzEx" data-index="${i}" data-field="firstName">
 					</div>
 				</div>
 			</td>
-			<td><input type="text" value="${esc(ex.contact)}" placeholder="電話番号・備考等" oninput="updateSzEx(${i},'contact',this.value);"></td>
-			<td style="text-align:center;"><button type="button" class="btn btn-danger btn-sm" onclick="deleteSzExternalRow(${i})">×</button></td>
+			<td><input type="text" value="${esc(ex.contact)}" placeholder="電話番号・備考等" data-input="updateSzEx" data-index="${i}" data-field="contact"></td>
+			<td style="text-align:center;"><button type="button" class="btn btn-danger btn-sm" data-click="deleteSzExternalRow" data-index="${i}">×</button></td>
 		`;
 		tbody.appendChild(tr);
 	});
@@ -985,7 +985,7 @@ async function loadTransferFileIntoRep(e) {
 	if (!file) return;
 	const pass = document.getElementById('rep-pass')?.value || "";
 	try {
-		const text = await file.text();
+		const text = await readImportFile(file);
 		let data;
 		try {
 			data = await parseTxtContent(text, pass, generation, importKind);
@@ -1097,7 +1097,7 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 		if (explicitMode === 'line') {
 			const lineUrl = 'https://line.me/R/msg/text/?' + encodeURIComponent(content);
 			if (typeof window !== 'undefined' && typeof window.open === 'function') {
-				window.open(lineUrl);
+				window.open(lineUrl, '_blank', 'noopener,noreferrer');
 			}
 			return true;
 		}
@@ -1109,7 +1109,7 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 				if (window.location) {
 					window.location.href = mailUrl;
 				} else if (typeof window.open === 'function') {
-					window.open(mailUrl);
+					window.open(mailUrl, '_blank', 'noopener,noreferrer');
 				}
 			}
 			return true;

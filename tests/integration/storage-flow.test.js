@@ -15,7 +15,7 @@ const app = require('../../js/app.js');
 
 test('integration: full storage encryption lifecycle (plain -> encrypted -> locked -> password/biometric unlock -> reset)', async () => {
 	setupDomEnvironment();
-	cryptoLib.clearStorageSecurity();
+	await cryptoLib.clearStorageSecurity();
 
 	// Step 1: Plain storage phase
 	document.getElementById('d-name').value = "初台地区";
@@ -53,7 +53,7 @@ test('integration: full storage encryption lifecycle (plain -> encrypted -> lock
 	// Attempting write while locked does not overwrite with garbage
 	const beforeWrite = localStorage.getItem('kogai_district_v2');
 	const writeRes = await cryptoLib.saveStorageData('kogai_district_v2', { district: "壊れたデータ" });
-	assert.strictEqual(writeRes, undefined);
+	assert.strictEqual(writeRes, false);
 	assert.strictEqual(localStorage.getItem('kogai_district_v2'), beforeWrite);
 
 	// Step 5: Password unlock
@@ -79,7 +79,7 @@ test('integration: full storage encryption lifecycle (plain -> encrypted -> lock
 	let reloaded = false;
 	window.location.reload = () => { reloaded = true; };
 	global.confirm = () => true;
-	app.handleResetStorageConfirm();
+	await app.handleResetStorageConfirm();
 	assert.strictEqual(reloaded, true);
 	assert.strictEqual(localStorage.getItem('kogai_auth_meta'), null);
 	assert.strictEqual(localStorage.getItem('kogai_district_v2'), null);

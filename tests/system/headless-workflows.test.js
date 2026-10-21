@@ -4,7 +4,7 @@ const { runInHeadlessChrome } = require('./helpers/headless-runner');
 
 // データ準備にも実際のフォームとイベントを使う。暗号化・保存・描画は実装をそのまま通す。
 function prepareWorkflows() {
-	ui.field = (scope, field, value) => ui.fill(`${scope} [oninput*="'${field}'"], ${scope} [onchange*="'${field}'"]`, value);
+	ui.field = (scope, field, value) => ui.fill(`${scope} [data-field="${field}"]`, value);
 	ui.password = (prefix, value = 'UiPassword1!') => {
 		ui.fill(`#${prefix}`, value);
 		ui.fill(`#${prefix}-confirm`, value);
@@ -22,6 +22,7 @@ function prepareWorkflows() {
 		ui.field('#students-tbody tr:nth-child(1)', 'address', '青空町1-2-3');
 		ui.field('#students-tbody tr:nth-child(1)', 'tel', '090-1111-2222');
 		ui.password('d-pass');
+		await saveDistrictLocal();
 	};
 	ui.transfer = async () => {
 		await ui.mode('transfer');
@@ -29,6 +30,7 @@ function prepareWorkflows() {
 			ui.field('.transfer-child-row:nth-child(1)', field, value);
 		}
 		ui.password('transfer-export-pass');
+		await saveTransferLocal();
 	};
 	ui.encrypt = async () => {
 		await ui.click('#storage-security-badge');
@@ -64,7 +66,7 @@ for (const queryMode of Object.keys({ district: 'district', rep: 'rep', neighbor
 
 browserTest('UI navigation: clicks, card CSS, input retention and actual reload', async () => {
 	await ui.district();
-	await ui.click('#tab-district button[onclick="setAllCardsCollapse(true, \'tab-district\')"]');
+	await ui.click('#tab-district button[data-click="setAllCardsCollapse"][data-flag="true"][data-target="tab-district"]');
 	assert.ok(!ui.visible('#d-name'), 'Collapsed card hides its inputs through CSS');
 	await ui.click('#card-d-officers .card-header-toggle');
 	assert.ok(ui.visible('#d-name'), 'Header click expands the card');
@@ -83,7 +85,7 @@ browserTest('UI district: top/bottom CRUD, sort order, han options, cancellation
 	await ui.district();
 	ui.fill('#d-han-list', ' A班、 B班，A班 C班 ');
 	assert.strictEqual(currentDistrict.hanList.join(','), 'A班,B班,C班', 'Han names normalized and deduplicated');
-	assert.ok([...ui.element('#students-tbody select[onchange*="\'han\'"]').options].some(o => o.value === 'C班'), 'Han dropdown updated');
+	assert.ok([...ui.element('#students-tbody select[data-field="han"]').options].some(o => o.value === 'C班'), 'Han dropdown updated');
 	await ui.click('#btn-add-student-top');
 	ui.field('#students-tbody tr:nth-child(2)', 'lastName', '班長');
 	ui.field('#students-tbody tr:nth-child(2)', 'leader', '班長');
@@ -109,7 +111,7 @@ browserTest('UI district: top/bottom CRUD, sort order, han options, cancellation
 	window.__confirmAnswer = true;
 	await ui.click('#neighborhood-tbody tr:first-child button');
 	assert.strictEqual(currentDistrict.neighborhood.length, 2, 'Confirmed neighborhood removal works');
-	await ui.click('#card-d-officers button[onclick="addOfficer()"]');
+	await ui.click('#card-d-officers button[data-click="addOfficer"]');
 	ui.fill('#officers-container .officer-item-box:nth-child(2) [data-field="lastName"]', '追加役員');
 	assert.strictEqual(currentDistrict.officers[1].lastName, '追加役員', 'Officer input persists');
 	window.__confirmAnswer = false;
@@ -123,7 +125,7 @@ browserTest('UI district: top/bottom CRUD, sort order, han options, cancellation
 browserTest('UI rep add modal: whitespace, duplicate, error clearing, Enter, Escape and backdrop', async () => {
 	await ui.mode('rep');
 	await ui.expand('rep');
-	const open = '#card-rep-districts button[onclick="addNewRepDistrict()"]';
+	const open = '#card-rep-districts button[data-click="addNewRepDistrict"]';
 	await ui.click(open);
 	assert.strictEqual(document.activeElement.id, 'rep-new-district-name', 'Modal autofocus');
 	await ui.click('#btn-confirm-add-district');
@@ -148,6 +150,10 @@ browserTest('UI rep add modal: whitespace, duplicate, error clearing, Enter, Esc
 	assert.ok(ui.visible('#rep-add-district-modal'), 'Content click keeps dialog open');
 	ui.element('#rep-add-district-modal').click();
 	assert.ok(!ui.visible('#rep-add-district-modal'), 'Backdrop closes modal');
+	await ui.waitFor(() => {
+		const saved = localStorage.getItem('kogai_rep_v2');
+		return saved && JSON.parse(saved).districts?.length === 1;
+	}, 'Accepted district persisted');
 	assert.strictEqual(JSON.parse(localStorage.getItem('kogai_rep_v2')).districts.length, 1, 'Only accepted district persisted');
 });
 
@@ -155,28 +161,28 @@ browserTest('UI rep detail: all row types, draft discard/save and confirmed dele
 	await ui.district();
 	await ui.mode('rep');
 	await ui.expand('rep');
-	await ui.click('button[onclick="addCurrentDistrictToRep()"]');
-	await ui.click('#rep-districts-tbody button[onclick="openRepDistrictDetailModal(0)"]');
+	await ui.click('button[data-click="addCurrentDistrictToRep"]');
+	await ui.click('#rep-districts-tbody button[data-click="openRepDistrictDetailModal"][data-index="0"]');
 	ui.field('#rep-modal-officer-tbody tr:first-child', 'lastName', '破棄役員');
-	await ui.click('#rep-district-detail-modal button[onclick="closeRepDistrictDetailModalWithoutSaving()"]');
+	await ui.click('#rep-district-detail-modal button[data-click="closeRepDistrictDetailModalWithoutSaving"]');
 	assert.strictEqual(repState.districts[0].officers[0].lastName, '', 'Cancel discards draft');
-	await ui.click('#rep-districts-tbody button[onclick="openRepDistrictDetailModal(0)"]');
-	for (const [add, body, name] of [['addModalOfficerRow()', '#rep-modal-officer-tbody', '編集役員'], ['addModalStudentRow()', '#rep-modal-students-tbody', '編集児童'], ['addModalNeighborRow()', '#rep-modal-neighbor-tbody', '編集会長']]) {
-		await ui.click(`#rep-district-detail-modal button[onclick="${add}"]`);
+	await ui.click('#rep-districts-tbody button[data-click="openRepDistrictDetailModal"][data-index="0"]');
+	for (const [add, body, name] of [['addModalOfficerRow', '#rep-modal-officer-tbody', '編集役員'], ['addModalStudentRow', '#rep-modal-students-tbody', '編集児童'], ['addModalNeighborRow', '#rep-modal-neighbor-tbody', '編集会長']]) {
+		await ui.click(`#rep-district-detail-modal button[data-click="${add}"]`);
 		ui.field(`${body} tr:last-child`, 'lastName', name);
 		window.__confirmAnswer = false;
 		await ui.click(`${body} tr:last-child button`);
 		assert.strictEqual(ui.element(`${body} tr:last-child input[placeholder="姓"]`).value, name, 'Cancel preserves draft row');
 	}
-	await ui.click('button[onclick="saveAndCloseRepDistrictDetailModal()"]');
+	await ui.click('button[data-click="saveAndCloseRepDistrictDetailModal"]');
 	assert.strictEqual(repState.districts[0].students.at(-1).lastName, '編集児童', 'Draft saved to representative state');
 	assert.ok(ui.element('#rep-districts-tbody').textContent.includes('編集役員'), 'Summary redrawn');
 	assert.strictEqual(getModalCurrentDistrict(), null, 'Draft released after save');
 	window.__confirmAnswer = false;
-	await ui.click('#rep-districts-tbody button[onclick="deleteRepDistrict(0)"]');
+	await ui.click('#rep-districts-tbody button[data-click="deleteRepDistrict"][data-index="0"]');
 	assert.strictEqual(repState.districts.length, 1, 'District removal cancel');
 	window.__confirmAnswer = true;
-	await ui.click('#rep-districts-tbody button[onclick="deleteRepDistrict(0)"]');
+	await ui.click('#rep-districts-tbody button[data-click="deleteRepDistrict"][data-index="0"]');
 	assert.strictEqual(repState.districts.length, 0, 'District removal confirmed');
 });
 
@@ -208,7 +214,7 @@ for (const mode of ['district', 'rep', 'neighbor', 'transfer']) {
 		const prefix = { district: 'd-pass', rep: 'rep-pass', neighbor: 'neighbor-pass', transfer: 'transfer-export-pass' }[mode];
 		ui.password(prefix, 'Ａｂｃ１２３！ｘｙｚ Ｑ日本語　');
 		assert.strictEqual(ui.element(`#${prefix}`).value, 'Abc123!xyzQ', 'Sanitization removes spaces and Japanese, converts full-width ASCII');
-		await ui.click(`button[onclick="togglePasswordVisibility('${prefix}', this)"]`);
+		await ui.click(`button[data-click="togglePasswordVisibility"][data-password-target="${prefix}"]`);
 		assert.strictEqual(ui.element(`#${prefix}`).type, 'text', 'Show password');
 		ui.password(prefix, 'Abcdef1234!');
 		if (mode === 'transfer') {
@@ -222,7 +228,7 @@ for (const mode of ['district', 'rep', 'neighbor', 'transfer']) {
 		ui.fill(`#${prefix}-confirm`, 'Different123!');
 		if (mode !== 'transfer') assert.ok(ui.element(`#${prefix}-match-msg`).textContent.includes('一致しません'), 'Mismatch shown on input');
 		else assert.ok(!validateTransferPasswords(), 'Mismatch rejected');
-		await ui.click(`button[onclick="togglePasswordVisibility('${prefix}', this)"]`);
+		await ui.click(`button[data-click="togglePasswordVisibility"][data-password-target="${prefix}"]`);
 		assert.strictEqual(ui.element(`#${prefix}`).type, 'password', 'Hide password');
 	}, { queryMode: mode });
 }
@@ -269,6 +275,7 @@ browserTest('UI transfer: sibling inheritance, encryption download/copy, cancel/
 	await ui.click('#btn-reset-transfer');
 	assert.strictEqual(transferState.children[0].lastName, '', 'Reset state');
 	assert.strictEqual(ui.element('#transfer-export-pass').value, '', 'Reset password');
+	await ui.waitFor(() => !localStorage.getItem('kogai_transfer_v2')?.includes('中央町101'), 'Reset storage save');
 	assert.ok(!localStorage.getItem('kogai_transfer_v2').includes('中央町101'), 'Reset removes saved personal data');
 });
 
@@ -287,21 +294,21 @@ browserTest('UI pipeline: transfer file to district, cancelled duplicate, repres
 	await ui.waitFor(() => currentDistrict.students.length === 2, 'Transfer file integration');
 	assert.strictEqual(currentDistrict.students.find(s => s.firstName === '未来').han, 'B班', 'Assigned han preserved');
 	assert.strictEqual(ui.element('#d-transfer-import-panel input[type="file"]').value, '', 'File input cleared for retry');
-	await ui.click('#d-transfer-import-panel button[onclick*="d-transfer-paste-panel"]');
+	await ui.click('#d-transfer-import-panel button[data-click="togglePastePanel"][data-target="d-transfer-paste-panel"]');
 	ui.fill('#d-transfer-paste-box', transferText);
 	window.__promptAnswers = ['B班'];
 	window.__confirmAnswer = false;
 	const alertCount = __dialogs.length;
-	await ui.click('button[onclick="loadPastedTransferTextIntoDistrict()"]');
+	await ui.click('button[data-click="loadPastedTransferTextIntoDistrict"]');
 	await ui.waitFor(() => __dialogs.length > alertCount + 1, 'Duplicate prompt');
 	assert.strictEqual(currentDistrict.students.length, 2, 'Duplicate cancellation is atomic');
 	window.__confirmAnswer = true;
 	await ui.mode('rep');
 	await ui.expand('rep');
-	await ui.click('button[onclick="addCurrentDistrictToRep()"]');
+	await ui.click('button[data-click="addCurrentDistrictToRep"]');
 	assert.ok(!('hata' in repState.districts[0]), 'Representative excludes local flag data');
 	ui.password('rep-pass');
-	await ui.click('#rep-districts-tbody button[onclick="exportSingleDistrictFromRep(0)"]');
+	await ui.click('#rep-districts-tbody button[data-click="exportSingleDistrictFromRep"][data-index="0"]');
 	await ui.waitFor(() => __downloads.length === 2, 'Split district file');
 	const split = __downloads[1].content;
 	assert.ok(!('hata' in await parseTxtContent(split, 'UiPassword1!')), 'Split payload excludes flag data');
@@ -319,7 +326,7 @@ browserTest('UI neighborhood pipeline: encrypted file/paste and mismatch cancell
 	ui.field('#neighbor-tbody tr:first-child', 'lastName', '会長姓');
 	ui.password('neighbor-pass');
 	ui.captureDownloads();
-	await ui.click('button[onclick="exportNeighborTxt()"]');
+	await ui.click('button[data-click="exportNeighborTxt"]');
 	await ui.waitFor(() => __downloads.length === 1, 'Neighbor export');
 	const text = __downloads[0].content;
 	await ui.district();
@@ -330,7 +337,7 @@ browserTest('UI neighborhood pipeline: encrypted file/paste and mismatch cancell
 	assert.strictEqual(currentDistrict.neighborhood[0].lastName, '', 'Cancelled name mismatch leaves data');
 	window.__confirmAnswer = true;
 	ui.fill('#d-neighbor-paste-box', text);
-	await ui.click('button[onclick="loadPastedNeighborTextIntoDistrict()"]');
+	await ui.click('button[data-click="loadPastedNeighborTextIntoDistrict"]');
 	await ui.waitFor(() => currentDistrict.neighborhood[0].lastName === '会長姓', 'Neighbor paste accepted');
 	assert.strictEqual(currentDistrict.students[0].lastName, '山田', 'Students preserved');
 	assert.strictEqual(currentDistrict.district, '青空地区', 'District name preserved');
@@ -375,7 +382,7 @@ browserTest('UI encryption migration: all four modes encrypted, reload locks, wr
 	assert.ok(ui.visible('#storage-lock-modal'), 'Actual reload starts locked');
 	assert.ok(!isStorageUnlocked(), 'Key not persisted');
 	ui.fill('#modal-unlock-pass', 'WrongPassword!');
-	await ui.click('#storage-lock-modal button[onclick="handlePasswordUnlock()"]');
+	await ui.click('#storage-lock-modal button[data-click="handlePasswordUnlock"]');
 	await ui.waitFor(() => ui.element('#modal-unlock-error').textContent, 'Wrong password rejected');
 	assert.ok(ui.visible('#storage-lock-modal'), 'Wrong password keeps lock');
 	ui.fill('#modal-unlock-pass', 'UiPassword1!');
@@ -394,12 +401,12 @@ browserTest('UI lock purge: all state, draft modal, print, plaintext/paste and r
 	ui.fill('#hata-contact-msg', '秘密の旗振り連絡先');
 	await ui.mode('rep');
 	await ui.expand('rep');
-	await ui.click('button[onclick="addCurrentDistrictToRep()"]');
+	await ui.click('button[data-click="addCurrentDistrictToRep"]');
 	ui.field('#sz-external-tbody tr:first-child', 'lastName', '秘密の校長');
 	ui.fill('#seat-grid-container .seat-cell-edit:first-child input', '秘密の座席メモ');
 	ui.password('rep-pass', 'PrivatePass1!');
 	await ui.encrypt();
-	await ui.click('#rep-districts-tbody button[onclick="openRepDistrictDetailModal(0)"]');
+	await ui.click('#rep-districts-tbody button[data-click="openRepDistrictDetailModal"][data-index="0"]');
 	ui.field('#rep-modal-students-tbody tr:first-child', 'firstName', '秘密の下書き');
 	ui.element('#print-area').innerHTML = '<p>秘密の印刷名簿</p>';
 	for (const el of document.querySelectorAll('textarea, input[id$="-pass"], input[id$="-pass-confirm"]')) el.value = '秘密の入力';
@@ -411,7 +418,7 @@ browserTest('UI lock purge: all state, draft modal, print, plaintext/paste and r
 	assert.ok(!JSON.stringify({ currentDistrict, repState, neighborState, transferState }).includes('秘密'), 'No secret in application state');
 	assert.strictEqual(ui.element('#print-area').innerHTML, '', 'Print data purged');
 	for (const el of document.querySelectorAll('input, textarea, select')) {
-		assert.ok(!el.value.includes('秘密') && !el.value.includes('PrivatePass'), `No secret in DOM field ${el.id || el.getAttribute('oninput')}`);
+		assert.ok(!el.value.includes('秘密') && !el.value.includes('PrivatePass'), `No secret in DOM field ${el.id || el.getAttribute('data-input')}`);
 	}
 	assert.strictEqual(ui.element('#rep-modal-students-tbody').textContent, '', 'Closed draft DOM also purged');
 });
@@ -424,7 +431,10 @@ browserTest('UI encryption setup: initial auto-lock starts and interactions rese
 	window.dispatchEvent(new Event('pointerdown'));
 	assert.ok(window.__clearedTimers.includes(first.id), 'Interaction cancels old deadline');
 	assert.ok(window.__autoLockTasks.at(-1).id !== first.id, 'Interaction schedules new deadline');
-	window.__autoLockTasks.at(-1).callback();
+	const actualNow = Date.now;
+	const deadline = actualNow() + 15 * 60 * 1000 + 1;
+	Date.now = () => deadline;
+	try { window.__autoLockTasks.at(-1).callback(); } finally { Date.now = actualNow; }
 	assert.ok(!isStorageUnlocked(), 'Expiration locks key');
 	assert.ok(ui.visible('#storage-lock-modal'), 'Expiration opens lock UI');
 }, { beforeLoad: () => {
@@ -446,11 +456,11 @@ browserTest('UI full reset: cancel preserves storage; confirmed wipe survives ac
 	await ui.encrypt();
 	await ui.click('#storage-security-badge');
 	window.__confirmAnswer = false;
-	await ui.click('#storage-settings-modal button[onclick="handleResetStorageConfirm()"]');
+	await ui.click('#storage-settings-modal button[data-click="handleResetStorageConfirm"]');
 	assert.ok(isStorageEncrypted(), 'Reset cancellation preserves auth metadata');
 	assert.ok(localStorage.getItem('kogai_transfer_v2'), 'Reset cancellation preserves transfer data');
 	window.__confirmAnswer = true;
-}, { reloadSelector: '#storage-settings-modal button[onclick="handleResetStorageConfirm()"]', afterReload: async () => {
+}, { reloadSelector: '#storage-settings-modal button[data-click="handleResetStorageConfirm"]', afterReload: async () => {
 	assert.ok(!isStorageEncrypted(), 'Auth metadata wiped');
 	assert.ok(!ui.visible('#storage-lock-modal'), 'Fresh startup is unlocked');
 	assert.strictEqual(transferState.children[0].lastName, '', 'Transfer not restored after full wipe');
@@ -490,23 +500,23 @@ browserTest('UI neighbor and representative year update: cancel and retain organ
 	await ui.expand('neighbor');
 	ui.field('#neighbor-tbody tr:first-child', 'lastName', '旧会長');
 	window.__confirmAnswer = false;
-	await ui.click('button[onclick="runNeighborYearUpdate()"]');
+	await ui.click('button[data-click="runNeighborYearUpdate"]');
 	assert.strictEqual(neighborState.neighborhood[0].lastName, '旧会長', 'Neighbor year cancellation');
 	window.__confirmAnswer = true;
-	await ui.click('button[onclick="runNeighborYearUpdate()"]');
+	await ui.click('button[data-click="runNeighborYearUpdate"]');
 	assert.strictEqual(neighborState.neighborhood[0].role, '会長', 'Role template retained');
 	assert.strictEqual(neighborState.neighborhood[0].lastName, '', 'Prior officer personal data cleared');
 	await ui.district();
 	await ui.mode('rep');
 	await ui.expand('rep');
-	await ui.click('button[onclick="addCurrentDistrictToRep()"]');
+	await ui.click('button[data-click="addCurrentDistrictToRep"]');
 	ui.field('#sz-external-tbody tr:first-child', 'lastName', '旧校長');
 	ui.fill('#seat-grid-container .seat-cell-edit:first-child input', '旧座席');
 	window.__confirmAnswer = false;
-	await ui.click('button[onclick="runRepYearUpdate()"]');
+	await ui.click('button[data-click="runRepYearUpdate"]');
 	assert.strictEqual(repState.districts.length, 1, 'Rep year cancellation');
 	window.__confirmAnswer = true;
-	await ui.click('button[onclick="runRepYearUpdate()"]');
+	await ui.click('button[data-click="runRepYearUpdate"]');
 	assert.strictEqual(repState.districts.length, 0, 'Rep year clears collected districts');
 	assert.strictEqual(repState.szExternals[0].role, '校長', 'External organization template retained');
 	assert.strictEqual(repState.szExternals[0].lastName, '', 'External name cleared');
@@ -520,7 +530,7 @@ browserTest('UI hata: imported holidays survive DOM/state/storage/schedule and a
 	await ui.waitFor(() => ui.element('#hata-title').value === '読込シフト', 'Official JSON loaded');
 	assert.strictEqual(ui.element('#hata-holidays').value, config.holidays, 'Imported holidays restored to DOM');
 	assert.strictEqual(currentDistrict.hata.holidays, config.holidays, 'State holidays preserved');
-	await ui.click('button[onclick="runAutoHataGeneration()"]');
+	await ui.click('button[data-click="runAutoHataGeneration"]');
 	assert.ok(ui.element('#hata-schedule-preview').textContent.includes('独自休校日'), 'Imported holiday used in generated schedule');
 	assert.strictEqual(JSON.parse(localStorage.getItem('kogai_district_v2')).hata.holidays, config.holidays, 'Imported holiday persisted');
 }, { afterReload: async () => {
@@ -569,13 +579,13 @@ browserTest('UI hata: generation, exemption, stats, JSON export, print title and
 	ui.fill('#hata-specials', '2026-10-21,固定担当,行事');
 	assert.ok(ui.element('#hata-exempt-list').textContent.includes('佐藤'), 'Exemption choices follow student additions');
 	await ui.click('#hata-exempt-list label:first-child');
-	await ui.click('button[onclick="runAutoHataGeneration()"]');
+	await ui.click('button[data-click="runAutoHataGeneration"]');
 	assert.ok(ui.element('#hata-schedule-preview').textContent.includes('固定担当'), 'Special day rendered');
 	assert.ok(ui.element('#hata-schedule-preview').textContent.includes('休校'), 'Holiday rendered');
-	await ui.click('button[onclick="toggleHataSummary()"]');
+	await ui.click('button[data-click="toggleHataSummary"]');
 	assert.ok(ui.element('#hata-summary-container').textContent.includes('佐藤'), 'Stats rendered');
 	ui.captureDownloads();
-	await ui.click('#card-d-hata button[onclick^="downloadTextFile(exportHataOfficialJson"]');
+	await ui.click('#card-d-hata button[data-click="exportHataSettings"]');
 	assert.strictEqual(JSON.parse(__downloads[0].content).specials, '2026-10-21,固定担当,行事', 'Official JSON carries schedule settings');
 	const title = document.title;
 	let printCount = 0;
@@ -585,7 +595,7 @@ browserTest('UI hata: generation, exemption, stats, JSON export, print title and
 		assert.ok(document.body.classList.contains('printing-hata'), 'Hata print mode set');
 		assert.ok(ui.element('#hata-print-active-sheet').textContent.includes('固定担当'), 'Print contains shift');
 	};
-	await ui.click('button[onclick="printHataSchedule()"]');
+	await ui.click('button[data-click="printHataSchedule"]');
 	assert.strictEqual(printCount, 1, 'One print invocation');
 	assert.strictEqual(document.title, title, 'Title restored');
 	assert.ok(!document.getElementById('hata-print-active-sheet'), 'Temporary print sheet removed');
@@ -609,7 +619,7 @@ browserTest('UI seat editor: min/max resize, facility/custom text, side labels, 
 	ui.fill('#seat-top-label', '前方の舞台');
 	assert.strictEqual(ui.element('#seat-top-bar-view').textContent, '前方の舞台', 'Label input updates view');
 	const left = ui.element('#seat-left-bar').textContent;
-	await ui.click('button[onclick="swapSeatWindowCorridor()"]');
+	await ui.click('button[data-click="swapSeatWindowCorridor"]');
 	assert.strictEqual(ui.element('#seat-right-bar').textContent, left, 'Left/right swapped');
 	await ui.click('#sz-external-tbody tr:first-child input[type="checkbox"]');
 	assert.ok(![...ui.element('#seat-grid-container select').options].some(o => o.value === 'EXT_0'), 'Absent attendee removed from choices');
@@ -635,22 +645,22 @@ browserTest('UI seat deletion: removing preceding district/officer keeps other a
 	await ui.district('最初地区');
 	await ui.mode('rep');
 	await ui.expand('rep');
-	await ui.click('button[onclick="addCurrentDistrictToRep()"]');
-	await ui.click('button[onclick="addNewRepDistrict()"]');
+	await ui.click('button[data-click="addCurrentDistrictToRep"]');
+	await ui.click('button[data-click="addNewRepDistrict"]');
 	ui.fill('#rep-new-district-name', '次地区');
 	await ui.click('#btn-confirm-add-district');
-	await ui.click('#rep-districts-tbody button[onclick="openRepDistrictDetailModal(1)"]');
+	await ui.click('#rep-districts-tbody button[data-click="openRepDistrictDetailModal"][data-index="1"]');
 	ui.field('#rep-modal-officer-tbody tr:first-child', 'lastName', '役員A');
-	await ui.click('#rep-district-detail-modal button[onclick="addModalOfficerRow()"]');
+	await ui.click('#rep-district-detail-modal button[data-click="addModalOfficerRow"]');
 	ui.field('#rep-modal-officer-tbody tr:nth-child(2)', 'lastName', '役員B');
-	await ui.click('button[onclick="saveAndCloseRepDistrictDetailModal()"]');
+	await ui.click('button[data-click="saveAndCloseRepDistrictDetailModal"]');
 	assert.ok([...ui.element('#seat-grid-container select').options].some(o => o.value === 'OFF_1_1'), 'Modal save refreshes participant options');
 	ui.fill('#seat-grid-container .seat-cell-edit:first-child select', 'OFF_1_1');
-	await ui.click('#rep-districts-tbody button[onclick="deleteRepDistrict(0)"]');
+	await ui.click('#rep-districts-tbody button[data-click="deleteRepDistrict"][data-index="0"]');
 	assert.ok(ui.element('#seat-grid-container select').selectedOptions[0].textContent.includes('役員B'), 'District deletion keeps other district officer');
-	await ui.click('#rep-districts-tbody button[onclick="openRepDistrictDetailModal(0)"]');
+	await ui.click('#rep-districts-tbody button[data-click="openRepDistrictDetailModal"][data-index="0"]');
 	await ui.click('#rep-modal-officer-tbody tr:first-child button');
-	await ui.click('button[onclick="saveAndCloseRepDistrictDetailModal()"]');
+	await ui.click('button[data-click="saveAndCloseRepDistrictDetailModal"]');
 	assert.ok(ui.element('#seat-grid-container select').selectedOptions[0].textContent.includes('役員B'), 'Officer deletion keeps later officer');
 });
 
@@ -663,7 +673,7 @@ browserTest('UI print: selected district documents, opt-out contacts, separate t
 	await ui.click('#d-opt-officer-email');
 	await ui.click('#d-print-neighbors');
 	const title = document.title;
-	await ui.click('button[onclick="printSingleDistrictSelected()"]');
+	await ui.click('button[data-click="printSingleDistrictSelected"]');
 	assert.strictEqual(__prints[0].title, '児童名簿_青空地区', 'Single document PDF title');
 	assert.ok(!__prints[0].html.includes('090-9999-8888') && !__prints[0].html.includes('secret@example.test'), 'Officer contacts omitted');
 	assert.ok(__prints[0].html.includes('山田'), 'Student name printed');
@@ -673,7 +683,7 @@ browserTest('UI print: selected district documents, opt-out contacts, separate t
 	assert.strictEqual(document.title, title, 'App title restored after separate PDF');
 	await ui.click('#d-print-students');
 	await ui.click('#d-print-neighbors');
-	await ui.click('button[onclick="printSingleDistrictSelected()"]');
+	await ui.click('button[data-click="printSingleDistrictSelected"]');
 	assert.strictEqual(__prints.length, 3, 'No print for empty selection');
 	assert.ok(__dialogs.at(-1).message.includes('チェック'), 'Empty selection guidance');
 });
@@ -684,7 +694,7 @@ browserTest('UI neighbor tent cards: semantic name/kana/role and no-rows guard',
 	ui.fill('#neighbor-district-name', '中央自治会');
 	for (const [field, value] of Object.entries({ lastName: '山田', firstName: '太郎', lastNameKana: 'やまだ', firstNameKana: 'たろう' })) ui.field('#neighbor-tbody tr:first-child', field, value);
 	ui.capturePrints();
-	await ui.click('button[onclick="printNeighborTentCards()"]');
+	await ui.click('button[data-click="printNeighborTentCards"]');
 	assert.strictEqual(ui.element('#print-area .tent-name').textContent.trim(), '山田 太郎', 'Name is printed in name field');
 	assert.strictEqual(ui.element('#print-area .tent-kana').textContent.trim(), 'やまだ たろう', 'Kana is printed in kana field');
 	assert.strictEqual(ui.element('#print-area .tent-role').textContent.trim(), '会長', 'Role is printed in role field');
@@ -698,26 +708,26 @@ browserTest('UI representative print: all twelve report choices render, selectio
 	ui.fill('#officers-container [data-field="childFirstName"]', '児童名');
 	await ui.mode('rep');
 	await ui.expand('rep');
-	await ui.click('button[onclick="addCurrentDistrictToRep()"]');
+	await ui.click('button[data-click="addCurrentDistrictToRep"]');
 	ui.capturePrints();
-	await ui.click('button[onclick="setRepPrintChecks(false)"]');
-	await ui.click('button[onclick="executeRepSelectedPrint()"]');
+	await ui.click('button[data-click="setRepPrintChecks"][data-flag="false"]');
+	await ui.click('button[data-click="executeRepSelectedPrint"]');
 	assert.strictEqual(__prints.length, 0, 'No reports when selection empty');
 	const choices = [...document.querySelectorAll('.rep-print-chk')].map(el => el.value);
 	assert.strictEqual(choices.length, 12, 'Twelve report types');
 	for (const choice of choices) {
 		await ui.click(`.rep-print-chk[value="${choice}"]`);
 		const before = __prints.length;
-		await ui.click('button[onclick="executeRepSelectedPrint()"]');
+		await ui.click('button[data-click="executeRepSelectedPrint"]');
 		assert.strictEqual(__prints.length, before + 1, `${choice} prints`);
 		assert.ok(__prints.at(-1).html.includes('print-page'), `${choice} renders print markup`);
 		await ui.click(`.rep-print-chk[value="${choice}"]`);
 	}
-	await ui.click('button[onclick="setRepPrintChecks(true)"]');
+	await ui.click('button[data-click="setRepPrintChecks"][data-flag="true"]');
 	assert.strictEqual(document.querySelectorAll('.rep-print-chk:checked').length, 12, 'Select all reports');
-	await ui.click('button[onclick="toggleAllDistrictChecks(false)"]');
+	await ui.click('button[data-click="toggleAllDistrictChecks"][data-flag="false"]');
 	assert.ok(!repState.districts[0].selectedForPrint, 'District deselection reaches state');
-	await ui.click('button[onclick="toggleAllDistrictChecks(true)"]');
+	await ui.click('button[data-click="toggleAllDistrictChecks"][data-flag="true"]');
 	assert.ok(repState.districts[0].selectedForPrint, 'District selection reaches state');
 });
 
@@ -769,7 +779,7 @@ for (const width of [375, 768, 1280]) {
 		assert.ok(ui.element('#students-tbody').closest('.table-scroll, .table-responsive, .table-wrap, .table-container, .table-wrapper') || getComputedStyle(ui.element('#students-tbody').parentElement.parentElement).overflowX === 'auto', 'Wide student table has scroll containment');
 		ui.fill('#hata-start-date', '2026-10-19');
 		ui.fill('#hata-end-date', '2026-10-23');
-		await ui.click('button[onclick="runAutoHataGeneration()"]');
+		await ui.click('button[data-click="runAutoHataGeneration"]');
 		assert.ok(ui.element('#hata-schedule-preview').children.length > 0, 'Schedule rendered at current viewport');
 		const expected = innerWidth < 768 ? '.hata-card-list' : '.hata-sheet';
 		assert.ok(document.querySelector(`#hata-schedule-preview ${expected}`), 'Viewport selects expected schedule layout');
@@ -785,8 +795,8 @@ browserTest('UI district paste restore: actual button restores file content and 
 	ui.fill('#d-name', '変更後');
 	await ui.click('#btn-load-district-paste');
 	ui.fill('#d-paste-box', __downloads[0].content);
-	await ui.click('button[onclick="loadPastedTextToDistrict()"]');
-	await ui.waitFor(() => currentDistrict.district === '青空地区', 'Paste restores district');
+	await ui.click('button[data-click="loadPastedTextToDistrict"]');
+	await ui.waitFor(() => currentDistrict.district === '青空地区' && ui.element('#d-paste-box').value === '', 'Paste restore completes');
 	assert.strictEqual(ui.element('#d-name').value, '青空地区', 'Restored name rendered');
 	assert.strictEqual(ui.element('#d-paste-box').value, '', 'Successful restore clears paste data');
 });
@@ -801,7 +811,7 @@ browserTest('UI rep transfer direct: file picker assigns district and han; cance
 	await ui.expand('rep');
 	ui.password('rep-pass');
 	window.__promptAnswers = [null];
-	await ui.file('input[onchange="loadTransferFileIntoRep(event)"]', text);
+	await ui.file('input[data-change="loadTransferFileIntoRep"]', text);
 	await ui.waitFor(() => __dialogs.some(d => d.type === 'prompt'), 'District assignment prompt');
 	assert.strictEqual(repState.districts.length, 0, 'Cancelled assignment leaves no partial district');
 	window.__promptAnswers = ['直接地区', '2班'];
@@ -819,7 +829,7 @@ browserTest('UI neighbor copy: mismatched password confirmation prevents encrypt
 	ui.password('neighbor-pass');
 	ui.fill('#neighbor-pass-confirm', 'Different123!');
 	ui.clipboard();
-	await ui.click('button[onclick="copyNeighborEncryptedText()"]');
+	await ui.click('button[data-click="copyNeighborEncryptedText"]');
 	await ui.waitFor(() => __dialogs.length > 0, 'Copy validation completes');
 	assert.strictEqual(window.__copiedText, undefined, 'Mismatch must not produce encrypted clipboard data');
 	assert.ok(__dialogs.at(-1).message.includes('一致'), 'Mismatch explained');
@@ -832,18 +842,18 @@ browserTest('UI rep neighbor deletion: selected attendance and seat follow survi
 	ui.field('#neighborhood-tbody tr:nth-child(2)', 'lastName', '自治会B');
 	await ui.mode('rep');
 	await ui.expand('rep');
-	await ui.click('button[onclick="addCurrentDistrictToRep()"]');
-	await ui.click('#sz-neighborhood-selector input[onchange*="0, 1"]');
+	await ui.click('button[data-click="addCurrentDistrictToRep"]');
+	await ui.click('#sz-neighborhood-selector input[data-change="toggleSzNeighbor"][data-index="0"][data-index2="1"]');
 	const selector = ui.element('#seat-grid-container select');
 	const selected = [...selector.options].find(o => o.textContent.includes('自治会B'));
 	ui.fill(selector, selected.value);
-	await ui.click('#rep-districts-tbody button[onclick="openRepDistrictDetailModal(0)"]');
+	await ui.click('#rep-districts-tbody button[data-click="openRepDistrictDetailModal"][data-index="0"]');
 	ui.field('#rep-modal-neighbor-tbody tr:nth-child(2)', 'role', '副会長');
-	await ui.click('button[onclick="saveAndCloseRepDistrictDetailModal()"]');
+	await ui.click('button[data-click="saveAndCloseRepDistrictDetailModal"]');
 	assert.ok(ui.element('#seat-grid-container select').selectedOptions[0].textContent.includes('自治会B'), 'Editing role preserves same attendee and seat');
-	await ui.click('#rep-districts-tbody button[onclick="openRepDistrictDetailModal(0)"]');
+	await ui.click('#rep-districts-tbody button[data-click="openRepDistrictDetailModal"][data-index="0"]');
 	await ui.click('#rep-modal-neighbor-tbody tr:first-child button');
-	await ui.click('button[onclick="saveAndCloseRepDistrictDetailModal()"]');
+	await ui.click('button[data-click="saveAndCloseRepDistrictDetailModal"]');
 	assert.ok(ui.element('#sz-neighborhood-selector').textContent.includes('自治会B'), 'Attendance list refreshed');
 	assert.ok(!ui.element('#sz-neighborhood-selector').textContent.includes('自治会A'), 'Removed neighbor no longer selectable');
 	assert.ok(ui.element('#seat-grid-container select').selectedOptions[0].textContent.includes('自治会B'), 'Surviving neighbor keeps seat');
@@ -855,12 +865,12 @@ browserTest('UI lock button: ciphertext unchanged, lock rejects writes and unloc
 	await ui.encrypt();
 	const ciphertext = localStorage.getItem('kogai_district_v2');
 	await ui.click('#storage-security-badge');
-	await ui.click('button[onclick="handleImmediateLock()"]');
+	await ui.click('button[data-click="handleImmediateLock"]');
 	assert.ok(ui.visible('#storage-lock-modal'), 'Lock button displays unlock modal');
 	await saveStorageData('kogai_district_v2', { district: '上書き禁止' });
 	assert.strictEqual(localStorage.getItem('kogai_district_v2'), ciphertext, 'Locked write leaves ciphertext intact');
 	ui.fill('#modal-unlock-pass', 'UiPassword1!');
-	await ui.click('#storage-lock-modal button[onclick="handlePasswordUnlock()"]');
+	await ui.click('#storage-lock-modal button[data-click="handlePasswordUnlock"]');
 	await ui.waitFor(() => !ui.visible('#storage-lock-modal') && currentDistrict.district === '青空地区', 'Unlock restores roster');
 	assert.strictEqual(ui.element('#modal-unlock-pass').value, '', 'Unlock password wiped');
 });
@@ -868,7 +878,7 @@ browserTest('UI lock button: ciphertext unchanged, lock rejects writes and unloc
 browserTest('UI printing CSS: old ordinary reports do not leak into hata print, landscape applies', async () => {
 	await ui.district();
 	ui.capturePrints();
-	await ui.click('button[onclick="printSingleDistrictSelected()"]');
+	await ui.click('button[data-click="printSingleDistrictSelected"]');
 	assert.ok(ui.element('#print-area').innerHTML.length > 0, 'Ordinary print leaves prior report DOM');
 	ui.fill('#hata-start-date', '2026-10-19');
 	ui.fill('#hata-end-date', '2026-10-23');
@@ -901,6 +911,7 @@ for (const mode of ['district', 'rep', 'neighbor', 'transfer']) {
 			await ui.mode('neighbor'); await ui.expand('neighbor');
 			ui.fill('#neighbor-district-name', '維持する自治会');
 			ui.fill('#neighbor-import-pass', 'UiPassword1!');
+			await saveNeighborLocal();
 		} else if (mode === 'rep') {
 			await ui.mode('rep'); await ui.expand('rep'); ui.password('rep-pass');
 		}
@@ -908,12 +919,12 @@ for (const mode of ['district', 'rep', 'neighbor', 'transfer']) {
 		const before = snapshots();
 		const stored = JSON.stringify({ ...localStorage });
 		const payloads = {
-			district: [{ district: '不正地区', students: {} }, { district: {}, students: [] }, { district: '不正地区', hata: { exemptHouseholds: {} } }, { district: '取込地区', officer: { lastName: '山田', han: {} } }, { district: '取込地区', officer: { childName: {} } }],
+			district: [{ district: '不正地区', students: {} }, { district: {}, students: [] }, { district: '不正地区', savedFilePassword: { toString: null } }, { district: '不正地区', hata: { scheduleCreatedDate: { toString: null } } }, { district: '不正地区', hata: { district: { toString: null } } }, { district: '不正地区', hata: { exemptHouseholds: {} } }, { district: '取込地区', officer: { lastName: '山田', han: {} } }, { district: '取込地区', officer: { childName: {} } }],
 			rep: [{ districts: {}, szExternals: [] }, { districts: [{ district: '不正地区', students: {} }], szExternals: [] }, { districts: [], seatConfig: { cols: 'garbage', cells: {} } }, { districts: [{ district: '取込地区', officer: { lastName: '山田', han: {} } }] }],
 			neighbor: [{ district: '不正自治会', neighborhood: [null] }, { district: {}, neighborhood: [] }],
 			transfer: [{ isTransferData: true, children: [{}] }, { isTransferData: true, children: 'not-an-array' }]
 		};
-		const input = { district: '#d-file-in', rep: 'input[onchange="loadRepMasterTxt(event)"]', neighbor: '#neighbor-file-input', transfer: '#d-transfer-import-panel input[type="file"]' }[mode];
+		const input = { district: '#d-file-in', rep: 'input[data-change="loadRepMasterTxt"]', neighbor: '#neighbor-file-input', transfer: '#d-transfer-import-panel input[type="file"]' }[mode];
 		for (const payload of payloads[mode]) {
 			const text = await encryptPayload(JSON.stringify(payload), 'UiPassword1!');
 			const count = __dialogs.length;
@@ -1004,15 +1015,15 @@ browserTest('UI representative master: exported master restores through the past
 	await ui.district();
 	await ui.mode('rep');
 	await ui.expand('rep');
-	await ui.click('button[onclick="addCurrentDistrictToRep()"]');
+	await ui.click('button[data-click="addCurrentDistrictToRep"]');
 	ui.password('rep-pass');
 	ui.captureDownloads();
-	await ui.click('button[onclick="exportRepMasterTxt()"]');
+	await ui.click('button[data-click="exportRepMasterTxt"]');
 	await ui.waitFor(() => __downloads.length === 1, 'Master export');
-	await ui.click('button[onclick="clearAllRepDistricts()"]');
+	await ui.click('button[data-click="clearAllRepDistricts"]');
 	assert.strictEqual(repState.districts.length, 0, 'Existing master cleared');
 	ui.fill('#rep-paste-box', __downloads[0].content);
-	await ui.click('button[onclick="loadPastedTextToRep()"]');
+	await ui.click('button[data-click="loadPastedTextToRep"]');
 	await ui.waitFor(() => ui.element('#rep-paste-box').value === '', 'Master paste completed');
 	assert.strictEqual(repState.districts[0].district, '青空地区', 'Master pasted as master rather than an anonymous district');
 	assert.strictEqual(repState.districts[0].students[0].lastName, '山田', 'Nested roster restored');

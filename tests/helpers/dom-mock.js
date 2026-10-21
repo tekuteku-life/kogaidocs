@@ -346,6 +346,8 @@ class MockCredentials {
 }
 
 function setupDomEnvironment() {
+	if (typeof global.clearStorageSecurity === 'function') global.clearStorageSecurity();
+	delete global.__kogaiAutoLockListenersBound;
 	const elementsMap = {};
 
 	const mockDoc = {
@@ -481,6 +483,12 @@ function setupDomEnvironment() {
 	const mockNav = {
 		clipboard: new MockClipboard(),
 		credentials: new MockCredentials(),
+		locks: {
+			request: async (_name, options, callback) => {
+				if (typeof options === 'function') return options({});
+				return callback({});
+			}
+		},
 		serviceWorker: {
 			register: async () => ({})
 		}

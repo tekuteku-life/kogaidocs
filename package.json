@@ -1,12 +1,12 @@
 {
 	"name": "kogaidocs",
-	"version": "2.8.2",
+	"version": "2.8.3",
 	"description": "PTA校外委員会 名簿・帳票・スクールゾーン協議会管理システム",
 	"scripts": {
-		"test": "node --test --experimental-test-coverage tests/unit/*.test.js tests/integration/*.test.js tests/system/*.test.js",
-		"test:unit": "node --test --experimental-test-coverage tests/unit/*.test.js",
-		"test:integration": "node --test --experimental-test-coverage tests/integration/*.test.js",
-		"test:system": "node --test --experimental-test-coverage tests/system/*.test.js",
-		"test:ui": "node --test tests/system/headless-*.test.js"
+		"test": "node --test --test-concurrency=1 --experimental-test-coverage tests/unit/*.test.js tests/integration/*.test.js tests/system/*.test.js",
+		"test:unit": "node --test --test-concurrency=1 --experimental-test-coverage tests/unit/*.test.js",
+		"test:integration": "node --test --test-concurrency=1 --experimental-test-coverage tests/integration/*.test.js",
+		"test:system": "node --test --test-concurrency=1 --experimental-test-coverage tests/system/*.test.js",
+		"test:ui": "node --test --test-concurrency=1 tests/system/headless-*.test.js"
 	}
 }

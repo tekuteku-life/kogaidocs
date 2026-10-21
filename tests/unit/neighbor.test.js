@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 const { setupDomEnvironment } = require('../helpers/dom-mock.js');
 
 setupDomEnvironment();
@@ -8,6 +10,7 @@ const utils = require('../../js/utils.js');
 const state = require('../../js/state.js');
 const print = require('../../js/print.js');
 const neighbor = require('../../js/neighbor.js');
+const events = require('../../js/events.js');
 
 test('neighbor: renderNeighborForm and renderNeighborTable with empty and populated lists', () => {
 	setupDomEnvironment();
@@ -412,18 +415,22 @@ test('neighbor: toolbar add buttons (#btn-add-neighbor-mode-top and bottom) add 
 	state.neighborState = { district: "ボタンテスト町会", neighborhood: [] };
 	neighbor.renderNeighborForm();
 
-	const topBtn = document.getElementById('btn-add-neighbor-mode-top');
-	const bottomBtn = document.getElementById('btn-add-neighbor-mode-bottom');
+	// 初期IDのみを登録するMock DOMへ、実際のボタン宣言を読み込む。
+	const markup = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
+	const toolbar = document.createElement('div');
+	toolbar.innerHTML = ['btn-add-neighbor-mode-top', 'btn-add-neighbor-mode-bottom']
+		.map(id => markup.match(new RegExp(`<button\\b[^>]*id="${id}"[^>]*>[\\s\\S]*?</button>`))[0]).join('');
+	const topBtn = toolbar.querySelector('#btn-add-neighbor-mode-top');
+	const bottomBtn = toolbar.querySelector('#btn-add-neighbor-mode-bottom');
 
 	assert(topBtn, '#btn-add-neighbor-mode-top should exist');
 	assert(bottomBtn, '#btn-add-neighbor-mode-bottom should exist');
 
-	// Click top button
-	topBtn.click();
+	// Mock DOMのdispatchEventは自動で親へ伝播しないため委譲先へ送る。
+	events.dispatchUiEvent({ type: 'click', target: topBtn });
 	assert.strictEqual(state.neighborState.neighborhood.length, 1);
 
-	// Click bottom button
-	bottomBtn.click();
+	events.dispatchUiEvent({ type: 'click', target: bottomBtn });
 	assert.strictEqual(state.neighborState.neighborhood.length, 2);
 });
 

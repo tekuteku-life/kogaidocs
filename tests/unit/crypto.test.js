@@ -26,7 +26,7 @@ test('crypto: deriveKey derives an AES-GCM CryptoKey', async () => {
 test('crypto: encryptPayload and decryptPayload with AES-GCM and PBKDF2', async () => {
 	const plain = JSON.stringify({ hello: "world", district: "テスト町" });
 	const enc = await cryptoLib.encryptPayload(plain, validPass);
-	assert(enc.startsWith("ENC:"));
+	assert(enc.startsWith("ENC:2:"));
 
 	const dec = await cryptoLib.decryptPayload(enc, validPass);
 	assert.strictEqual(dec, plain);
@@ -36,11 +36,6 @@ test('crypto: encryptPayload and decryptPayload with AES-GCM and PBKDF2', async 
 	await assert.rejects(async () => {
 		await cryptoLib.decryptPayload(shortB64, validPass);
 	}, /データ長不足/);
-
-	// Raw base64 (without ENC: prefix)
-	const rawB64 = enc.slice(4);
-	const rawDec = await cryptoLib.decryptPayload(rawB64, validPass);
-	assert.strictEqual(rawDec, plain);
 
 	// Invalid password for encryption throws error
 	await assert.rejects(async () => {
@@ -228,10 +223,10 @@ test('crypto: setupStorageEncryption and unlock / lock lifecycle', async () => {
 	await cryptoLib.unlockStorageWithWebAuthn();
 	assert.strictEqual(cryptoLib.isStorageUnlocked(), true);
 
-	// Unlock when unencrypted returns true immediately
+	// Missing metadata with ciphertext fails closed instead of silently downgrading.
 	localStorage.removeItem(cryptoLib.STORAGE_AUTH_KEY);
-	assert.strictEqual(await cryptoLib.unlockStorageWithPassword("any"), true);
-	assert.strictEqual(await cryptoLib.unlockStorageWithWebAuthn(), true);
+	await assert.rejects(cryptoLib.unlockStorageWithPassword("any"), /STORAGE_AUTH_INVALID/);
+	await assert.rejects(cryptoLib.unlockStorageWithWebAuthn(), /STORAGE_AUTH_INVALID/);
 
 	// Register biometric error states
 	cryptoLib.lockStorage();
@@ -247,17 +242,23 @@ test('crypto: setupStorageEncryption and unlock / lock lifecycle', async () => {
 
 test('crypto: loadStorageDecrypted handles plain and invalid entries', async () => {
 	localStorage.clear();
+	const locks = navigator.locks;
+	delete navigator.locks;
 
-	// null entry
-	assert.strictEqual(await cryptoLib.loadStorageDecrypted('nonexistent'), null);
+	try {
+		// Web Locks非対応でも未暗号化の単一キー読込は互換動作を維持する。
+		assert.strictEqual(await cryptoLib.loadStorageDecrypted('nonexistent'), null);
 
-	// plain JSON entry
-	localStorage.setItem('plain_entry', JSON.stringify({ a: 1 }));
-	assert.deepStrictEqual(await cryptoLib.loadStorageDecrypted('plain_entry'), { a: 1 });
+		// plain JSON entry
+		localStorage.setItem('plain_entry', JSON.stringify({ a: 1 }));
+		assert.deepStrictEqual(await cryptoLib.loadStorageDecrypted('plain_entry'), { a: 1 });
 
-	// invalid plain JSON
-	localStorage.setItem('bad_plain', 'not-valid-json{');
-	assert.strictEqual(await cryptoLib.loadStorageDecrypted('bad_plain'), null);
+		// invalid plain JSON
+		localStorage.setItem('bad_plain', 'not-valid-json{');
+		assert.strictEqual(await cryptoLib.loadStorageDecrypted('bad_plain'), null);
+	} finally {
+		navigator.locks = locks;
+	}
 
 	// unlockStorageWithWebAuthn when no biometric registered
 	await cryptoLib.setupStorageEncryption(validPass, false);
@@ -277,16 +278,16 @@ test('crypto: loadStorageDecrypted handles plain and invalid entries', async () 
 	localStorage.removeItem(cryptoLib.STORAGE_AUTH_KEY);
 	await assert.rejects(async () => {
 		await cryptoLib.registerWebAuthnForActiveKey();
-	}, /ストレージの暗号化が設定されていません/);
+	}, /ロックされているか未初期化/);
 
-	// saveStorageData in unencrypted mode (lines 448-450)
-	await cryptoLib.saveStorageData('unenc_key', { unencrypted: true });
-	assert.strictEqual(JSON.parse(localStorage.getItem('unenc_key')).unencrypted, true);
+	// Ciphertext without authentication metadata remains fail-closed.
+	assert.strictEqual(await cryptoLib.saveStorageData('unenc_key', { unencrypted: true }), false);
+	assert.strictEqual(localStorage.getItem('unenc_key'), null);
 
 	// saveStorageData catch block on subtle.encrypt error (lines 470-471)
 	localStorage.setItem(cryptoLib.STORAGE_AUTH_KEY, JSON.stringify({ isEncrypted: true }));
 	cryptoLib.activeStorageKey = { algorithm: { name: 'INVALID' } }; // will cause encrypt to throw
-	await cryptoLib.saveStorageData('err_key', { willFail: true });
+	assert.strictEqual(await cryptoLib.saveStorageData('err_key', { willFail: true }), false);
 });
 
 test('crypto: deterministic WEBAUTHN_USER_ID prevents infinite duplicate passkey registrations in 1Password', async () => {

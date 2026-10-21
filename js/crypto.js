@@ -4,18 +4,39 @@
 
 let activeStorageKey = null;
 let storageSessionGeneration = 0;
+let activeStorageAuthSnapshot = null;
+let storageSecurityInvalidated = false;
 const STORAGE_AUTH_KEY = 'kogai_auth_meta';
 const STORAGE_DATA_KEYS = ['kogai_district_v2', 'kogai_rep_v2', 'kogai_neighbor_v2', 'kogai_transfer_v2'];
+const STORAGE_FORMAT = 2;
+const STORAGE_PREFIX = 'STORAGE_ENC:2:';
+const LEGACY_STORAGE_PREFIX = 'STORAGE_ENC:';
+const STORAGE_AAD_PREFIX = 'kogaidocs:storage:2:';
+const STORAGE_LOCK_NAME = 'kogaidocs:storage';
+const LEGACY_PBKDF2_ITERATIONS = 100000;
+const CURRENT_PBKDF2_ITERATIONS = 600000;
+const PAYLOAD_PREFIX = 'ENC:2:';
+const LEGACY_PAYLOAD_PREFIX = 'ENC:';
 const WEBAUTHN_USER_ID = new Uint8Array([107, 111, 103, 97, 105, 100, 111, 99, 115]); // "kogaidocs"
 
+function storageLocksAvailable() {
+	return typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function';
+}
+
+async function withStorageLock(mode, callback, required = false) {
+	if (storageLocksAvailable()) return navigator.locks.request(STORAGE_LOCK_NAME, { mode }, callback);
+	if (required || isStorageEncrypted()) throw new Error('STORAGE_LOCKS_UNAVAILABLE');
+	return callback();
+}
+
 /**
- * パスワードとソルトからAES-GCM用の暗号鍵を導出します（PBKDF2 10万回）
+ * パスワードとソルトからAES-GCM用の暗号鍵を導出します（新規PBKDF2 60万回）
  */
-async function deriveKey(password, salt) {
+async function deriveKey(password, salt, iterations = CURRENT_PBKDF2_ITERATIONS) {
 	const enc = new TextEncoder();
 	const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
 	return crypto.subtle.deriveKey(
-		{ name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+		{ name: "PBKDF2", salt, iterations, hash: "SHA-256" },
 		keyMaterial,
 		{ name: "AES-GCM", length: 256 },
 		false,
@@ -41,7 +62,7 @@ async function encryptPayload(jsonStr, password) {
 	combined.set(salt, 0);
 	combined.set(iv, 16);
 	combined.set(cipherBytes, 28);
-	return "ENC:" + uint8ToBase64(combined);
+	return PAYLOAD_PREFIX + uint8ToBase64(combined);
 }
 
 /**
@@ -49,7 +70,16 @@ async function encryptPayload(jsonStr, password) {
  */
 async function decryptPayload(payloadStr, password) {
 	const dec = new TextDecoder();
-	const b64 = payloadStr.startsWith("ENC:") ? payloadStr.slice(4) : payloadStr;
+	let iterations = LEGACY_PBKDF2_ITERATIONS;
+	let b64 = payloadStr;
+	if (payloadStr.startsWith(PAYLOAD_PREFIX)) {
+		iterations = CURRENT_PBKDF2_ITERATIONS;
+		b64 = payloadStr.slice(PAYLOAD_PREFIX.length);
+	} else if (/^ENC:\d+:/.test(payloadStr)) {
+		throw new Error('暗号化データのバージョンに対応していません。');
+	} else if (payloadStr.startsWith(LEGACY_PAYLOAD_PREFIX)) {
+		b64 = payloadStr.slice(LEGACY_PAYLOAD_PREFIX.length);
+	}
 	const combined = base64ToUint8(b64);
 	if (combined.length < 44) {
 		throw new Error("暗号化データの形式が不正です（データ長不足）。");
@@ -57,7 +87,7 @@ async function decryptPayload(payloadStr, password) {
 	const salt = combined.slice(0, 16);
 	const iv = combined.slice(16, 28);
 	const cipherBytes = combined.slice(28);
-	const key = await deriveKey(password, salt);
+	const key = await deriveKey(password, salt, iterations);
 	const plainBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipherBytes);
 	return dec.decode(plainBuf);
 }
@@ -86,12 +116,16 @@ function base64ToUint8(b64) {
  */
 async function parseTxtContent(text, password, generation = getStorageSessionGeneration(), kind) {
 	assertStorageSession(generation);
+	if (new TextEncoder().encode(String(text)).byteLength > 8 * 1024 * 1024) throw new Error('ファイルサイズが上限を超えています。');
 	const match = text.match(/BEGIN_DATA:\s*([\s\S]+?)\s*:END_DATA/);
 	const payload = match ? match[1].trim() : text.trim();
 	const jsonStr = await decryptPayload(payload, password);
 	assertStorageSession(generation);
 	const data = JSON.parse(jsonStr);
-	if (!kind) return data;
+	if (!kind) {
+		validateImportStructure(data);
+		return data;
+	}
 	if (kind === 'auto' || kind === 'districtOrNeighbor') {
 		kind = kind === 'auto' && data?.isTransferData ? 'transfer'
 			: kind === 'auto' && data?.districts !== undefined ? 'rep'
@@ -110,13 +144,21 @@ function assertStorageSession(generation) {
 	}
 }
 
-async function encryptStorageValue(data, key) {
+function storageAdditionalData(storageKey) {
+	return new TextEncoder().encode(STORAGE_AAD_PREFIX + storageKey);
+}
+
+async function encryptStorageValue(data, key, storageKey) {
 	const iv = crypto.getRandomValues(new Uint8Array(12));
-	const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(data))));
+	const cipher = new Uint8Array(await crypto.subtle.encrypt(
+		{ name: 'AES-GCM', iv, additionalData: storageAdditionalData(storageKey) },
+		key,
+		new TextEncoder().encode(typeof data === 'string' ? data : JSON.stringify(data))
+	));
 	const combined = new Uint8Array(iv.length + cipher.length);
 	combined.set(iv);
 	combined.set(cipher, iv.length);
-	return 'STORAGE_ENC:' + uint8ToBase64(combined);
+	return STORAGE_PREFIX + uint8ToBase64(combined);
 }
 
 /* =========================================================================
@@ -147,12 +189,66 @@ function getStorageAuthMeta() {
 	}
 }
 
+function hasStorageCiphertext() {
+	return STORAGE_DATA_KEYS.some(key => {
+		const value = localStorage.getItem(key);
+		return typeof value === 'string' && value.startsWith(LEGACY_STORAGE_PREFIX);
+	});
+}
+
+function isValidWrapMeta(value) {
+	return !!value && typeof value === 'object' &&
+		['salt', 'iv', 'wrappedKey'].every(key => typeof value[key] === 'string' && value[key].length > 0);
+}
+
+function passwordWrapIterations(passwordMeta) {
+	const iterations = passwordMeta.iterations === undefined ? LEGACY_PBKDF2_ITERATIONS : passwordMeta.iterations;
+	if (!Number.isInteger(iterations) || ![LEGACY_PBKDF2_ITERATIONS, CURRENT_PBKDF2_ITERATIONS].includes(iterations)) {
+		throw new Error('STORAGE_AUTH_INVALID');
+	}
+	return iterations;
+}
+
+function requireStorageAuthMeta(raw) {
+	let meta;
+	try { meta = JSON.parse(raw); } catch (_) { throw new Error('STORAGE_AUTH_INVALID'); }
+	if (!meta || meta.isEncrypted !== true || !isValidWrapMeta(meta.password)) throw new Error('STORAGE_AUTH_INVALID');
+	passwordWrapIterations(meta.password);
+	if (meta.storageFormat !== undefined && meta.storageFormat !== STORAGE_FORMAT) throw new Error('STORAGE_FORMAT_UNSUPPORTED');
+	return meta;
+}
+
+function invalidateStorageSession() {
+	if (activeStorageKey !== null || activeStorageAuthSnapshot !== null || !storageSecurityInvalidated) storageSessionGeneration++;
+	activeStorageKey = null;
+	activeStorageAuthSnapshot = null;
+	storageSecurityInvalidated = true;
+}
+
+function invalidateStorageSecurity() {
+	invalidateStorageSession();
+}
+
+function activeStorageSessionIsCurrent() {
+	if (!activeStorageKey || activeStorageAuthSnapshot === null) return false;
+	const raw = localStorage.getItem(STORAGE_AUTH_KEY);
+	if (raw !== activeStorageAuthSnapshot) {
+		invalidateStorageSession();
+		return false;
+	}
+	try { requireStorageAuthMeta(raw); } catch (_) {
+		invalidateStorageSession();
+		return false;
+	}
+	return true;
+}
+
 /**
  * ストレージが暗号化設定されているか判定します
  */
 function isStorageEncrypted() {
-	const meta = getStorageAuthMeta();
-	return !!(meta && meta.isEncrypted);
+	const raw = localStorage.getItem(STORAGE_AUTH_KEY);
+	return raw !== null || hasStorageCiphertext() || activeStorageAuthSnapshot !== null || storageSecurityInvalidated;
 }
 
 /**
@@ -160,7 +256,7 @@ function isStorageEncrypted() {
  */
 function isStorageUnlocked() {
 	if (!isStorageEncrypted()) return true;
-	return activeStorageKey !== null;
+	return activeStorageSessionIsCurrent();
 }
 
 /**
@@ -177,7 +273,7 @@ async function generateMasterKey() {
 /**
  * マスターキーをPBKDF2導出鍵で暗号化（ラップ）します
  */
-async function wrapKeyWithPassword(rawMasterKey, password, saltBytes) {
+async function wrapKeyWithPassword(rawMasterKey, password, saltBytes, iterations = CURRENT_PBKDF2_ITERATIONS) {
 	const salt = saltBytes || crypto.getRandomValues(new Uint8Array(16));
 	const iv = crypto.getRandomValues(new Uint8Array(12));
 	const enc = new TextEncoder();
@@ -189,7 +285,7 @@ async function wrapKeyWithPassword(rawMasterKey, password, saltBytes) {
 		["deriveKey"]
 	);
 	const wrapKey = await crypto.subtle.deriveKey(
-		{ name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+		{ name: "PBKDF2", salt, iterations, hash: "SHA-256" },
 		keyMaterial,
 		{ name: "AES-GCM", length: 256 },
 		false,
@@ -199,7 +295,8 @@ async function wrapKeyWithPassword(rawMasterKey, password, saltBytes) {
 	return {
 		salt: uint8ToBase64(salt),
 		iv: uint8ToBase64(iv),
-		wrappedKey: uint8ToBase64(new Uint8Array(cipherBuf))
+		wrappedKey: uint8ToBase64(new Uint8Array(cipherBuf)),
+		iterations
 	};
 }
 
@@ -207,6 +304,7 @@ async function wrapKeyWithPassword(rawMasterKey, password, saltBytes) {
  * パスワードからマスターキーを復号（アンラップ）します
  */
 async function unwrapKeyWithPassword(passwordWrapMeta, password) {
+	const iterations = passwordWrapIterations(passwordWrapMeta);
 	const salt = base64ToUint8(passwordWrapMeta.salt);
 	const iv = base64ToUint8(passwordWrapMeta.iv);
 	const wrappedBytes = base64ToUint8(passwordWrapMeta.wrappedKey);
@@ -219,16 +317,18 @@ async function unwrapKeyWithPassword(passwordWrapMeta, password) {
 		["deriveKey"]
 	);
 	const wrapKey = await crypto.subtle.deriveKey(
-		{ name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+		{ name: "PBKDF2", salt, iterations, hash: "SHA-256" },
 		keyMaterial,
 		{ name: "AES-GCM", length: 256 },
 		false,
 		["encrypt", "decrypt"]
 	);
 	const rawMasterBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, wrapKey, wrappedBytes);
-	const importedKey = await crypto.subtle.importKey("raw", rawMasterBuf, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
-	new Uint8Array(rawMasterBuf).fill(0);
-	return importedKey;
+	try {
+		return await crypto.subtle.importKey("raw", rawMasterBuf, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
+	} finally {
+		new Uint8Array(rawMasterBuf).fill(0);
+	}
 }
 
 /**
@@ -359,56 +459,43 @@ async function unwrapKeyWithWebAuthn(webauthnMeta) {
 
 	const prfWrapKey = await crypto.subtle.importKey("raw", prfResult, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 	const rawMasterBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, prfWrapKey, wrappedBytes);
-	const importedKey = await crypto.subtle.importKey("raw", rawMasterBuf, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
-	new Uint8Array(rawMasterBuf).fill(0);
-	return importedKey;
+	try {
+		return await crypto.subtle.importKey("raw", rawMasterBuf, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
+	} finally {
+		new Uint8Array(rawMasterBuf).fill(0);
+	}
 }
 
-/**
- * ストレージ暗号化を初期化・設定します（パスワード必須、生体認証は任意）
- */
-async function setupStorageEncryption(password, enableBiometric = false) {
-	const generation = getStorageSessionGeneration();
-	assertStorageSession(generation);
-	const check = validatePassword(password);
-	if (!check.valid) {
-		throw new Error(check.message);
+function assertStorageContext(generation, authSnapshot) {
+	if (generation !== storageSessionGeneration) throw new Error('STORAGE_SESSION_CHANGED');
+	if (localStorage.getItem(STORAGE_AUTH_KEY) !== authSnapshot) {
+		invalidateStorageSession();
+		throw new Error('STORAGE_SESSION_CHANGED');
 	}
+}
 
-	const masterKey = await generateMasterKey();
-	const rawMasterKey = await crypto.subtle.exportKey("raw", masterKey);
-	const passwordMeta = await wrapKeyWithPassword(rawMasterKey, password);
+function validateStorageModel(value, storageKey) {
+	if (typeof validateStoredData === 'function') return validateStoredData(value, storageKey);
+	const kind = storageKey.includes('_rep_') ? 'rep' : storageKey.includes('_neighbor_') ? 'neighbor' : 'district';
+	return validateImportData(value, kind);
+}
 
-	let webauthnMeta = null;
-	let biometricSuccess = false;
-	if (enableBiometric && isWebAuthnAvailable()) {
-		try {
-			webauthnMeta = await registerWebAuthnPrf(rawMasterKey);
-			biometricSuccess = true;
-		} catch (e) {
-			console.warn("生体認証の登録に失敗しました（パスワード暗号化で継続します）:", e);
-		}
-	}
-	new Uint8Array(rawMasterKey).fill(0);
+async function decryptStorageValue(raw, key, storageKey, storageFormat) {
+	const isCurrent = raw.startsWith(STORAGE_PREFIX);
+	if (storageFormat === STORAGE_FORMAT && !isCurrent) throw new Error('STORAGE_FORMAT_DOWNGRADE');
+	if (storageFormat !== STORAGE_FORMAT && (isCurrent || !raw.startsWith(LEGACY_STORAGE_PREFIX))) throw new Error('STORAGE_FORMAT_INVALID');
+	const prefix = isCurrent ? STORAGE_PREFIX : LEGACY_STORAGE_PREFIX;
+	const combined = base64ToUint8(raw.slice(prefix.length));
+	if (combined.length < 28) throw new Error('STORAGE_CIPHERTEXT_INVALID');
+	const iv = combined.slice(0, 12);
+	const cipherBytes = combined.slice(12);
+	const algorithm = { name: 'AES-GCM', iv };
+	if (isCurrent) algorithm.additionalData = storageAdditionalData(storageKey);
+	const plainBuf = await crypto.subtle.decrypt(algorithm, key, cipherBytes);
+	return JSON.parse(new TextDecoder().decode(plainBuf));
+}
 
-	const meta = {
-		isEncrypted: true,
-		version: 1,
-		createdAt: new Date().toISOString(),
-		password: passwordMeta,
-		webauthn: webauthnMeta
-	};
-
-	// 全暗号文を先に生成し、全キーの保存成功後にのみ保護状態を確定する。
-	const data = [
-		typeof currentDistrict === 'undefined' ? {} : currentDistrict,
-		typeof repState === 'undefined' ? {} : repState,
-		typeof neighborState === 'undefined' ? {} : neighborState,
-		typeof transferState === 'undefined' ? {} : transferState
-	];
-	const encoded = await Promise.all(data.map(value => encryptStorageValue(value, masterKey)));
-	assertStorageSession(generation);
-	const entries = [...STORAGE_DATA_KEYS.map((key, index) => [key, encoded[index]]), [STORAGE_AUTH_KEY, JSON.stringify(meta)]];
+function writeStorageTransaction(entries) {
 	const previous = entries.map(([key]) => localStorage.getItem(key));
 	const written = [];
 	try {
@@ -424,64 +511,188 @@ async function setupStorageEncryption(password, enableBiometric = false) {
 		}
 		throw error;
 	}
+}
+
+async function activateStorageKey(masterKey, meta, authSnapshot, generation, password) {
+	assertStorageContext(generation, authSnapshot);
+	const values = [];
+	for (const key of STORAGE_DATA_KEYS) {
+		const raw = localStorage.getItem(key);
+		if (!raw || !raw.startsWith(LEGACY_STORAGE_PREFIX)) throw new Error('STORAGE_DATA_MISSING');
+		const value = await decryptStorageValue(raw, masterKey, key, meta.storageFormat);
+		values.push(validateStorageModel(value, key));
+		assertStorageContext(generation, authSnapshot);
+	}
+	const encoded = [];
+	if (meta.storageFormat !== STORAGE_FORMAT) {
+		for (let i = 0; i < STORAGE_DATA_KEYS.length; i++) {
+			encoded.push(await encryptStorageValue(JSON.stringify(values[i]), masterKey, STORAGE_DATA_KEYS[i]));
+			assertStorageContext(generation, authSnapshot);
+		}
+	}
+	let upgradedPassword = null;
+	if (password !== undefined && passwordWrapIterations(meta.password) !== CURRENT_PBKDF2_ITERATIONS) {
+		let rawMasterKey;
+		try {
+			rawMasterKey = await crypto.subtle.exportKey('raw', masterKey);
+			upgradedPassword = await wrapKeyWithPassword(rawMasterKey, password);
+		} finally {
+			if (rawMasterKey) new Uint8Array(rawMasterKey).fill(0);
+		}
+		assertStorageContext(generation, authSnapshot);
+	}
+	let committedAuth = authSnapshot;
+	if (encoded.length || upgradedPassword) {
+		const migratedMeta = {
+			...meta,
+			version: STORAGE_FORMAT,
+			storageFormat: STORAGE_FORMAT,
+			...(upgradedPassword ? { password: upgradedPassword } : {})
+		};
+		committedAuth = JSON.stringify(migratedMeta);
+		assertStorageContext(generation, authSnapshot);
+		writeStorageTransaction([
+			...encoded.map((value, index) => [STORAGE_DATA_KEYS[index], value]),
+			[STORAGE_AUTH_KEY, committedAuth]
+		]);
+	}
+	assertStorageContext(generation, committedAuth);
 	storageSessionGeneration++;
 	activeStorageKey = masterKey;
+	activeStorageAuthSnapshot = committedAuth;
+	storageSecurityInvalidated = false;
+	return values;
+}
 
+/**
+ * ストレージ暗号化を初期化・設定します（パスワード必須、生体認証は任意）
+ */
+async function setupStorageEncryptionUnlocked(password, enableBiometric = false) {
+	const generation = getStorageSessionGeneration();
+	const authSnapshot = localStorage.getItem(STORAGE_AUTH_KEY);
+	if (isStorageEncrypted() && !activeStorageSessionIsCurrent()) throw new Error('STORAGE_LOCKED');
+	const check = validatePassword(password);
+	if (!check.valid) throw new Error(check.message);
+
+	const masterKey = await generateMasterKey();
+	let rawMasterKey;
+	let passwordMeta;
+	let webauthnMeta = null;
+	let biometricSuccess = false;
+	try {
+		rawMasterKey = await crypto.subtle.exportKey("raw", masterKey);
+		passwordMeta = await wrapKeyWithPassword(rawMasterKey, password);
+		if (enableBiometric && isWebAuthnAvailable()) {
+			try {
+				webauthnMeta = await registerWebAuthnPrf(rawMasterKey);
+				biometricSuccess = true;
+			} catch (e) {
+				console.warn("生体認証の登録に失敗しました（パスワード暗号化で継続します）:", e);
+			}
+		}
+	} finally {
+		if (rawMasterKey) new Uint8Array(rawMasterKey).fill(0);
+	}
+
+	const meta = {
+		isEncrypted: true,
+		version: STORAGE_FORMAT,
+		storageFormat: STORAGE_FORMAT,
+		createdAt: new Date().toISOString(),
+		password: passwordMeta,
+		webauthn: webauthnMeta
+	};
+	const data = [
+		typeof currentDistrict === 'undefined' ? { district: '', officers: [], neighborhood: [], students: [] } : currentDistrict,
+		typeof repState === 'undefined' ? { districts: [], szExternals: [] } : repState,
+		typeof neighborState === 'undefined' ? { district: '', neighborhood: [] } : neighborState,
+		typeof transferState === 'undefined' ? { children: [], memo: '' } : transferState
+	];
+	const encoded = [];
+	for (let i = 0; i < data.length; i++) encoded.push(await encryptStorageValue(JSON.stringify(data[i]), masterKey, STORAGE_DATA_KEYS[i]));
+	assertStorageContext(generation, authSnapshot);
+	const metaRaw = JSON.stringify(meta);
+	writeStorageTransaction([...STORAGE_DATA_KEYS.map((key, index) => [key, encoded[index]]), [STORAGE_AUTH_KEY, metaRaw]]);
+	storageSessionGeneration++;
+	activeStorageKey = masterKey;
+	activeStorageAuthSnapshot = metaRaw;
+	storageSecurityInvalidated = false;
 	return { success: true, biometric: biometricSuccess };
+}
+
+async function setupStorageEncryption(password, enableBiometric = false) {
+	return withStorageLock('exclusive', () => setupStorageEncryptionUnlocked(password, enableBiometric), true);
 }
 
 /**
  * 現在の暗号化設定に生体認証（WebAuthn PRF）を追加・更新登録します
  */
-async function registerWebAuthnForActiveKey() {
+async function registerWebAuthnForActiveKeyUnlocked() {
 	const generation = getStorageSessionGeneration();
-	if (!activeStorageKey) {
-		throw new Error("ストレージがロックされているか未初期化です。");
-	}
-	const meta = getStorageAuthMeta();
-	if (!meta || !meta.isEncrypted) {
+	if (localStorage.getItem(STORAGE_AUTH_KEY) === null && !hasStorageCiphertext()) {
+		invalidateStorageSession();
 		throw new Error("ストレージの暗号化が設定されていません。");
 	}
-	const rawMasterKey = await crypto.subtle.exportKey("raw", activeStorageKey);
-	const webauthnMeta = await registerWebAuthnPrf(rawMasterKey);
-	new Uint8Array(rawMasterKey).fill(0);
-	assertStorageSession(generation);
+	if (!activeStorageSessionIsCurrent()) {
+		throw new Error("ストレージがロックされているか未初期化です。");
+	}
+	const authSnapshot = activeStorageAuthSnapshot;
+	const meta = requireStorageAuthMeta(authSnapshot);
+	let rawMasterKey;
+	let webauthnMeta;
+	try {
+		rawMasterKey = await crypto.subtle.exportKey("raw", activeStorageKey);
+		webauthnMeta = await registerWebAuthnPrf(rawMasterKey);
+	} finally {
+		if (rawMasterKey) new Uint8Array(rawMasterKey).fill(0);
+	}
+	assertStorageContext(generation, authSnapshot);
 	meta.webauthn = webauthnMeta;
-	localStorage.setItem(STORAGE_AUTH_KEY, JSON.stringify(meta));
+	const nextAuth = JSON.stringify(meta);
+	localStorage.setItem(STORAGE_AUTH_KEY, nextAuth);
+	activeStorageAuthSnapshot = nextAuth;
 	return true;
+}
+
+async function registerWebAuthnForActiveKey() {
+	return withStorageLock('exclusive', registerWebAuthnForActiveKeyUnlocked, true);
 }
 
 /**
  * パスワードを入力してストレージの暗号化を解除します
  */
-async function unlockStorageWithPassword(password) {
+async function unlockStorageWithPasswordUnlocked(password) {
 	const generation = getStorageSessionGeneration();
-	const meta = getStorageAuthMeta();
-	if (!meta || !meta.isEncrypted) {
-		return true;
-	}
+	const authSnapshot = localStorage.getItem(STORAGE_AUTH_KEY);
+	if (authSnapshot === null && !hasStorageCiphertext() && !storageSecurityInvalidated) return true;
+	const meta = requireStorageAuthMeta(authSnapshot);
 	const masterKey = await unwrapKeyWithPassword(meta.password, password);
-	if (generation !== storageSessionGeneration) throw new Error('STORAGE_SESSION_CHANGED');
-	activeStorageKey = masterKey;
+	await activateStorageKey(masterKey, meta, authSnapshot, generation, password);
 	return true;
+}
+
+async function unlockStorageWithPassword(password) {
+	return withStorageLock('exclusive', () => unlockStorageWithPasswordUnlocked(password), true);
 }
 
 /**
  * 生体認証（WebAuthn）でストレージの暗号化を解除します
  */
-async function unlockStorageWithWebAuthn() {
+async function unlockStorageWithWebAuthnUnlocked() {
 	const generation = getStorageSessionGeneration();
-	const meta = getStorageAuthMeta();
-	if (!meta || !meta.isEncrypted) {
-		return true;
-	}
+	const authSnapshot = localStorage.getItem(STORAGE_AUTH_KEY);
+	if (authSnapshot === null && !hasStorageCiphertext() && !storageSecurityInvalidated) return true;
+	const meta = requireStorageAuthMeta(authSnapshot);
 	if (!meta.webauthn) {
 		throw new Error("生体認証は登録されていません。パスワードで解除してください。");
 	}
 	const masterKey = await unwrapKeyWithWebAuthn(meta.webauthn);
-	if (generation !== storageSessionGeneration) throw new Error('STORAGE_SESSION_CHANGED');
-	activeStorageKey = masterKey;
+	await activateStorageKey(masterKey, meta, authSnapshot, generation);
 	return true;
+}
+
+async function unlockStorageWithWebAuthn() {
+	return withStorageLock('exclusive', unlockStorageWithWebAuthnUnlocked, true);
 }
 
 /**
@@ -490,73 +701,91 @@ async function unlockStorageWithWebAuthn() {
 function lockStorage() {
 	storageSessionGeneration++;
 	activeStorageKey = null;
+	activeStorageAuthSnapshot = null;
 }
 
 /**
  * ストレージの暗号化設定および保存データを全消去・初期化します
  */
-function clearStorageSecurity() {
+function clearStorageSecurityUnlocked() {
 	lockStorage();
 	localStorage.removeItem(STORAGE_AUTH_KEY);
 	STORAGE_DATA_KEYS.forEach(key => localStorage.removeItem(key));
+	storageSecurityInvalidated = false;
+}
+
+async function clearStorageSecurity() {
+	return withStorageLock('exclusive', clearStorageSecurityUnlocked);
 }
 
 /**
  * データをローカルストレージへ保存します（暗号化設定時は自動的にAES-GCMで暗号化）
  */
-async function saveStorageData(storageKey, dataObj) {
+async function saveStorageDataUnlocked(storageKey, serialized) {
 	if (!isStorageEncrypted()) {
-		localStorage.setItem(storageKey, JSON.stringify(dataObj));
-		return;
+		localStorage.setItem(storageKey, serialized);
+		return true;
 	}
-	if (!activeStorageKey) {
+	if (!activeStorageSessionIsCurrent()) {
 		console.warn("Storage is encrypted but currently locked. Cannot write to:", storageKey);
-		return;
+		return false;
 	}
+	const generation = getStorageSessionGeneration();
+	const authSnapshot = activeStorageAuthSnapshot;
+	const key = activeStorageKey;
 	try {
-		const generation = getStorageSessionGeneration();
-		const encoded = await encryptStorageValue(dataObj, activeStorageKey);
-		assertStorageSession(generation);
+		const encoded = await encryptStorageValue(serialized, key, storageKey);
+		assertStorageContext(generation, authSnapshot);
 		localStorage.setItem(storageKey, encoded);
+		return true;
 	} catch (err) {
 		console.error("saveStorageData failed:", err);
+		if (err && err.message === 'STORAGE_SESSION_CHANGED') return false;
+		throw err;
 	}
+}
+
+async function saveStorageData(storageKey, dataObj) {
+	const requestGeneration = getStorageSessionGeneration();
+	const serialized = JSON.stringify(dataObj);
+	return withStorageLock('exclusive', () => {
+		if (requestGeneration !== getStorageSessionGeneration()) return false;
+		return saveStorageDataUnlocked(storageKey, serialized);
+	});
 }
 
 /**
  * ローカルストレージからデータを読み出し・復号します
  */
-async function loadStorageDecrypted(storageKey) {
-	const generation = getStorageSessionGeneration();
+async function loadStorageDecryptedUnlocked(storageKey) {
 	const raw = localStorage.getItem(storageKey);
 	if (!raw) return null;
-	if (!raw.startsWith("STORAGE_ENC:")) {
+	if (!isStorageEncrypted()) {
 		try {
 			return JSON.parse(raw);
 		} catch (e) {
+			if (STORAGE_DATA_KEYS.includes(storageKey)) throw new Error('STORAGE_DATA_INVALID');
 			return null;
 		}
 	}
-	if (!activeStorageKey) {
-		throw new Error("STORAGE_LOCKED");
-	}
-	const combined = base64ToUint8(raw.slice("STORAGE_ENC:".length));
-	const iv = combined.slice(0, 12);
-	const cipherBytes = combined.slice(12);
-	const plainBuf = await crypto.subtle.decrypt(
-		{ name: "AES-GCM", iv },
-		activeStorageKey,
-		cipherBytes
-	);
-	assertStorageSession(generation);
-	const dec = new TextDecoder();
-	return JSON.parse(dec.decode(plainBuf));
+	if (!activeStorageSessionIsCurrent()) throw new Error("STORAGE_LOCKED");
+	const generation = getStorageSessionGeneration();
+	const authSnapshot = activeStorageAuthSnapshot;
+	const meta = requireStorageAuthMeta(authSnapshot);
+	const value = await decryptStorageValue(raw, activeStorageKey, storageKey, meta.storageFormat);
+	assertStorageContext(generation, authSnapshot);
+	return value;
+}
+
+async function loadStorageDecrypted(storageKey) {
+	return withStorageLock('shared', () => loadStorageDecryptedUnlocked(storageKey));
 }
 
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		getStorageSessionGeneration,
 		assertStorageSession,
+		invalidateStorageSecurity,
 		STORAGE_AUTH_KEY,
 		WEBAUTHN_USER_ID,
 		deriveKey,

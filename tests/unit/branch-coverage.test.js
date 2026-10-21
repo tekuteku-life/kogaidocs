@@ -392,7 +392,7 @@ test('branch-booster: app.js lifecycle, authentication modals, and storage norma
 	assert(document.getElementById('modal-unlock-error').textContent.includes("パスワードを入力してください"));
 
 	// 6. openStorageSettingsModal and validateModalPasswords
-	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: false }));
+	cryptoLib.clearStorageSecurity();
 	app.openStorageSettingsModal();
 	assert(document.getElementById('settings-modal-body').innerHTML.includes("AES-256-GCM暗号化"));
 
@@ -419,8 +419,7 @@ test('branch-booster: app.js lifecycle, authentication modals, and storage norma
 	assert.strictEqual(document.getElementById('storage-settings-modal').style.display, 'none');
 
 	// 7. quickSetupEncryptionFromCard
-	cryptoLib.lockStorage();
-	localStorage.removeItem('kogai_auth_meta');
+	cryptoLib.clearStorageSecurity();
 	document.getElementById('d-pass').value = "weak";
 	let alertMsg = "";
 	global.alert = (m) => { alertMsg = m; };
@@ -432,8 +431,7 @@ test('branch-booster: app.js lifecycle, authentication modals, and storage norma
 	assert.strictEqual(cryptoLib.isStorageEncrypted(), true);
 
 	// 8. loadAppDataFromStorage missing structures normalization
-	cryptoLib.lockStorage();
-	localStorage.removeItem('kogai_auth_meta');
+	cryptoLib.clearStorageSecurity();
 	const mockD = {
 		district: "正規化テスト地区",
 		officer: { lastName: "旧役員" }
@@ -805,12 +803,15 @@ test('branch-booster: operand coverage for student, officer, and neighbor filter
 	assert(repAlert.includes("一致しません"));
 
 	// 3. app.js: loadAppDataFromStorage catch blocks and ServiceWorker reject
-	const origLoad = cryptoLib.loadStorageDecrypted;
-	cryptoLib.loadStorageDecrypted = async (key) => {
+	const origLoad = global.loadStorageDecrypted;
+	global.loadStorageDecrypted = async (key) => {
 		throw new Error("Simulated storage error for " + key);
 	};
-	await app.loadAppDataFromStorage();
-	cryptoLib.loadStorageDecrypted = origLoad;
+	try {
+		await assert.rejects(app.loadAppDataFromStorage(), /Simulated storage error/);
+	} finally {
+		global.loadStorageDecrypted = origLoad;
+	}
 
 	// ServiceWorker registration error handler
 	navigator.serviceWorker.register = async () => {
@@ -830,8 +831,11 @@ test('branch-booster: final push for print.js, app.js, and rep.js to >= 95% bran
 	global.loadStorageDecrypted = async (key) => {
 		throw new Error("Simulated storage load error for " + key);
 	};
-	await app.loadAppDataFromStorage();
-	global.loadStorageDecrypted = origGlobalLoad;
+	try {
+		await assert.rejects(app.loadAppDataFromStorage(), /Simulated storage load error/);
+	} finally {
+		global.loadStorageDecrypted = origGlobalLoad;
+	}
 
 	// 2. passInput is null in handlePasswordUnlock (line 129)
 	document.elements['modal-unlock-pass'] = null;
@@ -845,7 +849,7 @@ test('branch-booster: final push for print.js, app.js, and rep.js to >= 95% bran
 	// 4. isWebAuthnAvailable is false branches in openStorageSettingsModal (lines 204, 228)
 	const origIsWebAuthn = global.isWebAuthnAvailable;
 	global.isWebAuthnAvailable = () => false;
-	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: false }));
+	cryptoLib.clearStorageSecurity();
 	app.openStorageSettingsModal();
 	assert(document.getElementById('settings-modal-body').innerHTML.includes("※生体認証"));
 
@@ -2033,6 +2037,7 @@ test('branch-booster: neighbor.js and rep.js 100% branch perfection', async () =
 	rep.addCurrentDistrictToRep();
 
 	state.currentDistrict.district = "カレント地区";
+	document.getElementById('d-name').value = "カレント地区";
 	state.currentDistrict.officers = [{ lastName: "カレント役員" }];
 	rep.addCurrentDistrictToRep();
 	assert(state.repState.districts.some(d => d.district === "カレント地区"));
@@ -2973,7 +2978,7 @@ test('branch-booster: district.js and rep.js 95%+ branch coverage enhancements',
 	const transferPayload = {
 		isTransferData: true,
 		children: [
-			{ grade: 3, class: 1, lastName: '転入', firstName: '花子', lastNameKana: 'てんにゅう', firstNameKana: 'はなこ', address: '1-2-3', tel: '090-9999-8888' }
+			{ grade: '3', class: '1', lastName: '転入', firstName: '花子', lastNameKana: 'てんにゅう', firstNameKana: 'はなこ', address: '1-2-3', tel: '090-9999-8888' }
 		]
 	};
 	const encTransferTxt = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(transferPayload), 'CorrectPromptPass1!')}\n:END_DATA`;
