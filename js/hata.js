@@ -138,6 +138,8 @@ function extractHouseholdsFromStudents(students) {
  * 日本の祝日・振替休日をオフライン高精度計算します
  */
 function generateJapaneseHolidays(startYear, endYear) {
+	if (endYear < startYear) return [];
+	validateDateExpansion(`${String(startYear).padStart(4, '0')}-01-01`, `${String(endYear).padStart(4, '0')}-12-31`);
 	const holidays = [];
 
 	for (let year = startYear; year <= endYear; year++) {
@@ -246,6 +248,10 @@ function normalizeDateStr(dStr) {
 /**
  * 日付または期間範囲指定（YYYY/MM/DD〜YYYY/MM/DD）を日付配列へ展開します
  */
+function assertHataExpansionSize(count) {
+	if (count > 3660) throw new Error('旗振りの日付展開は3,660日以下にしてください。');
+}
+
 function expandDateOrRange(datePart) {
 	if (!datePart) return [];
 	const parts = String(datePart).split(/[\~〜]/);
@@ -256,6 +262,8 @@ function expandDateOrRange(datePart) {
 			const dates = [];
 			let curr = new Date(startStr + "T00:00:00Z");
 			const endD = new Date(endStr + "T00:00:00Z");
+			if (curr > endD) return [];
+			validateDateExpansion(startStr, endStr);
 			while (curr <= endD) {
 				dates.push(curr.toISOString().slice(0, 10));
 				curr.setUTCDate(curr.getUTCDate() + 1);
@@ -295,6 +303,7 @@ function getPeriodPresetDates(presetKey, baseYear) {
  * 旗振り当番シフトを均等ラウンドロビン自動生成します（祝日行保持・波線範囲展開対応）
  */
 function generateHataSchedule(config) {
+	validateHataExpansionBudget(config || {});
 	if (!config || !config.startDate || !config.endDate) return [];
 	const weekdays = Array.isArray(config.weekdays) ? config.weekdays : [1, 2, 3, 4, 5];
 	const weekdaysSet = new Set(weekdays);
@@ -302,19 +311,25 @@ function generateHataSchedule(config) {
 	const startStr = normalizeDateStr(config.startDate);
 	const endStr = normalizeDateStr(config.endDate);
 	if (!startStr || !endStr) return [];
+	if (startStr > endStr) return [];
+	validateDateExpansion(startStr, endStr);
 
 	// 祝日マップ生成（波線範囲指定対応）
 	const holidayMap = new Map();
+	let expandedHolidays = 0;
 	if (typeof config.holidays === 'string') {
 		config.holidays.split('\n').forEach(line => {
 			const parts = line.split(',');
 			if (parts[0] && parts[0].trim()) {
 				const reason = (parts[1] || '祝日').trim();
 				const dates = expandDateOrRange(parts[0].trim());
+				expandedHolidays += dates.length;
+				assertHataExpansionSize(expandedHolidays);
 				dates.forEach(dKey => holidayMap.set(dKey, reason));
 			}
 		});
 	} else if (Array.isArray(config.holidays)) {
+		assertHataExpansionSize(config.holidays.length);
 		config.holidays.forEach(h => {
 			if (h && h.date) holidayMap.set(h.date, h.name || '祝日');
 		});
@@ -322,11 +337,14 @@ function generateHataSchedule(config) {
 
 	// 特別枠マップ生成（波線範囲指定対応）
 	const specialMap = new Map();
+	let expandedSpecials = 0;
 	if (typeof config.specials === 'string') {
 		config.specials.split('\n').forEach(line => {
 			const parts = line.split(',').map(s => s.trim());
 			if (parts.length >= 1 && parts[0]) {
 				const dates = expandDateOrRange(parts[0]);
+				expandedSpecials += dates.length;
+				assertHataExpansionSize(expandedSpecials);
 				const fixedPerson = parts[1] || '';
 				const label = parts[2] || '特別枠';
 				dates.forEach(dKey => {
@@ -440,7 +458,7 @@ function generateHataSchedule(config) {
 
 	// 手動オーバーライドの適用
 	schedule.forEach(s => {
-		if (manualOverrides[s.date]) {
+		if (Object.hasOwn(manualOverrides, s.date) && manualOverrides[s.date]) {
 			const ovr = manualOverrides[s.date];
 			if (ovr.person !== undefined) s.person = ovr.person;
 			if (ovr.note !== undefined) s.note = ovr.note;
@@ -458,7 +476,7 @@ function generateHataSchedule(config) {
  */
 function swapScheduleDates(config, d1, p1, d2, p2) {
 	if (!config) return;
-	if (!config.manualOverrides) config.manualOverrides = {};
+	config.manualOverrides = Object.assign(Object.create(null), config.manualOverrides || {});
 	config.manualOverrides[d1] = {
 		person: p2,
 		note: '交代',
@@ -478,8 +496,9 @@ function swapScheduleDates(config, d1, p1, d2, p2) {
  */
 function setDateOverride(config, date, overrideObj) {
 	if (!config) return;
-	if (!config.manualOverrides) config.manualOverrides = {};
-	config.manualOverrides[date] = { ...(config.manualOverrides[date] || {}), ...overrideObj };
+	config.manualOverrides = Object.assign(Object.create(null), config.manualOverrides || {});
+	const previous = Object.hasOwn(config.manualOverrides, date) ? config.manualOverrides[date] : {};
+	config.manualOverrides[date] = { ...previous, ...overrideObj };
 }
 
 /**
@@ -550,9 +569,11 @@ async function loadHataOfficialFile(event) {
 	if (!file) return;
 	const generation = getStorageSessionGeneration();
 	try {
-		const text = await file.text();
+		const text = await readImportFile(file);
 		if (!text.trim()) throw new Error('旗振り設定ファイルが空です。');
 		const config = importHataOfficialJson(text);
+		// 展開上限も確定前に検査し、失敗時に現在の設定を置換しない。
+		generateHataSchedule(config);
 		assertStorageSession(generation);
 		currentDistrict.hata = config;
 		renderHataCard();
@@ -568,7 +589,7 @@ async function loadHataOfficialFile(event) {
  * 各メンバーの当番回数（通常枠・特別枠）を集計します
  */
 function calculateHataStats(schedule, members) {
-	const stats = {};
+	const stats = Object.create(null);
 	const memList = Array.isArray(members)
 		? members
 		: (typeof members === 'string' ? members.split('\n').map(m => m.trim()).filter(Boolean) : []);
@@ -579,7 +600,7 @@ function calculateHataStats(schedule, members) {
 
 	(schedule || []).forEach(item => {
 		if (!item || !item.person || item.person === '-') return;
-		if (!stats[item.person]) {
+		if (!Object.hasOwn(stats, item.person)) {
 			stats[item.person] = { regular: 0, special: 0 };
 		}
 		if (item.type === 'special' || item.isSpecial) {
@@ -609,7 +630,7 @@ function renderHataSummary(stats, containerEl) {
 	entries.forEach(([name, count]) => {
 		const div = document.createElement('div');
 		div.className = 'summary-item';
-		div.innerHTML = `<strong>${esc(name)}</strong><br>通常: ${count.regular}回<br><span style="color:#d97706; font-size:0.75rem;">特別: ${count.special}回</span>`;
+		div.innerHTML = `<strong>${esc(name)}</strong><br>通常: ${esc(count.regular)}回<br><span style="color:#d97706; font-size:0.75rem;">特別: ${esc(count.special)}回</span>`;
 		el.appendChild(div);
 	});
 }
@@ -634,6 +655,7 @@ function toggleHataSummary() {
  * 生成されたシフト配列からレスポンシブHTML（スマホリスト / PCグリッド / 本家シート）を構築します
  */
 function buildHataScheduleHtml(schedule, viewMode = 'sheet', config = null) {
+	if (Array.isArray(schedule)) assertHataExpansionSize(schedule.length);
 	if (!Array.isArray(schedule) || schedule.length === 0) {
 		return `<div class="help-text" style="text-align:center; padding:1.5rem;">シフトがまだ生成されていません。「自動生成」ボタンを押してください。</div>`;
 	}
@@ -719,8 +741,10 @@ function buildHataPrintHtml(schedule, config) {
 	const footerMsgHtml = footerMsg ? `<div class="sheet-msg-box sheet-footer-box">${esc(footerMsg)}</div>` : '';
 	const contactMsgHtml = contactMsg ? `<div class="sheet-contact-box">${esc(contactMsg)}</div>` : '';
 
-	const numCols = parseInt(c.layoutColumns || 3, 10);
+	const requestedColumns = Number(c.layoutColumns || 3);
+	const numCols = Number.isFinite(requestedColumns) ? Math.max(1, Math.min(6, Math.trunc(requestedColumns))) : 3;
 	const schedList = Array.isArray(schedule) ? schedule : [];
+	assertHataExpansionSize(schedList.length);
 	const total = schedList.length;
 
 	let columnsHtml = '';
@@ -734,9 +758,9 @@ function buildHataPrintHtml(schedule, config) {
 			for (let i = 0; i < itemsPerCol; i++) {
 				if (i < colItems.length) {
 					const item = colItems[i];
-					const md = item.date.slice(5).replace('-', '/');
+					const md = String(item.date || '').slice(5).replace('-', '/');
 					const dayStr = item.day || item.dayOfWeek || '';
-					const dateWithDay = `${md}(${dayStr})`;
+					const dateWithDay = esc(`${md}(${dayStr})`);
 
 					if (item.type === 'holiday') {
 						rowsHtml += `<tr class="row-holiday"><td>${dateWithDay}</td><td><strong>${esc(item.note || '祝日')}</strong></td></tr>`;
@@ -885,7 +909,7 @@ function renderHataExemptList() {
 		const checked = exemptSet.has(hh.key) || exemptSet.has(hh.displayName) ? 'checked' : '';
 		return `
 			<label style="display:inline-flex; align-items:center; gap:4px; margin-right:12px; margin-bottom:6px; font-size:0.85rem; cursor:pointer;">
-				<input type="checkbox" ${checked} data-household-key="${esc(hh.key)}" onchange="toggleHataExempt(this.dataset.householdKey, this.checked)">
+				<input type="checkbox" ${checked} data-household-key="${esc(hh.key)}" data-change="toggleHataExempt">
 				<span>${esc(hh.displayName)} (${hh.children.length}名)</span>
 			</label>
 		`;
@@ -940,8 +964,9 @@ function syncHataMembersFromStudents() {
  */
 function runAutoHataGeneration() {
 	if (!currentDistrict.hata) return;
+	const members = extractHouseholdsFromStudents(currentDistrict.students || []).map(household => household.displayName).join('\n');
+	const schedule = generateHataSchedule({ ...currentDistrict.hata, members });
 	syncHataMembersFromStudents();
-	const schedule = generateHataSchedule(currentDistrict.hata);
 	renderHataSchedulePreview(schedule);
 	saveDistrictLocal();
 }
@@ -956,10 +981,13 @@ function renderHataSchedulePreview(explicitSchedule) {
 	if (!previewContainer) return;
 
 	if (explicitSchedule) {
+		assertHataExpansionSize(explicitSchedule.length);
 		hataCurrentSchedule = explicitSchedule;
 	} else if (currentDistrict.hata && currentDistrict.hata.startDate && currentDistrict.hata.endDate) {
+		const members = extractHouseholdsFromStudents(currentDistrict.students || []).map(household => household.displayName).join('\n');
+		const schedule = generateHataSchedule({ ...currentDistrict.hata, members });
 		syncHataMembersFromStudents();
-		hataCurrentSchedule = generateHataSchedule(currentDistrict.hata);
+		hataCurrentSchedule = schedule;
 	} else {
 		hataCurrentSchedule = [];
 	}

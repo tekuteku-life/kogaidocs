@@ -64,12 +64,12 @@ function renderOfficersList() {
 		box.innerHTML = `
 			<div class="officer-item-header">
 				<span class="officer-item-title">校外役員 ${idx + 1}${off.han ? `（担当: ${esc(off.han)}）` : ''}</span>
-				${currentDistrict.officers.length > 1 ? `<button type="button" class="btn btn-danger btn-xs" onclick="removeOfficer(${idx})">この役員を削除</button>` : ''}
+				${currentDistrict.officers.length > 1 ? `<button type="button" class="btn btn-danger btn-xs" data-click="removeOfficer" data-index="${idx}">この役員を削除</button>` : ''}
 			</div>
 			<div class="grid-form">
 				<div>
 					<label>役職</label>
-					<select data-field="role" onchange="saveDistrictLocal()">
+					<select data-field="role" data-change="saveDistrictLocal">
 						<option value="" ${!off.role ? 'selected' : ''}>（なし）</option>
 						<option value="代表" ${off.role === '代表' ? 'selected' : ''}>代表</option>
 						<option value="副代表" ${off.role === '副代表' ? 'selected' : ''}>副代表</option>
@@ -80,7 +80,7 @@ function renderOfficersList() {
 				</div>
 				<div>
 					<label>担当班</label>
-					<select data-field="han" onchange="saveDistrictLocal()">
+					<select data-field="han" data-change="saveDistrictLocal">
 						<option value="" ${!off.han ? 'selected' : ''}>全班・指定なし</option>
 						<option value="全班" ${off.han === '全班' ? 'selected' : ''}>全班</option>
 						${hanList.map(h => `<option value="${esc(h)}" ${off.han === h ? 'selected' : ''}>${esc(h)}</option>`).join('')}
@@ -90,55 +90,55 @@ function renderOfficersList() {
 				<div>
 					<label>役員 氏名（姓 / 名）</label>
 					<div class="name-pair-grid">
-						<input type="text" data-field="lastName" value="${esc(off.lastName || '')}" placeholder="姓（山田）" oninput="saveDistrictLocal()">
-						<input type="text" data-field="firstName" value="${esc(off.firstName || '')}" placeholder="名（花子）" oninput="saveDistrictLocal()">
+						<input type="text" data-field="lastName" value="${esc(off.lastName || '')}" placeholder="姓（山田）" data-input="saveDistrictLocal">
+						<input type="text" data-field="firstName" value="${esc(off.firstName || '')}" placeholder="名（花子）" data-input="saveDistrictLocal">
 					</div>
 				</div>
 				<div>
 					<label>役員 ふりがな（せい / めい）</label>
 					<div class="name-pair-grid">
-						<input type="text" data-field="lastNameKana" class="input-kana" value="${esc(off.lastNameKana || '')}" placeholder="せい（やまだ）" oninput="saveDistrictLocal()">
-						<input type="text" data-field="firstNameKana" class="input-kana" value="${esc(off.firstNameKana || '')}" placeholder="めい（はなこ）" oninput="saveDistrictLocal()">
+						<input type="text" data-field="lastNameKana" class="input-kana" value="${esc(off.lastNameKana || '')}" placeholder="せい（やまだ）" data-input="saveDistrictLocal">
+						<input type="text" data-field="firstNameKana" class="input-kana" value="${esc(off.firstNameKana || '')}" placeholder="めい（はなこ）" data-input="saveDistrictLocal">
 					</div>
 				</div>
 				<div>
 					<label>電話番号</label>
-					<input type="tel" data-field="tel" value="${esc(off.tel || '')}" placeholder="090-0000-0000" oninput="saveDistrictLocal()">
+					<input type="tel" data-field="tel" value="${esc(off.tel || '')}" placeholder="090-0000-0000" data-input="saveDistrictLocal">
 				</div>
 				<div>
 					<label>メールアドレス</label>
-					<input type="email" data-field="email" value="${esc(off.email || '')}" placeholder="example@mail.com" oninput="saveDistrictLocal()">
+					<input type="email" data-field="email" value="${esc(off.email || '')}" placeholder="example@mail.com" data-input="saveDistrictLocal">
 				</div>
 				<div style="grid-column: 1 / -1;">
 					<label>役員のご住所（※学校提出用名簿に記載）</label>
-					<input type="text" data-field="address" value="${esc(off.address || '')}" placeholder="例：〇〇町1-2-3 〇〇マンション101" oninput="saveDistrictLocal()">
+					<input type="text" data-field="address" value="${esc(off.address || '')}" placeholder="例：〇〇町1-2-3 〇〇マンション101" data-input="saveDistrictLocal">
 				</div>
 			</div>
 			<hr style="margin: 10px 0; border: none; border-top: 1px dashed var(--border);">
 			<div class="grid-form">
 				<div>
 					<label>【封筒宛名・学校用】お子様の学年</label>
-					<select data-field="childGrade" onchange="saveDistrictLocal()">
+					<select data-field="childGrade" data-change="saveDistrictLocal">
 						<option value="">選択</option>
 						${[1,2,3,4,5,6].map(g => `<option value="${g}" ${String(off.childGrade) === String(g) ? 'selected' : ''}>${g}年</option>`).join('')}
 					</select>
 				</div>
 				<div>
 					<label>【封筒宛名・学校用】お子様のクラス</label>
-					<input type="text" data-field="childClass" value="${esc(off.childClass || '')}" placeholder="例：1" oninput="saveDistrictLocal()">
+					<input type="text" data-field="childClass" value="${esc(off.childClass || '')}" placeholder="例：1" data-input="saveDistrictLocal">
 				</div>
 				<div>
 					<label>【封筒宛名・学校用】お子様の氏名（姓 / 名）</label>
 					<div class="name-pair-grid">
-						<input type="text" data-field="childLastName" value="${esc(off.childLastName || '')}" placeholder="姓（山田）" oninput="saveDistrictLocal()">
-						<input type="text" data-field="childFirstName" value="${esc(off.childFirstName || '')}" placeholder="名（太郎）" oninput="saveDistrictLocal()">
+						<input type="text" data-field="childLastName" value="${esc(off.childLastName || '')}" placeholder="姓（山田）" data-input="saveDistrictLocal">
+						<input type="text" data-field="childFirstName" value="${esc(off.childFirstName || '')}" placeholder="名（太郎）" data-input="saveDistrictLocal">
 					</div>
 				</div>
 				<div>
 					<label>【封筒宛名・学校用】お子様のふりがな（せい / めい）</label>
 					<div class="name-pair-grid">
-						<input type="text" data-field="childLastNameKana" class="input-kana" value="${esc(off.childLastNameKana || '')}" placeholder="せい（やまだ）" oninput="saveDistrictLocal()">
-						<input type="text" data-field="childFirstNameKana" class="input-kana" value="${esc(off.childFirstNameKana || '')}" placeholder="めい（たろう）" oninput="saveDistrictLocal()">
+						<input type="text" data-field="childLastNameKana" class="input-kana" value="${esc(off.childLastNameKana || '')}" placeholder="せい（やまだ）" data-input="saveDistrictLocal">
+						<input type="text" data-field="childFirstNameKana" class="input-kana" value="${esc(off.childFirstNameKana || '')}" placeholder="めい（たろう）" data-input="saveDistrictLocal">
 					</div>
 				</div>
 			</div>
@@ -179,22 +179,22 @@ function renderNeighborhoodTable() {
 		normalizeNameFields(row);
 		const tr = document.createElement('tr');
 		tr.innerHTML = `
-			<td><input type="text" value="${esc(row.role)}" placeholder="会長・副会長等" oninput="updateN(${i},'role',this.value)"></td>
+			<td><input type="text" value="${esc(row.role)}" placeholder="会長・副会長等" data-input="updateN" data-index="${i}" data-field="role"></td>
 			<td>
 				<div class="name-field-box">
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(row.lastNameKana)}" placeholder="せい" class="input-kana" oninput="updateN(${i},'lastNameKana',this.value)">
-						<input type="text" value="${esc(row.firstNameKana)}" placeholder="めい" class="input-kana" oninput="updateN(${i},'firstNameKana',this.value)">
+						<input type="text" value="${esc(row.lastNameKana)}" placeholder="せい" class="input-kana" data-input="updateN" data-index="${i}" data-field="lastNameKana">
+						<input type="text" value="${esc(row.firstNameKana)}" placeholder="めい" class="input-kana" data-input="updateN" data-index="${i}" data-field="firstNameKana">
 					</div>
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(row.lastName)}" placeholder="姓" oninput="updateN(${i},'lastName',this.value)">
-						<input type="text" value="${esc(row.firstName)}" placeholder="名" oninput="updateN(${i},'firstName',this.value)">
+						<input type="text" value="${esc(row.lastName)}" placeholder="姓" data-input="updateN" data-index="${i}" data-field="lastName">
+						<input type="text" value="${esc(row.firstName)}" placeholder="名" data-input="updateN" data-index="${i}" data-field="firstName">
 					</div>
 				</div>
 			</td>
-			<td><input type="text" value="${esc(row.address)}" placeholder="住所" oninput="updateN(${i},'address',this.value)"></td>
-			<td><input type="tel" value="${esc(row.tel)}" placeholder="電話番号" oninput="updateN(${i},'tel',this.value)"></td>
-			<td style="text-align:center;"><button class="btn btn-danger btn-sm" onclick="removeN(${i})">×</button></td>
+			<td><input type="text" value="${esc(row.address)}" placeholder="住所" data-input="updateN" data-index="${i}" data-field="address"></td>
+			<td><input type="tel" value="${esc(row.tel)}" placeholder="電話番号" data-input="updateN" data-index="${i}" data-field="tel"></td>
+			<td style="text-align:center;"><button class="btn btn-danger btn-sm" data-click="removeN" data-index="${i}">×</button></td>
 		`;
 		tbody.appendChild(tr);
 	});
@@ -212,13 +212,13 @@ function renderStudentsTable() {
 		const tr = document.createElement('tr');
 		tr.innerHTML = `
 			<td>
-				<select onchange="updateS(${i},'grade',this.value)">
+				<select data-change="updateS" data-index="${i}" data-field="grade">
 					${[6,5,4,3,2,1].map(g => `<option value="${g}" ${String(row.grade)===String(g)?'selected':''}>${g}年</option>`).join('')}
 				</select>
 			</td>
-			<td><input type="text" value="${esc(row.class || '')}" placeholder="1" oninput="updateS(${i},'class',this.value)"></td>
+			<td><input type="text" value="${esc(row.class || '')}" placeholder="1" data-input="updateS" data-index="${i}" data-field="class"></td>
 			<td>
-				<select onchange="updateS(${i},'han',this.value)">
+				<select data-change="updateS" data-index="${i}" data-field="han">
 					<option value="" ${!row.han ? 'selected' : ''}>（未指定）</option>
 					${hanList.map(h => `<option value="${esc(h)}" ${row.han === h ? 'selected' : ''}>${esc(h)}</option>`).join('')}
 					${(row.han && !hanList.includes(row.han)) ? `<option value="${esc(row.han)}" selected>${esc(row.han)}</option>` : ''}
@@ -227,28 +227,28 @@ function renderStudentsTable() {
 			<td>
 				<div class="name-field-box">
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(row.lastNameKana || '')}" placeholder="せい" class="input-kana" oninput="updateS(${i},'lastNameKana',this.value)">
-						<input type="text" value="${esc(row.firstNameKana || '')}" placeholder="めい" class="input-kana" oninput="updateS(${i},'firstNameKana',this.value)">
+						<input type="text" value="${esc(row.lastNameKana || '')}" placeholder="せい" class="input-kana" data-input="updateS" data-index="${i}" data-field="lastNameKana">
+						<input type="text" value="${esc(row.firstNameKana || '')}" placeholder="めい" class="input-kana" data-input="updateS" data-index="${i}" data-field="firstNameKana">
 					</div>
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(row.lastName || '')}" placeholder="姓" oninput="updateS(${i},'lastName',this.value)">
-						<input type="text" value="${esc(row.firstName || '')}" placeholder="名" oninput="updateS(${i},'firstName',this.value)">
+						<input type="text" value="${esc(row.lastName || '')}" placeholder="姓" data-input="updateS" data-index="${i}" data-field="lastName">
+						<input type="text" value="${esc(row.firstName || '')}" placeholder="名" data-input="updateS" data-index="${i}" data-field="firstName">
 					</div>
 				</div>
 			</td>
-			<td><input type="text" value="${esc(row.address || '')}" placeholder="1号棟203号室" oninput="updateS(${i},'address',this.value)"></td>
-			<td><input type="tel" value="${esc(row.tel || '')}" placeholder="電話番号" oninput="updateS(${i},'tel',this.value)"></td>
+			<td><input type="text" value="${esc(row.address || '')}" placeholder="1号棟203号室" data-input="updateS" data-index="${i}" data-field="address"></td>
+			<td><input type="tel" value="${esc(row.tel || '')}" placeholder="電話番号" data-input="updateS" data-index="${i}" data-field="tel"></td>
 			<td>
-				<select onchange="updateS(${i},'leader',this.value)">
+				<select data-change="updateS" data-index="${i}" data-field="leader">
 					<option value="" ${!isLeader && !isSubLeader ? 'selected' : ''}>-</option>
 					<option value="班長" ${isLeader ? 'selected' : ''}>班長</option>
 					<option value="副班長" ${isSubLeader ? 'selected' : ''}>副班長</option>
 				</select>
 			</td>
 			<td style="text-align:center;">
-				<input type="checkbox" ${row.isOutOfDistrict ? 'checked' : ''} onchange="updateS(${i},'isOutOfDistrict',this.checked)">
+				<input type="checkbox" ${row.isOutOfDistrict ? 'checked' : ''} data-change="updateS" data-index="${i}" data-field="isOutOfDistrict">
 			</td>
-			<td style="text-align:center;"><button class="btn btn-danger btn-sm" onclick="removeS(${i})">×</button></td>
+			<td style="text-align:center;"><button class="btn btn-danger btn-sm" data-click="removeS" data-index="${i}">×</button></td>
 		`;
 		tbody.appendChild(tr);
 	});
@@ -570,9 +570,9 @@ async function shareDistrictData(channel) {
 				try { await navigator.clipboard.writeText(content); } catch (e) {}
 			}
 			const lineGuidance = "校外委員会地区データを送信します。クリップボードにコピーされた暗号化テキストをここに貼り付けてください";
-			window.open('https://line.me/R/msg/text/?' + encodeURIComponent(lineGuidance));
+			window.open('https://line.me/R/msg/text/?' + encodeURIComponent(lineGuidance), '_blank', 'noopener,noreferrer');
 		} else {
-			window.open('https://line.me/R/msg/text/?' + encodeURIComponent(content));
+			window.open('https://line.me/R/msg/text/?' + encodeURIComponent(content), '_blank', 'noopener,noreferrer');
 		}
 		return;
 	}
@@ -585,9 +585,9 @@ async function shareDistrictData(channel) {
 				try { await navigator.clipboard.writeText(content); } catch (e) {}
 			}
 			const emailGuidance = "校外委員会地区データを送信します。クリップボードにコピーされた暗号化テキストをここに貼り付けてください";
-			window.open('mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(emailGuidance));
+			window.open('mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(emailGuidance), '_blank', 'noopener,noreferrer');
 		} else {
-			window.open('mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(content));
+			window.open('mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(content), '_blank', 'noopener,noreferrer');
 		}
 		return;
 	}
@@ -600,17 +600,7 @@ async function loadDistrictTxt(e) {
 	if (!file) return;
 	const pass = document.getElementById('d-pass')?.value || document.getElementById('d-file-pass')?.value || '';
 	try {
-		let rawText = '';
-		if (typeof file.text === 'function') {
-			rawText = await file.text();
-		} else {
-			rawText = await new Promise((resolve, reject) => {
-				const reader = new FileReader();
-				reader.onload = ev => resolve(ev.target.result);
-				reader.onerror = reject;
-				reader.readAsText(file);
-			});
-		}
+		const rawText = await readImportFile(file);
 
 		const data = await parseTxtContent(rawText, pass, generation, importKind);
 		if (data.isNeighborhoodData || (!data.students && Array.isArray(data.neighborhood))) {
@@ -664,7 +654,7 @@ async function loadDistrictTxt(e) {
 		currentDistrict.hanList = data.hanList || getDistrictHanList(data);
 		currentDistrict.han = data.han || (currentDistrict.hanList && currentDistrict.hanList[0]) || "";
 		renderDistrictForm();
-		saveDistrictLocal();
+		await saveDistrictLocal();
 		const hanMsg = currentDistrict.han ? `（${currentDistrict.han}）` : "";
 		alert(`地区データ「${currentDistrict.district || ""}」${hanMsg}を読み込みました。`);
 		if (e && e.target) e.target.value = "";
@@ -838,7 +828,7 @@ async function loadTransferFileIntoDistrict(e) {
 	if (!file) return;
 	const pass = document.getElementById('d-pass')?.value || "";
 	try {
-		const text = await file.text();
+		const text = await readImportFile(file);
 		let data;
 		try {
 			data = await parseTxtContent(text, pass, generation, importKind);
@@ -886,7 +876,7 @@ async function loadNeighborFileIntoDistrict(e) {
 	if (!file) return;
 	const pass = document.getElementById('d-pass')?.value || "";
 	try {
-		const text = await file.text();
+		const text = await readImportFile(file);
 		let data;
 		try {
 			data = await parseTxtContent(text, pass, generation, importKind);

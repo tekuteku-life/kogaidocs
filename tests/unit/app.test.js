@@ -122,6 +122,26 @@ test('app: handlePasswordUnlock handles validation, unlock failure, and success'
 	assert(badge.classList.contains('is-encrypted'));
 });
 
+test('app: password unlock explains when Web Locks are unavailable', async () => {
+	setupDomEnvironment();
+	const pass = "CorrectPassword123!@#";
+	await cryptoLib.setupStorageEncryption(pass, false);
+	cryptoLib.lockStorage();
+	const locks = navigator.locks;
+	delete navigator.locks;
+	try {
+		document.getElementById('modal-unlock-pass').value = pass;
+		await app.handlePasswordUnlock();
+		assert.strictEqual(
+			document.getElementById('modal-unlock-error').textContent,
+			"このブラウザは端末暗号化に必要なWeb Locks APIに対応していません。対応ブラウザをご利用ください。"
+		);
+	} finally {
+		navigator.locks = locks;
+		await cryptoLib.clearStorageSecurity();
+	}
+});
+
 test('app: handleWebAuthnUnlock handles failure and success', async () => {
 	setupDomEnvironment();
 	const errEl = document.getElementById('modal-unlock-error');
@@ -147,7 +167,7 @@ test('app: handleWebAuthnUnlock handles failure and success', async () => {
 	navigator.credentials.failGet = false;
 });
 
-test('app: handleResetStorageConfirm prompts warning and resets storage', () => {
+test('app: handleResetStorageConfirm prompts warning and resets storage', async () => {
 	setupDomEnvironment();
 	localStorage.setItem('kogai_auth_meta', '{"test":1}');
 	localStorage.setItem('kogai_district_v2', '{"test":2}');
@@ -157,13 +177,13 @@ test('app: handleResetStorageConfirm prompts warning and resets storage', () => 
 
 	// Cancel
 	global.confirm = () => false;
-	app.handleResetStorageConfirm();
+	await app.handleResetStorageConfirm();
 	assert.strictEqual(reloaded, false);
 	assert(localStorage.getItem('kogai_auth_meta') !== null);
 
 	// Confirm
 	global.confirm = () => true;
-	app.handleResetStorageConfirm();
+	await app.handleResetStorageConfirm();
 	assert.strictEqual(reloaded, true);
 	assert.strictEqual(localStorage.getItem('kogai_auth_meta'), null);
 });
@@ -189,6 +209,7 @@ test('app: openStorageSettingsModal renders unencrypted vs encrypted settings', 
 	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: true, salt: "s", iv: "i", authTag: "a", encryptedKey: "k" }));
 	app.openStorageSettingsModal();
 	assert(bodyEl.innerHTML.includes('端末内保存データは暗号化されています'));
+	assert(bodyEl.innerHTML.includes('次回のパスワード解除時に600,000回へ移行'));
 	assert(bodyEl.innerHTML.includes('生体認証（Touch ID / Windows Hello等）を追加登録する'));
 	assert(bodyEl.innerHTML.includes('今すぐストレージをロックする'));
 });
@@ -309,8 +330,8 @@ test('app: loadAppDataFromStorage handles plain and encrypted data and normalize
 	cryptoLib.clearStorageSecurity();
 
 	// 1. Unsaved empty storage sets fallback defaults
-	state.currentDistrict = {};
-	state.repState = {};
+	state.currentDistrict = { district: '', officers: [], neighborhood: [], students: [] };
+	state.repState = { districts: [], szExternals: [] };
 	await app.loadAppDataFromStorage();
 
 	assert.strictEqual(state.currentDistrict.officers.length, 1);
@@ -603,27 +624,27 @@ test('app: checkAppVersion handles offline, same version, new version, user canc
 	app.performAppUpdate = origPerformUpdate;
 });
 
-test('app: performAppUpdate saves all states, clears caches, unregisters SW, and reloads with cache-busting URL (Action Items A-2 & A-3)', async () => {
+test('app: performAppUpdate persists all states and updates only its own cache and SW', async () => {
 	setupDomEnvironment();
 
 	// 1. Verify safe local state persistence across all modes with try-catch isolation (A-3)
 	let districtSaved = false;
 	let neighborSaved = false;
 	state.saveDistrictLocal = () => { districtSaved = true; };
-	state.saveRepLocal = () => { throw new Error('Rep save temporary fault'); }; // A-3 test exception handling
+	state.saveRepLocal = async () => {};
 	state.saveNeighborLocal = () => { neighborSaved = true; };
 
 	// 2. Mock caches (A-2)
 	const deletedCaches = [];
 	global.caches = {
-		keys: async () => ['kogai-cache-v1', 'kogai-cache-v2'],
+		keys: async () => ['kogai-cache-' + encodeURIComponent('https://localhost/') + '-v1', 'other-app-cache'],
 		delete: async (k) => { deletedCaches.push(k); return true; }
 	};
 
 	// 3. Mock serviceWorker registrations (A-2)
 	let unregisterCalled = false;
 	navigator.serviceWorker.getRegistrations = async () => [
-		{ unregister: async () => { unregisterCalled = true; return true; } }
+		{ scope: 'https://localhost/', active: { scriptURL: 'https://localhost/sw.js' }, unregister: async () => { unregisterCalled = true; return true; } }
 	];
 
 	// 4. Mock location replacement (A-2)
@@ -633,8 +654,8 @@ test('app: performAppUpdate saves all states, clears caches, unregisters SW, and
 	await app.performAppUpdate();
 
 	assert.strictEqual(districtSaved, true);
-	assert.strictEqual(neighborSaved, true); // Even though rep threw, neighbor saved!
-	assert.deepStrictEqual(deletedCaches, ['kogai-cache-v1', 'kogai-cache-v2']);
+	assert.strictEqual(neighborSaved, true);
+	assert.deepStrictEqual(deletedCaches, ['kogai-cache-' + encodeURIComponent('https://localhost/') + '-v1']);
 	assert.strictEqual(unregisterCalled, true);
 	assert(replacedLocation.includes('?_update='));
 });

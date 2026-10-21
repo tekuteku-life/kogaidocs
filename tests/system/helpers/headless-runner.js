@@ -100,10 +100,10 @@ function installBrowserHarness() {
 		},
 		async mode(mode) {
 			await this.click('#mode-active-badge');
-			await this.click(`.tab-btn[onclick="switchTab('${mode}')"]`);
+			await this.click(`.tab-btn[data-click="switchTab"][data-mode="${mode}"]`);
 		},
 		async expand(mode) {
-			await this.click(`#tab-${mode} button[onclick="setAllCardsCollapse(false, 'tab-${mode}')"]`);
+			await this.click(`#tab-${mode} button[data-click="setAllCardsCollapse"][data-flag="false"][data-target="tab-${mode}"]`);
 		},
 		async file(selector, content, name = 'fixture.txt') {
 			const input = element(selector);
@@ -187,7 +187,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 							if (!allowed.includes(method)) throw new Error(`Unsupported UI command: ${method}`);
 							await send(method, params);
 						} catch (err) { error = err.message; }
-						await send('Runtime.evaluate', { expression: `window.__uiCommandResult(${id}, ${JSON.stringify(error)})` });
+						await send('Runtime.evaluate', { allowUnsafeEvalBlockedByCSP: false, expression: `window.__uiCommandResult(${id}, ${JSON.stringify(error)})` });
 					})().catch(failPending);
 				} else if (message.sessionId === sessionId && events.has(message.method)) {
 					const resolve = events.get(message.method);
@@ -209,7 +209,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 				await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${options.beforeLoad.toString()})();` });
 			}
 			const evaluate = async fn => {
-				const response = await send('Runtime.evaluate', { expression: `(${fn.toString()})()`, awaitPromise: true, returnByValue: true });
+				const response = await send('Runtime.evaluate', { allowUnsafeEvalBlockedByCSP: false, expression: `(${fn.toString()})()`, awaitPromise: true, returnByValue: true });
 				if (response.exceptionDetails) throw new Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
 				return response.result.value;
 			};
@@ -226,7 +226,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 			for (const [index, fn] of [testFn, options.afterReload].filter(Boolean).entries()) {
 				if (index) {
 					const reloaded = waitEvent('Page.loadEventFired');
-					if (options.reloadSelector) await send('Runtime.evaluate', { expression: `document.querySelector(${JSON.stringify(options.reloadSelector)}).click()` });
+					if (options.reloadSelector) await send('Runtime.evaluate', { allowUnsafeEvalBlockedByCSP: false, expression: `document.querySelector(${JSON.stringify(options.reloadSelector)}).click()` });
 					else await send('Page.reload', { ignoreCache: true });
 					await reloaded;
 					await ready();
@@ -246,7 +246,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 			run().catch(async err => {
 				// 途中失敗でもブラウザ内のアサーション・例外を失わない。
 				try {
-					const snapshot = await send('Runtime.evaluate', { expression: '({results: window.__uiTestResults || [], errors: window.__uiErrors || []})', returnByValue: true });
+					const snapshot = await send('Runtime.evaluate', { allowUnsafeEvalBlockedByCSP: false, expression: '({results: window.__uiTestResults || [], errors: window.__uiErrors || []})', returnByValue: true });
 					results.push(...snapshot.result.value.results);
 					errors.push(...snapshot.result.value.errors);
 				} catch (_) {}

@@ -1018,7 +1018,9 @@ test('hata: precision branch booster to achieve 100% line and >95% branch covera
 	assert.strictEqual(unlistedStats['臨時保護者'].regular, 1);
 	assert.strictEqual(unlistedStats['登録メンバー'].regular, 0);
 
-	assert.deepStrictEqual(hata.calculateHataStats(null, null), {});
+	const emptyStats = hata.calculateHataStats(null, null);
+	assert.strictEqual(Object.getPrototypeOf(emptyStats), null);
+	assert.strictEqual(Object.keys(emptyStats).length, 0);
 
 	// 7. renderHataSummary: containerEl が渡されず、DOM にどちらの ID もない場合
 	document.elements['hata-summary-container'] = null;

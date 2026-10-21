@@ -421,9 +421,112 @@ function isImportObject(value) {
 	return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+const MAX_IMPORT_JSON_BYTES = 4 * 1024 * 1024;
+const MAX_IMPORT_FILE_BYTES = 8 * 1024 * 1024;
+const MAX_IMPORT_DEPTH = 20;
+const MAX_IMPORT_ARRAY_ITEMS = 10000;
+const MAX_IMPORT_NODES = 100000;
+const MAX_DATE_EXPANSION_DAYS = 3660;
+const RESERVED_IMPORT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function utf8ByteLength(value) {
+	return new TextEncoder().encode(String(value)).byteLength;
+}
+
+function validateImportStructure(value) {
+	let serialized;
+	try { serialized = JSON.stringify(value); } catch (_) { requireImportShape(false); }
+	requireImportShape(typeof serialized === 'string' && utf8ByteLength(serialized) <= MAX_IMPORT_JSON_BYTES);
+	let nodes = 0;
+	const visit = (node, depth) => {
+		requireImportShape(depth <= MAX_IMPORT_DEPTH && ++nodes <= MAX_IMPORT_NODES);
+		if (node === null || typeof node !== 'object') {
+			requireImportShape(['string', 'number', 'boolean'].includes(typeof node) || node === null);
+			return;
+		}
+		if (Array.isArray(node)) {
+			requireImportShape(node.length <= MAX_IMPORT_ARRAY_ITEMS);
+			for (const item of node) visit(item, depth + 1);
+			return;
+		}
+		for (const key of Object.keys(node)) {
+			requireImportShape(!RESERVED_IMPORT_KEYS.has(key));
+			visit(node[key], depth + 1);
+		}
+	};
+	visit(value, 0);
+	return value;
+}
+
+function parseIsoDate(value) {
+	if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+	const date = new Date(value + 'T00:00:00Z');
+	return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value ? date : null;
+}
+
+function validateDateExpansion(startDate, endDate) {
+	if (!startDate || !endDate) return;
+	const start = parseIsoDate(startDate);
+	const end = parseIsoDate(endDate);
+	requireImportShape(!!start && !!end && end >= start);
+	const days = Math.floor((end - start) / 86400000) + 1;
+	requireImportShape(days <= MAX_DATE_EXPANSION_DAYS);
+}
+
+function normalizeExpansionDate(value) {
+	const match = String(value || '').trim().match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+	if (!match) return null;
+	const normalized = `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+	return parseIsoDate(normalized) ? normalized : null;
+}
+
+function dateExpressionSize(value) {
+	const parts = String(value || '').trim().split(/[~〜]/);
+	requireImportShape(parts.length === 1 || parts.length === 2);
+	const start = normalizeExpansionDate(parts[0]);
+	requireImportShape(!!start);
+	if (parts.length === 1) return 1;
+	const end = normalizeExpansionDate(parts[1]);
+	requireImportShape(!!end);
+	validateDateExpansion(start, end);
+	return Math.floor((parseIsoDate(end) - parseIsoDate(start)) / 86400000) + 1;
+}
+
+function validateHataExpansionBudget(config) {
+	let total = 0;
+	const add = value => {
+		const datePart = String(value || '').split(',')[0].trim();
+		if (!datePart) return;
+		total += dateExpressionSize(datePart);
+		requireImportShape(total <= MAX_DATE_EXPANSION_DAYS);
+	};
+	if (Array.isArray(config?.holidays)) config.holidays.forEach(holiday => add(holiday?.date));
+	else if (typeof config?.holidays === 'string') config.holidays.split('\n').forEach(add);
+	if (typeof config?.specials === 'string') config.specials.split('\n').forEach(add);
+	return total;
+}
+
+async function readImportFile(file) {
+	requireImportShape(!!file);
+	if (Number.isFinite(file.size) && file.size > MAX_IMPORT_FILE_BYTES) throw new Error('ファイルサイズが8MiBの上限を超えています。');
+	let text;
+	if (typeof file.text === 'function') text = await file.text();
+	else {
+		text = await new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = event => resolve(event.target.result);
+			reader.onerror = () => reject(reader.error || new Error('ファイルの読み込みに失敗しました。'));
+			reader.readAsText(file);
+		});
+	}
+	if (typeof text !== 'string' || utf8ByteLength(text) > MAX_IMPORT_FILE_BYTES) throw new Error('ファイルサイズが8MiBの上限を超えています。');
+	return text;
+}
+
 function validateHataConfig(config) {
+	validateImportStructure(config);
 	requireImportShape(isImportObject(config));
-	const strings = ['scheduleTitle', 'title', 'metaCreatedDate', 'createdDate', 'metaLocation', 'location', 'metaTime', 'time', 'metaHeaderMsg', 'headerMsg', 'metaFooterMsg', 'footerMsg', 'metaContactMsg', 'contactMsg', 'startDate', 'endDate', 'specials', 'format'];
+	const strings = ['scheduleTitle', 'title', 'metaCreatedDate', 'createdDate', 'scheduleCreatedDate', 'district', 'metaLocation', 'location', 'metaTime', 'time', 'metaHeaderMsg', 'headerMsg', 'metaFooterMsg', 'footerMsg', 'metaContactMsg', 'contactMsg', 'startDate', 'endDate', 'specials', 'format'];
 	strings.forEach(key => requireImportShape(config[key] === undefined || typeof config[key] === 'string'));
 	if (config.weekdays !== undefined) requireImportShape(Array.isArray(config.weekdays) && config.weekdays.every(day => Number.isInteger(day) && day >= 0 && day <= 6));
 	if (config.exemptHouseholds !== undefined) requireImportShape(Array.isArray(config.exemptHouseholds) && config.exemptHouseholds.every(key => typeof key === 'string'));
@@ -438,6 +541,16 @@ function validateHataConfig(config) {
 			requireImportShape(override.type === undefined || ['regular', 'special', 'holiday'].includes(override.type));
 		});
 	}
+	if (config.schedule !== undefined) {
+		requireImportShape(Array.isArray(config.schedule));
+		config.schedule.forEach(item => {
+			requireImportShape(isImportObject(item));
+			for (const key of ['date', 'day', 'dayOfWeek', 'type', 'tag', 'person', 'note', 'originalPerson']) {
+				requireImportShape(item[key] === undefined || typeof item[key] === 'string');
+			}
+			for (const key of ['isSpecial', 'isSwapped']) requireImportShape(item[key] === undefined || typeof item[key] === 'boolean');
+		});
+	}
 	const clean = { ...config };
 	if (Array.isArray(config.holidays)) {
 		config.holidays.forEach(holiday => requireImportShape(isImportObject(holiday) && typeof holiday.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(holiday.date) && (holiday.name === undefined || typeof holiday.name === 'string')));
@@ -447,16 +560,19 @@ function validateHataConfig(config) {
 		requireImportShape(config.members.every(member => typeof member === 'string'));
 		clean.members = config.members.join('\n');
 	} else requireImportShape(config.members === undefined || typeof config.members === 'string');
+	validateHataExpansionBudget(config);
+	validateDateExpansion(config.startDate, config.endDate);
 	return clean;
 }
 
 function validateImportData(data, kind) {
 	const isObject = isImportObject;
 	const requireValid = requireImportShape;
-	const textFields = ['district', 'han', 'name', 'kana', 'lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'role', 'address', 'tel', 'email', 'note', 'org', 'category', 'contact', 'childName', 'childKana', 'childLastName', 'childFirstName', 'childLastNameKana', 'childFirstNameKana'];
+	const textFields = ['district', 'han', 'name', 'kana', 'lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'role', 'address', 'tel', 'email', 'note', 'org', 'category', 'contact', 'childName', 'childKana', 'childLastName', 'childFirstName', 'childLastNameKana', 'childFirstNameKana', 'grade', 'class', 'className', 'leader', 'childGrade', 'childClass', 'id'];
 	const checkRow = row => {
 		requireValid(isObject(row));
 		for (const key of textFields) requireValid(row[key] == null || typeof row[key] === 'string');
+		requireValid(row.isOutOfDistrict === undefined || typeof row.isOutOfDistrict === 'boolean');
 	};
 	const list = (value, optional = true) => {
 		if (optional && value == null) return [];
@@ -464,6 +580,7 @@ function validateImportData(data, kind) {
 		value.forEach(checkRow);
 		return value;
 	};
+	validateImportStructure(data);
 	requireValid(isObject(data));
 	const clean = JSON.parse(JSON.stringify(data));
 	checkRow(clean);
@@ -477,6 +594,7 @@ function validateImportData(data, kind) {
 			return district;
 		});
 		clean.szExternals = list(clean.szExternals);
+		clean.szExternals.forEach(row => requireValid(row.attend === undefined || typeof row.attend === 'boolean'));
 		if (clean.seatConfig != null) {
 			requireValid(isObject(clean.seatConfig));
 			const cfg = clean.seatConfig;
@@ -487,7 +605,10 @@ function validateImportData(data, kind) {
 			}
 			for (const key of ['topLabel', 'bottomLabel', 'leftSide', 'rightSide']) requireValid(cfg[key] === undefined || typeof cfg[key] === 'string');
 			requireValid(cfg.cells == null || isObject(cfg.cells));
-			Object.values(cfg.cells || {}).forEach(cell => {
+			Object.entries(cfg.cells || {}).forEach(([cellKey, cell]) => {
+				requireValid(/^\d+_\d+$/.test(cellKey));
+				const [row, col] = cellKey.split('_').map(Number);
+				requireValid(row >= 0 && row < cfg.rows && col >= 0 && col < cfg.cols);
 				requireValid(isObject(cell) && (cell.refKey == null || typeof cell.refKey === 'string') && (cell.customText == null || typeof cell.customText === 'string'));
 			});
 			cfg.cells = cfg.cells || {};
@@ -501,16 +622,40 @@ function validateImportData(data, kind) {
 		});
 	} else {
 		requireValid(typeof clean.district === 'string');
+		requireValid(clean.selectedForPrint === undefined || typeof clean.selectedForPrint === 'boolean');
 		clean.neighborhood = list(clean.neighborhood, kind !== 'neighbor');
 		if (kind === 'district') {
 			clean.officers = list(clean.officers);
 			clean.students = list(clean.students);
 			if (clean.officer != null) checkRow(clean.officer);
+			requireValid(clean.savedFilePassword === undefined || typeof clean.savedFilePassword === 'string');
 			requireValid(clean.hanList == null || (Array.isArray(clean.hanList) && clean.hanList.every(h => typeof h === 'string')));
+			if (clean.szNeighborChecks != null) {
+				requireValid(isObject(clean.szNeighborChecks));
+				Object.entries(clean.szNeighborChecks).forEach(([key, value]) => requireValid(/^\d+$/.test(key) && typeof value === 'boolean'));
+			}
 			if (clean.hata != null) clean.hata = validateHataConfig(clean.hata);
 		}
 	}
 	return clean;
+}
+
+function validateStoredData(data, storageKey) {
+	if (storageKey === 'kogai_transfer_v2') {
+		validateImportStructure(data);
+		requireImportShape(isImportObject(data) && Array.isArray(data.children));
+		requireImportShape(data.memo === undefined || typeof data.memo === 'string');
+		const clean = JSON.parse(JSON.stringify(data));
+		const fields = ['id', 'lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'grade', 'class', 'className', 'address', 'tel'];
+		clean.children.forEach(child => {
+			requireImportShape(isImportObject(child));
+			fields.forEach(key => requireImportShape(child[key] === undefined || typeof child[key] === 'string'));
+		});
+		clean.memo = clean.memo || '';
+		return clean;
+	}
+	const kind = storageKey === 'kogai_rep_v2' ? 'rep' : storageKey === 'kogai_neighbor_v2' ? 'neighbor' : 'district';
+	return validateImportData(data, kind);
 }
 
 /**
@@ -541,6 +686,11 @@ if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		validateImportData,
 		validateHataConfig,
+		validateImportStructure,
+		validateStoredData,
+		validateDateExpansion,
+		validateHataExpansionBudget,
+		readImportFile,
 		esc,
 		getFullName,
 		getFullNameKana,

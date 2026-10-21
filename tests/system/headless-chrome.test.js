@@ -74,12 +74,12 @@ test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 			// 2. District name & han input
 			const dName = document.getElementById('d-name');
 			dName.value = 'あおぞら地区';
-			dName.dispatchEvent(new Event('input'));
+			dName.dispatchEvent(new Event('input', { bubbles: true }));
 			assert.strictEqual(currentDistrict.district, 'あおぞら地区', 'currentDistrict.district updated');
 
 			const dHanList = document.getElementById('d-han-list');
 			dHanList.value = '1班, 2班, 3班';
-			dHanList.dispatchEvent(new Event('input'));
+			dHanList.dispatchEvent(new Event('input', { bubbles: true }));
 			assert.strictEqual(currentDistrict.hanList.length, 3, 'Han list parsed into 3 items');
 
 			// 3. Officer CRUD operations
@@ -197,7 +197,7 @@ test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 			// 1. Set district name
 			const nName = document.getElementById('neighbor-district-name');
 			nName.value = '第1自治会';
-			nName.dispatchEvent(new Event('input'));
+			nName.dispatchEvent(new Event('input', { bubbles: true }));
 			assert.strictEqual(neighborState.district, '第1自治会', 'Neighbor district name updated');
 
 			// 2. Add neighbor row

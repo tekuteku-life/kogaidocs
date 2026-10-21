@@ -5,10 +5,6 @@
 function renderNeighborForm() {
 	const dNameEl = document.getElementById('neighbor-district-name');
 	if (dNameEl) dNameEl.value = neighborState.district || "";
-	const topBtn = document.getElementById('btn-add-neighbor-mode-top');
-	if (topBtn) topBtn.onclick = () => addNeighborRow();
-	const bottomBtn = document.getElementById('btn-add-neighbor-mode-bottom');
-	if (bottomBtn) bottomBtn.onclick = () => addNeighborRow();
 	renderNeighborTable();
 }
 
@@ -28,33 +24,33 @@ function renderNeighborTable() {
 		tr.innerHTML = `
 			<td style="text-align:center;">
 				<div style="display:flex; flex-direction:column; gap:2px;">
-					<button type="button" class="btn btn-outline btn-xs" ${i === 0 ? 'disabled' : ''} onclick="moveNeighborRow(${i}, -1)" title="上へ移動">▲</button>
-					<button type="button" class="btn btn-outline btn-xs" ${i === neighborState.neighborhood.length - 1 ? 'disabled' : ''} onclick="moveNeighborRow(${i}, 1)" title="下へ移動">▼</button>
+					<button type="button" class="btn btn-outline btn-xs" ${i === 0 ? 'disabled' : ''} data-click="moveNeighborRow" data-index="${i}" data-direction="-1" title="上へ移動">▲</button>
+					<button type="button" class="btn btn-outline btn-xs" ${i === neighborState.neighborhood.length - 1 ? 'disabled' : ''} data-click="moveNeighborRow" data-index="${i}" data-direction="1" title="下へ移動">▼</button>
 				</div>
 			</td>
 			<td>
-				<input type="text" value="${esc(row.role || '')}" placeholder="会長・副会長等" oninput="updateNeighborItem(${i}, 'role', this.value)">
+				<input type="text" value="${esc(row.role || '')}" placeholder="会長・副会長等" data-input="updateNeighborItem" data-index="${i}" data-field="role">
 			</td>
 			<td>
 				<div class="name-field-box">
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(row.lastNameKana || '')}" placeholder="せい" class="input-kana" oninput="updateNeighborItem(${i}, 'lastNameKana', this.value)">
-						<input type="text" value="${esc(row.firstNameKana || '')}" placeholder="めい" class="input-kana" oninput="updateNeighborItem(${i}, 'firstNameKana', this.value)">
+						<input type="text" value="${esc(row.lastNameKana || '')}" placeholder="せい" class="input-kana" data-input="updateNeighborItem" data-index="${i}" data-field="lastNameKana">
+						<input type="text" value="${esc(row.firstNameKana || '')}" placeholder="めい" class="input-kana" data-input="updateNeighborItem" data-index="${i}" data-field="firstNameKana">
 					</div>
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(row.lastName || '')}" placeholder="姓" oninput="updateNeighborItem(${i}, 'lastName', this.value)">
-						<input type="text" value="${esc(row.firstName || '')}" placeholder="名" oninput="updateNeighborItem(${i}, 'firstName', this.value)">
+						<input type="text" value="${esc(row.lastName || '')}" placeholder="姓" data-input="updateNeighborItem" data-index="${i}" data-field="lastName">
+						<input type="text" value="${esc(row.firstName || '')}" placeholder="名" data-input="updateNeighborItem" data-index="${i}" data-field="firstName">
 					</div>
 				</div>
 			</td>
-			<td><input type="text" value="${esc(row.address || '')}" placeholder="住所（〇〇1-2-3）" oninput="updateNeighborItem(${i}, 'address', this.value)"></td>
-			<td><input type="tel" value="${esc(row.tel || '')}" placeholder="090-0000-0000" oninput="updateNeighborItem(${i}, 'tel', this.value)"></td>
+			<td><input type="text" value="${esc(row.address || '')}" placeholder="住所（〇〇1-2-3）" data-input="updateNeighborItem" data-index="${i}" data-field="address"></td>
+			<td><input type="tel" value="${esc(row.tel || '')}" placeholder="090-0000-0000" data-input="updateNeighborItem" data-index="${i}" data-field="tel"></td>
 			<td>
-				<input type="email" value="${esc(row.email || '')}" placeholder="メールアドレス（任意）" oninput="updateNeighborItem(${i}, 'email', this.value)" style="margin-bottom:4px;">
-				<input type="text" value="${esc(row.note || '')}" placeholder="備考" oninput="updateNeighborItem(${i}, 'note', this.value)">
+				<input type="email" value="${esc(row.email || '')}" placeholder="メールアドレス（任意）" data-input="updateNeighborItem" data-index="${i}" data-field="email" style="margin-bottom:4px;">
+				<input type="text" value="${esc(row.note || '')}" placeholder="備考" data-input="updateNeighborItem" data-index="${i}" data-field="note">
 			</td>
 			<td style="text-align:center;">
-				<button type="button" class="btn btn-danger btn-sm" onclick="removeNeighborRow(${i})">×</button>
+				<button type="button" class="btn btn-danger btn-sm" data-click="removeNeighborRow" data-index="${i}">×</button>
 			</td>
 		`;
 		tbody.appendChild(tr);
@@ -231,7 +227,7 @@ async function loadNeighborTxt(e) {
 	if (!file) return;
 	let pass = document.getElementById('neighbor-import-pass')?.value || "";
 	try {
-		const text = await file.text();
+		const text = await readImportFile(file);
 		let data;
 		try {
 			data = await parseTxtContent(text, pass, generation, importKind);

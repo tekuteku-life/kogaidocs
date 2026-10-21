@@ -2,7 +2,7 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
-const CURRENT_APP_VERSION = "2.8.2";
+const CURRENT_APP_VERSION = "2.8.3";
 let deferredInstallPrompt = null;
 
 function switchTab(mode) {
@@ -253,19 +253,17 @@ function hideStorageUnlockModal() {
  * @param {boolean} [silent=false]
  */
 async function handleWebAuthnUnlock(silent = false) {
-	const generation = getStorageSessionGeneration();
 	const errEl = document.getElementById('modal-unlock-error');
 	if (errEl) errEl.textContent = "";
 
 	try {
 		await unlockStorageWithWebAuthn();
+		const generation = getStorageSessionGeneration();
 		await loadAppDataFromStorage();
 		assertStorageSession(generation);
 		renderDistrictForm();
 		renderRepAll();
 		if (typeof renderNeighborForm === 'function') renderNeighborForm();
-		if (typeof loadTransferLocal === 'function') await loadTransferLocal();
-		assertStorageSession(generation);
 		if (typeof renderTransferForm === 'function') renderTransferForm();
 		hideStorageUnlockModal();
 		updateSecurityBadge('unlocked');
@@ -278,6 +276,10 @@ async function handleWebAuthnUnlock(silent = false) {
 		resetAutoLockTimer();
 	} catch (err) {
 		console.warn("WebAuthn unlock failed:", err);
+		lockStorage();
+		clearMemoryAndDomForLock();
+		updateSecurityBadge('locked');
+		showStorageUnlockModal();
 		if (!silent && errEl) {
 			errEl.textContent = err.message || "生体認証に失敗しました。パスワードで解除してください。";
 		}
@@ -288,7 +290,6 @@ async function handleWebAuthnUnlock(silent = false) {
  * パスワードによるロック解除を実行します
  */
 async function handlePasswordUnlock() {
-	const generation = getStorageSessionGeneration();
 	const passInput = document.getElementById('modal-unlock-pass');
 	const errEl = document.getElementById('modal-unlock-error');
 	if (errEl) errEl.textContent = "";
@@ -301,13 +302,12 @@ async function handlePasswordUnlock() {
 
 	try {
 		await unlockStorageWithPassword(password);
+		const generation = getStorageSessionGeneration();
 		await loadAppDataFromStorage();
 		assertStorageSession(generation);
 		renderDistrictForm();
 		renderRepAll();
 		if (typeof renderNeighborForm === 'function') renderNeighborForm();
-		if (typeof loadTransferLocal === 'function') await loadTransferLocal();
-		assertStorageSession(generation);
 		if (typeof renderTransferForm === 'function') renderTransferForm();
 		hideStorageUnlockModal();
 		updateSecurityBadge('unlocked');
@@ -319,8 +319,14 @@ async function handlePasswordUnlock() {
 		resetAutoLockTimer();
 	} catch (err) {
 		console.warn("Password unlock failed:", err);
+		lockStorage();
+		clearMemoryAndDomForLock();
+		updateSecurityBadge('locked');
+		showStorageUnlockModal();
 		if (errEl) {
-			errEl.textContent = "パスワードが正しくないか、復号に失敗しました。";
+			errEl.textContent = err && err.message === 'STORAGE_LOCKS_UNAVAILABLE'
+				? "このブラウザは端末暗号化に必要なWeb Locks APIに対応していません。対応ブラウザをご利用ください。"
+				: "パスワードが正しくないか、復号に失敗しました。";
 		}
 	}
 }
@@ -328,10 +334,10 @@ async function handlePasswordUnlock() {
 /**
  * 保存データの消去・初期化を確認して実行します
  */
-function handleResetStorageConfirm() {
+async function handleResetStorageConfirm() {
 	const ok = confirm("【警告】端末内に保存されている地区データ・代表データ・暗号化キーをすべて消去しますか？\n\n※提出・保存用.txtファイルをお持ちであれば後から再読み込み可能です。");
 	if (ok) {
-		clearStorageSecurity();
+		await clearStorageSecurity();
 		location.reload();
 	}
 }
@@ -348,6 +354,9 @@ function openStorageSettingsModal() {
 	const isEnc = isStorageEncrypted();
 	const hasBio = meta && meta.webauthn;
 	const bioAvailable = isWebAuthnAvailable();
+	const kdfStatus = meta?.password?.iterations === 600000
+		? '600,000回ストレッチング'
+		: '100,000回（次回のパスワード解除時に600,000回へ移行）';
 
 	const versionHtml = `
 		<hr style="margin:20px 0 16px 0; border:none; border-top:1px solid var(--border);">
@@ -356,7 +365,7 @@ function openStorageSettingsModal() {
 			<div style="font-size:0.88rem; color:#475569; margin-bottom:8px;">
 				現在のバージョン: <strong>v${CURRENT_APP_VERSION}</strong>
 			</div>
-			<button type="button" class="btn btn-outline btn-sm" id="btn-manual-check-update" onclick="checkAppVersion(true)">
+			<button type="button" class="btn btn-outline btn-sm" id="btn-manual-check-update" data-click="checkAppVersion">
 				🔄 最新バージョンを確認・更新
 			</button>
 			<div id="version-check-status" style="font-size:0.82rem; margin-top:6px; color:#64748b;"></div>
@@ -374,15 +383,15 @@ function openStorageSettingsModal() {
 			<div class="form-group" style="margin-bottom:12px;">
 				<label>暗号化パスワード（半角英数大文字・小文字・記号12文字以上）</label>
 				<div class="pass-input-group">
-					<input type="password" id="modal-set-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateModalPasswords();">
-					<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('modal-set-pass', this)" title="表示/非表示">👁️</button>
+					<input type="password" id="modal-set-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" data-input="modalPasswordInput">
+					<button type="button" class="btn-toggle-pass" data-click="togglePasswordVisibility" data-password-target="modal-set-pass" title="表示/非表示">👁️</button>
 				</div>
 			</div>
 			<div class="form-group" style="margin-bottom:12px;">
 				<label>確認用パスワード（二度入力）</label>
 				<div class="pass-input-group">
-					<input type="password" id="modal-set-pass-confirm" placeholder="もう一度入力" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="sanitizePasswordInput(this); validateModalPasswords();">
-					<button type="button" class="btn-toggle-pass" onclick="togglePasswordVisibility('modal-set-pass-confirm', this)" title="表示/非表示">👁️</button>
+					<input type="password" id="modal-set-pass-confirm" placeholder="もう一度入力" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" data-input="modalPasswordInput">
+					<button type="button" class="btn-toggle-pass" data-click="togglePasswordVisibility" data-password-target="modal-set-pass-confirm" title="表示/非表示">👁️</button>
 				</div>
 			</div>
 			<div id="modal-set-pass-msg" class="pass-feedback-msg" style="margin-bottom:12px;"></div>
@@ -397,8 +406,8 @@ function openStorageSettingsModal() {
 				</div>
 			`}
 			<div class="flex-row" style="justify-content:flex-end; gap:8px;">
-				<button type="button" class="btn btn-outline" onclick="closeStorageSettingsModal()">キャンセル</button>
-				<button type="button" class="btn" id="modal-btn-enable-enc" onclick="handleEnableEncryptionSubmit()">🔒 暗号化を有効化</button>
+				<button type="button" class="btn btn-outline" data-click="closeStorageSettingsModal">キャンセル</button>
+				<button type="button" class="btn" id="modal-btn-enable-enc" data-click="handleEnableEncryptionSubmit">🔒 暗号化を有効化</button>
 			</div>
 			${versionHtml}
 		`;
@@ -406,27 +415,27 @@ function openStorageSettingsModal() {
 		html = `
 			<div class="status-summary-box" style="margin-bottom:16px; padding:12px; background:var(--primary-light); border:1px solid #bfdbfe; border-radius:6px;">
 				<div style="font-weight:bold; color:var(--primary); margin-bottom:4px;">🛡️ 端末内保存データは暗号化されています</div>
-				<div style="font-size:0.88rem; color:#334155;">暗号化方式: AES-256-GCM + PBKDF2（100,000回ストレッチング）</div>
+				<div style="font-size:0.88rem; color:#334155;">暗号化方式: AES-256-GCM + PBKDF2-HMAC-SHA256（${kdfStatus}）</div>
 				<div style="font-size:0.88rem; color:#334155; margin-top:4px;">
 					生体認証連携: ${hasBio ? '<span style="color:var(--success); font-weight:bold;">✅ 有効（登録済み）</span>' : '<span style="color:#d97706; font-weight:bold;">⚠️ 未登録</span>'}
 				</div>
 			</div>
 			<div class="flex-col" style="gap:10px;">
 				${bioAvailable ? `
-					<button type="button" class="btn btn-outline" onclick="handleAddOrUpdateBiometric()">
+					<button type="button" class="btn btn-outline" data-click="handleAddOrUpdateBiometric">
 						👆 生体認証（Touch ID / Windows Hello等）を${hasBio ? '再登録' : '追加登録'}する
 					</button>
 				` : ''}
-				<button type="button" class="btn btn-outline" onclick="handleImmediateLock()">
+				<button type="button" class="btn btn-outline" data-click="handleImmediateLock">
 					🔒 今すぐストレージをロックする
 				</button>
-				<button type="button" class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="handleResetStorageConfirm()">
+				<button type="button" class="btn btn-danger btn-sm" style="margin-top:10px;" data-click="handleResetStorageConfirm">
 					🗑️ 保存データを全消去して初期化
 				</button>
 			</div>
 			${versionHtml}
 			<div class="flex-row" style="justify-content:flex-end; margin-top:16px;">
-				<button type="button" class="btn btn-outline" onclick="closeStorageSettingsModal()">閉じる</button>
+				<button type="button" class="btn btn-outline" data-click="closeStorageSettingsModal">閉じる</button>
 			</div>
 		`;
 	}
@@ -582,33 +591,60 @@ function clearMemoryAndDomForLock() {
 }
 
 let autoLockTimer = null;
+let autoLockDeadline = 0;
 const AUTO_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
 
-function resetAutoLockTimer() {
+function scheduleAutoLockTimer() {
 	if (autoLockTimer) {
 		clearTimeout(autoLockTimer);
 		autoLockTimer = null;
 	}
 	if (isStorageEncrypted() && isStorageUnlocked()) {
+		const remaining = Math.max(0, autoLockDeadline - Date.now());
 		autoLockTimer = setTimeout(() => {
-			handleImmediateLock();
-		}, AUTO_LOCK_TIMEOUT_MS);
+			if (Date.now() >= autoLockDeadline) handleImmediateLock();
+			else scheduleAutoLockTimer();
+		}, remaining);
 		if (autoLockTimer && typeof autoLockTimer.unref === 'function') {
 			autoLockTimer.unref();
 		}
 	}
 }
 
+function resetAutoLockTimer() {
+	if (isStorageEncrypted() && isStorageUnlocked()) autoLockDeadline = Date.now() + AUTO_LOCK_TIMEOUT_MS;
+	else autoLockDeadline = 0;
+	scheduleAutoLockTimer();
+}
+
+function handleAutoLockActivity(event) {
+	if (!isStorageEncrypted() || !isStorageUnlocked()) return;
+	if (autoLockDeadline && Date.now() >= autoLockDeadline) {
+		if (event && typeof event.preventDefault === 'function') event.preventDefault();
+		if (event && typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+		handleImmediateLock();
+		return;
+	}
+	resetAutoLockTimer();
+}
+
 function initAutoLockListeners() {
 	if (typeof window === 'undefined') return;
+	if (window.__kogaiAutoLockListenersBound) return;
+	window.__kogaiAutoLockListenersBound = true;
 	['pointerdown', 'keydown', 'touchstart'].forEach(evt => {
-		window.addEventListener(evt, resetAutoLockTimer, { passive: true });
+		window.addEventListener(evt, handleAutoLockActivity, { capture: true });
 	});
+	window.addEventListener('storage', event => {
+		if (event.storageArea && event.storageArea !== localStorage) return;
+		if (event.key !== STORAGE_AUTH_KEY && event.key !== null) return;
+		if (event.key === STORAGE_AUTH_KEY && event.oldValue === event.newValue) return;
+		invalidateStorageSecurity();
+		handleImmediateLock();
+	}, { capture: true });
 	if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
 		document.addEventListener('visibilitychange', () => {
-			if (document.hidden && isStorageEncrypted() && isStorageUnlocked()) {
-				resetAutoLockTimer();
-			}
+			if (!document.hidden) handleAutoLockActivity();
 		});
 	}
 }
@@ -619,6 +655,7 @@ function initAutoLockListeners() {
 function handleImmediateLock() {
 	if (autoLockTimer) clearTimeout(autoLockTimer);
 	autoLockTimer = null;
+	autoLockDeadline = 0;
 	lockStorage();
 	clearMemoryAndDomForLock();
 	closeStorageSettingsModal();
@@ -678,99 +715,70 @@ async function quickSetupEncryptionFromCard(inputId) {
  * ストレージから復号してアプリデータをロード・正規化します
  */
 async function loadAppDataFromStorage() {
-	try {
-		const savedD = await loadStorageDecrypted('kogai_district_v2');
-		if (savedD && typeof savedD === 'object') {
-			currentDistrict = savedD;
-		}
-	} catch (e) {
-		console.warn("Failed to load district data:", e);
-	}
+	const generation = getStorageSessionGeneration();
+	const keys = ['kogai_district_v2', 'kogai_rep_v2', 'kogai_neighbor_v2', 'kogai_transfer_v2'];
+	const current = [currentDistrict, repState, neighborState, transferState];
+	const loaded = await Promise.all(keys.map(key => loadStorageDecrypted(key)));
+	const next = loaded.map((value, index) => validateStoredData(value === null ? current[index] : value, keys[index]));
 
-	if (!currentDistrict.officers || !Array.isArray(currentDistrict.officers) || currentDistrict.officers.length === 0) {
-		currentDistrict.officers = [currentDistrict.officer || {}];
-	}
-	delete currentDistrict.officer;
-	currentDistrict.officers.forEach(off => {
-		normalizeOfficerChildNames(off);
-		normalizeNameFields(off);
+	const district = next[0];
+	if (!district.officers.length) district.officers = [district.officer || {}];
+	delete district.officer;
+	district.officers.forEach(officer => {
+		normalizeOfficerChildNames(officer);
+		normalizeNameFields(officer);
+	});
+	district.han = district.han || '';
+	if (!Array.isArray(district.hanList)) district.hanList = getDistrictHanList(district);
+	if (!district.neighborhood.length) district.neighborhood = [{ role: '会長', lastName: '', firstName: '', lastNameKana: '', firstNameKana: '', address: '', tel: '' }];
+	district.neighborhood.forEach(normalizeNameFields);
+	if (!district.students.length) district.students = [{ grade: '6', class: '1', han: district.han, lastName: '', firstName: '', lastNameKana: '', firstNameKana: '', address: '', tel: '', leader: '', isOutOfDistrict: false }];
+	district.students.forEach(student => {
+		normalizeNameFields(student);
+		if (student.han === undefined) student.han = district.han;
+		if (student.isOutOfDistrict === undefined) student.isOutOfDistrict = false;
 	});
 
-	if (currentDistrict.han === undefined) {
-		currentDistrict.han = "";
-	}
-	if (!currentDistrict.hanList || !Array.isArray(currentDistrict.hanList)) {
-		currentDistrict.hanList = getDistrictHanList(currentDistrict);
-	}
-
-	if (!currentDistrict.neighborhood || currentDistrict.neighborhood.length === 0) {
-		currentDistrict.neighborhood = [{ role: "会長", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "" }];
-	} else {
-		currentDistrict.neighborhood.forEach(normalizeNameFields);
-	}
-
-	if (!currentDistrict.students || currentDistrict.students.length === 0) {
-		currentDistrict.students = [{ grade: "6", class: "1", han: currentDistrict.han || "", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", leader: "", isOutOfDistrict: false }];
-	} else {
-		currentDistrict.students.forEach(s => {
-			normalizeNameFields(s);
-			if (s.han === undefined) s.han = currentDistrict.han || "";
-			if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
+	const representative = next[1];
+	representative.districts.forEach(item => {
+		delete item.hata;
+		delete item.hatafurotto;
+		delete item.savedFilePassword;
+		item.han = item.han || '';
+		if (!Array.isArray(item.hanList)) item.hanList = getDistrictHanList(item);
+		if (!item.officers.length) item.officers = [item.officer || {}];
+		delete item.officer;
+		item.officers.forEach(officer => {
+			normalizeOfficerChildNames(officer);
+			normalizeNameFields(officer);
 		});
-	}
-
-	try {
-		const savedR = await loadStorageDecrypted('kogai_rep_v2');
-		if (savedR && typeof savedR === 'object') {
-			repState = savedR;
-		}
-	} catch (e) {
-		console.warn("Failed to load rep data:", e);
-	}
-
-	if (repState.districts && Array.isArray(repState.districts)) {
-		repState.districts.forEach(d => {
-			delete d.hata;
-			delete d.hatafurotto;
-			delete d.savedFilePassword;
-			if (d.han === undefined) d.han = "";
-			if (d.hanList === undefined) d.hanList = getDistrictHanList(d);
-			if (!d.officers || !Array.isArray(d.officers) || d.officers.length === 0) {
-				d.officers = [d.officer || {}];
-			}
-			delete d.officer;
-			d.officers.forEach(off => {
-				normalizeOfficerChildNames(off);
-				normalizeNameFields(off);
-			});
-			(d.neighborhood || []).forEach(normalizeNameFields);
-			(d.students || []).forEach(s => {
-				normalizeNameFields(s);
-				if (s.han === undefined) s.han = d.han || "";
-				if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
-			});
+		item.neighborhood.forEach(normalizeNameFields);
+		item.students.forEach(student => {
+			normalizeNameFields(student);
+			if (student.han === undefined) student.han = item.han;
+			if (student.isOutOfDistrict === undefined) student.isOutOfDistrict = false;
 		});
-	}
-	if (repState.szExternals && Array.isArray(repState.szExternals)) {
-		repState.szExternals.forEach(normalizeNameFields);
-	}
+	});
+	representative.szExternals.forEach(normalizeNameFields);
 
-	try {
-		const savedN = await loadStorageDecrypted('kogai_neighbor_v2');
-		if (savedN && typeof savedN === 'object') {
-			neighborState = savedN;
-		}
-	} catch (e) {
-		console.warn("Failed to load neighbor data:", e);
-	}
-
-	if (!neighborState.neighborhood || !Array.isArray(neighborState.neighborhood) || neighborState.neighborhood.length === 0) {
-		neighborState.neighborhood = [
-			{ role: "会長", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", email: "", note: "" },
-			{ role: "副会長", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", email: "", note: "" }
+	const neighbor = next[2];
+	if (!neighbor.neighborhood.length) {
+		neighbor.neighborhood = [
+			{ role: '会長', lastName: '', firstName: '', lastNameKana: '', firstNameKana: '', address: '', tel: '', email: '', note: '' },
+			{ role: '副会長', lastName: '', firstName: '', lastNameKana: '', firstNameKana: '', address: '', tel: '', email: '', note: '' }
 		];
-	} else {
-		neighborState.neighborhood.forEach(normalizeNameFields);
+	}
+	neighbor.neighborhood.forEach(normalizeNameFields);
+	assertStorageSession(generation);
+	currentDistrict = district;
+	repState = representative;
+	neighborState = neighbor;
+	transferState = next[3];
+	if (typeof state !== 'undefined') {
+		state.currentDistrict = currentDistrict;
+		state.repState = repState;
+		state.neighborState = neighborState;
+		state.transferState = transferState;
 	}
 }
 
@@ -900,62 +908,47 @@ async function checkAppVersion(isManual = false) {
  * @param {string} [targetVersion=null] 更新対象バージョン（sessionStorageに記録）
  */
 async function performAppUpdate(targetVersion = null) {
-	if (targetVersion) {
-		recordUpdateAttemptInfo(targetVersion);
-	}
-
-	// A-3: 防御的マルチモード状態保存（独立try-catch）
 	const saveDistFn = (typeof global !== 'undefined' && global.saveDistrictLocal) || (typeof saveDistrictLocal === 'function' ? saveDistrictLocal : null);
-	if (typeof saveDistFn === 'function') {
-		try {
-			saveDistFn();
-		} catch (e) {
-			console.warn("Failed to auto-save district before update:", e);
-		}
-	}
-
 	const saveRepFn = (typeof global !== 'undefined' && global.saveRepLocal) || (typeof saveRepLocal === 'function' ? saveRepLocal : null);
-	if (typeof saveRepFn === 'function') {
-		try {
-			saveRepFn();
-		} catch (e) {
-			console.warn("Failed to auto-save rep before update:", e);
-		}
-	}
-
 	const saveNeighborFn = (typeof global !== 'undefined' && global.saveNeighborLocal) || (typeof saveNeighborLocal === 'function' ? saveNeighborLocal : null);
-	if (typeof saveNeighborFn === 'function') {
-		try {
-			saveNeighborFn();
-		} catch (e) {
-			console.warn("Failed to auto-save neighbor before update:", e);
-		}
-	}
-
 	const saveTransferFn = (typeof global !== 'undefined' && global.saveTransferLocal) || (typeof saveTransferLocal === 'function' ? saveTransferLocal : null);
-	if (typeof saveTransferFn === 'function') {
-		try {
-			saveTransferFn();
-		} catch (e) {
-			console.warn("Failed to auto-save transfer before update:", e);
-		}
+	try {
+		const saves = [saveDistFn, saveRepFn, saveNeighborFn, saveTransferFn]
+			.filter(fn => typeof fn === 'function')
+			.map(fn => Promise.resolve().then(() => fn()));
+		const results = await Promise.all(saves);
+		if (results.some(result => result === false)) throw new Error('STORAGE_SAVE_REJECTED');
+	} catch (e) {
+		console.warn("Failed to persist data before update:", e);
+		alert("更新前のデータ保存に失敗しました。空き容量と暗号化状態を確認してください。");
+		return false;
 	}
+	if (targetVersion) recordUpdateAttemptInfo(targetVersion);
 
-	// A-2: Cache Storageの完全破棄
+	let appScope = null;
+	if (typeof window !== 'undefined' && window.location) {
+		const pathname = window.location.pathname || '/';
+		const basePath = pathname.endsWith('/') ? pathname : pathname.slice(0, pathname.lastIndexOf('/') + 1);
+		if (window.location.origin) appScope = window.location.origin + basePath;
+	}
+	const cachePrefix = appScope ? 'kogai-cache-' + encodeURIComponent(appScope) + '-' : null;
 	if (typeof caches !== 'undefined' && caches.keys) {
 		try {
 			const keys = await caches.keys();
-			await Promise.all(keys.map(k => caches.delete(k)));
+			await Promise.all(keys.filter(key => cachePrefix && key.startsWith(cachePrefix)).map(key => caches.delete(key)));
 		} catch (e) {
 			console.warn("Failed to clear caches:", e);
 		}
 	}
 
-	// A-2: Service Worker登録の全解除
 	if (typeof navigator !== 'undefined' && navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
 		try {
 			const registrations = await navigator.serviceWorker.getRegistrations();
-			await Promise.all(registrations.map(r => r.unregister()));
+			const scriptUrl = appScope ? appScope + 'sw.js' : null;
+			await Promise.all(registrations.filter(registration => {
+				const worker = registration.active || registration.waiting || registration.installing;
+				return appScope && registration.scope === appScope && worker && worker.scriptURL === scriptUrl;
+			}).map(registration => registration.unregister()));
 		} catch (e) {
 			console.warn("Failed to unregister service workers:", e);
 		}
@@ -972,6 +965,7 @@ async function performAppUpdate(targetVersion = null) {
 			window.location.href = newUrl;
 		}
 	}
+	return true;
 }
 
 /* =========================================================================
@@ -1008,11 +1002,15 @@ window.addEventListener('DOMContentLoaded', async () => {
 		}
 	} else {
 		updateSecurityBadge('unencrypted');
-		await loadAppDataFromStorage();
+		try {
+			await loadAppDataFromStorage();
+		} catch (error) {
+			console.warn('Stored application data was rejected:', error);
+			alert('端末内の保存データが不正なため、安全な初期状態で起動しました。');
+		}
 		renderDistrictForm();
 		renderRepAll();
 		if (typeof renderNeighborForm === 'function') renderNeighborForm();
-		if (typeof loadTransferLocal === 'function') await loadTransferLocal();
 		if (typeof renderTransferForm === 'function') renderTransferForm();
 		setAllCardsCollapse(true, 'tab-district');
 		setAllCardsCollapse(true, 'tab-rep');
