@@ -289,16 +289,12 @@ async function loadPastedTextToNeighbor() {
 
 function runNeighborYearUpdate() {
 	if (!confirm("【自治会役員名簿の年度更新】\n・現在の役職（会長・副会長等）の枠組みを残し、氏名・ふりがな・住所・連絡先を安全にリセットします。\n\n実行してよろしいですか？")) return;
-	(neighborState.neighborhood || []).forEach(row => {
-		row.lastName = "";
-		row.firstName = "";
-		row.lastNameKana = "";
-		row.firstNameKana = "";
-		row.address = "";
-		row.tel = "";
-		row.email = "";
-		row.note = "";
-	});
+	// 旧氏名の別名や未知の個人項目を次年度へ持ち越さない。
+	neighborState.neighborhood = (neighborState.neighborhood || []).map(row => ({
+		role: row.role || "",
+		lastName: "", firstName: "", lastNameKana: "", firstNameKana: "",
+		address: "", tel: "", email: "", note: ""
+	}));
 	saveNeighborLocal();
 	renderNeighborTable();
 	alert("自治会役員名簿の年度更新が完了しました。新年度の役員情報を入力してください。");

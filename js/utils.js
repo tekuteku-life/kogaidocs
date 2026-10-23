@@ -465,10 +465,12 @@ function parseIsoDate(value) {
 }
 
 function validateDateExpansion(startDate, endDate) {
-	if (!startDate || !endDate) return;
-	const start = parseIsoDate(startDate);
-	const end = parseIsoDate(endDate);
-	requireImportShape(!!start && !!end && end >= start);
+	const start = startDate ? parseIsoDate(startDate) : null;
+	const end = endDate ? parseIsoDate(endDate) : null;
+	// 片側だけの下書きでも、不正な端点を描画経路へ通さない。
+	requireImportShape((!startDate || !!start) && (!endDate || !!end));
+	if (!start || !end) return;
+	requireImportShape(end >= start);
 	const days = Math.floor((end - start) / 86400000) + 1;
 	requireImportShape(days <= MAX_DATE_EXPANSION_DAYS);
 }
