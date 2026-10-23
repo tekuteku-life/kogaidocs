@@ -141,6 +141,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 	const pending = new Map();
 	const results = [];
 	const errors = [];
+	const requests = [];
 	try {
 
 		browser = spawn(process.env.CHROMIUM_PATH || (existsSync('/usr/lib/chromium/chromium') ? '/usr/lib/chromium/chromium' : 'chromium'), [
@@ -178,6 +179,9 @@ async function runInHeadlessChrome(testFn, options = {}) {
 					if (!task) continue;
 					if (message.error) task.reject(new Error(JSON.stringify(message.error)));
 					else task.resolve(message.result);
+				} else if (options.observeNetwork && message.sessionId === sessionId && message.method === 'Network.requestWillBeSent') {
+					const { request, type } = message.params;
+					requests.push({ url: request.url, method: request.method, headers: request.headers, postData: request.postData || '', type });
 				} else if (message.method === 'Runtime.bindingCalled') {
 					const { id, method, params } = JSON.parse(message.params.payload);
 					const allowed = ['Input.dispatchMouseEvent', 'Input.dispatchKeyEvent', 'Emulation.setEmulatedMedia'];
@@ -201,6 +205,8 @@ async function runInHeadlessChrome(testFn, options = {}) {
 			sessionId = (await send('Target.attachToTarget', { targetId, flatten: true })).sessionId;
 			await send('Page.enable');
 			await send('Runtime.enable');
+			// 任意の観測である。file: 起動の要求を収集し、HTTP実配信や到達先の受信を証明するものではない。
+			if (options.observeNetwork) await send('Network.enable', { maxPostDataSize: 1024 * 1024 });
 			await send('Runtime.addBinding', { name: '__uiCommand' });
 			const [width, height] = options.viewport || [1280, 900];
 			await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
@@ -240,7 +246,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 				results.push(...output.results);
 				errors.push(...output.errors);
 			}
-			return { success: true, results, errors };
+			return { success: true, results, errors, requests };
 		};
 		return await Promise.race([
 			run().catch(async err => {
@@ -250,7 +256,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 					results.push(...snapshot.result.value.results);
 					errors.push(...snapshot.result.value.errors);
 				} catch (_) {}
-				return { success: false, results, errors, fatal: { message: err.message } };
+				return { success: false, results, errors, requests, fatal: { message: err.message } };
 			}),
 			new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`UI test timed out: ${stderr}`)), options.timeoutMs || 20000); })
 		]);
