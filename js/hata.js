@@ -881,7 +881,8 @@ function renderHataCard() {
 	// 祝日自動計算と祝日欄反映
 	if (h.holidays === undefined) {
 		const yr = h.startDate ? parseInt(h.startDate.slice(0, 4), 10) : new Date().getFullYear();
-		const holis = generateJapaneseHolidays(yr, yr + 1);
+		// 自動補完の技術上の対象年である。範囲外でも有効な日付は保持する。
+		const holis = yr >= 2000 && yr <= 2099 ? generateJapaneseHolidays(yr, Math.min(yr + 1, 2099)) : [];
 		h.holidays = holis.map(x => `${x.date},${x.name}`).join('\n');
 	}
 	const holiEl = document.getElementById('hata-holidays');

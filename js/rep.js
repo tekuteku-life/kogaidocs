@@ -279,15 +279,12 @@ async function loadRepMasterTxt(e) {
 function runRepYearUpdate() {
 	if (!confirm("【代表統合データの年度更新】\n・集約済みの地区データをクリアします。\n・スクゾ関係者リストの「区分・ご所属・お役職」の枠組みだけを残し、ご芳名・連絡先をクリアします。\n\n実行してよろしいですか？")) return;
 	repState.districts = [];
-	repState.szExternals.forEach(ex => {
-		ex.lastName = "";
-		ex.firstName = "";
-		ex.lastNameKana = "";
-		ex.firstNameKana = "";
-		ex.name = "";
-		ex.contact = "";
-		ex.attend = true;
-	});
+	// 組織枠だけを引き継ぎ、旧別名と余剰の個人項目も除外する。
+	repState.szExternals = repState.szExternals.map(ex => ({
+		category: ex.category || "", org: ex.org || "", role: ex.role || "",
+		lastName: "", firstName: "", lastNameKana: "", firstNameKana: "",
+		contact: "", attend: true
+	}));
 	repState.seatConfig.cells = {};
 	saveRepLocal();
 	renderRepAll();

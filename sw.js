@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2.8.3';
+const CACHE_VERSION = '2.8.4';
 const CACHE_SCOPE = self.registration.scope;
 const CACHE_PREFIX = `kogai-cache-${encodeURIComponent(CACHE_SCOPE)}-`;
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;

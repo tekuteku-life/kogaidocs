@@ -10,7 +10,7 @@
 ## 2. 変更内容（設計・ファイル） (Changes: Design & Files)
 ### 設計上の変更点
 <!--
-システム設計書（docs/system_design.md）やアーキテクチャへの反映内容、データモデル・UI/UX・暗号化仕様の変更点を記載してください。
+要件定義書・外部仕様書・内部仕様書（docs/requirements.md, docs/external_design.md, docs/internal_design.md）やアーキテクチャへの反映内容、データモデル・UI/UX・暗号化仕様の変更点を記載してください。
 -->
 -
 
@@ -19,7 +19,7 @@
 修正・新規作成した主要ファイルと変更理由を記載してください。
 例:
 - `js/app.js`: モード選択折りたたみUXの実装
-- `docs/system_design.md`: v2.2.0への設計改訂
+- `docs/internal_design.md`: 内部方式と受入境界の改訂
 -->
 -
 
