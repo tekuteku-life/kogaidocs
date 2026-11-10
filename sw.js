@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2.8.4';
+const CACHE_VERSION = '2.9.0';
 const CACHE_SCOPE = self.registration.scope;
 const CACHE_PREFIX = `kogai-cache-${encodeURIComponent(CACHE_SCOPE)}-`;
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;
@@ -17,6 +17,7 @@ const ASSETS = [
 	'./js/neighbor.js',
 	'./js/transfer.js',
 	'./js/print.js',
+	'./js/handoff.js',
 	'./js/app.js',
 	'./js/events.js',
 	'./icons/icon-192.png',

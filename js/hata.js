@@ -509,57 +509,27 @@ function clearDateOverride(config, date) {
 	delete config.manualOverrides[date];
 }
 
-/**
- * 公式ハタフロットJSON形式の文字列を出力します
- */
-function exportHataOfficialJson(config) {
-	const c = config || {};
-	const payload = {
-		scheduleTitle: c.title || '登校見守り活動シフト表',
-		metaCreatedDate: c.createdDate || new Date().toISOString().slice(0, 10),
-		metaLocation: c.location || '',
-		metaTime: c.time || '7:45〜8:15',
-		metaOrientation: c.orientation || 'landscape',
-		metaLayoutColumns: c.layoutColumns || '3',
-		metaHeaderMsg: c.headerMsg || '',
-		metaFooterMsg: c.footerMsg || '',
-		metaContactMsg: c.contactMsg || '',
-		startDate: c.startDate || '',
-		endDate: c.endDate || '',
-		weekdays: c.weekdays || [1, 2, 3, 4, 5],
-		holidays: c.holidays || '',
-		specials: c.specials || '',
-		exemptHouseholds: c.exemptHouseholds || [],
-		manualOverrides: c.manualOverrides || {},
-		members: c.members || ''
-	};
-	return JSON.stringify(payload, null, 2);
-}
-
-/**
- * 公式ハタフロットJSON文字列をパースしてkogaidocs内部設定構造にインポートします
- */
+/** 現行上流キーと旧aliasのJSONを、型検証して内部設定へ変換する。 */
 function importHataOfficialJson(jsonStr) {
 	if (!jsonStr) return {};
 	const parsed = validateHataConfig(typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr);
 	return {
-		title: parsed.scheduleTitle || parsed.title || '登校見守り活動シフト表',
-		createdDate: parsed.metaCreatedDate || parsed.createdDate || '',
-		location: parsed.metaLocation || parsed.location || '',
-		time: parsed.metaTime || parsed.time || '7:45〜8:15',
-		orientation: parsed.metaOrientation || parsed.orientation || 'landscape',
-		layoutColumns: parsed.metaLayoutColumns || parsed.layoutColumns || '3',
-		headerMsg: parsed.metaHeaderMsg || parsed.headerMsg || '',
-		footerMsg: parsed.metaFooterMsg || parsed.footerMsg || '',
-		contactMsg: parsed.metaContactMsg || parsed.contactMsg || '',
-		startDate: parsed.startDate || '',
-		endDate: parsed.endDate || '',
-		weekdays: parsed.weekdays || [1, 2, 3, 4, 5],
-		holidays: parsed.holidays || '',
-		specials: parsed.specials || '',
-		exemptHouseholds: parsed.exemptHouseholds || [],
-		manualOverrides: parsed.manualOverrides || {},
-		members: parsed.members || ''
+		title: parsed.title ?? parsed.scheduleTitle ?? '登校見守り活動シフト表',
+		createdDate: parsed.createdDate ?? parsed.metaCreatedDate ?? parsed.scheduleCreatedDate ?? '',
+		district: parsed.district ?? '',
+		location: parsed.location ?? parsed.metaLocation ?? '',
+		time: parsed.time ?? parsed.metaTime ?? '7:45〜8:15',
+		orientation: parsed.orientation ?? parsed.metaOrientation ?? 'landscape',
+		layoutColumns: parsed.layoutColumns ?? parsed.metaLayoutColumns ?? '3',
+		headerMsg: parsed.headerMsg ?? parsed.metaHeaderMsg ?? '',
+		footerMsg: parsed.footerMsg ?? parsed.metaFooterMsg ?? '',
+		contactMsg: parsed.contactMsg ?? parsed.metaContactMsg ?? '',
+		startDate: parsed.startDate ?? '', endDate: parsed.endDate ?? '',
+		weekdays: parsed.weekdays ?? [1, 2, 3, 4, 5],
+		holidays: parsed.holidays ?? '', specials: parsed.specials ?? '',
+		exemptHouseholds: parsed.exemptHouseholds ?? [], manualOverrides: parsed.manualOverrides ?? {},
+		members: parsed.members ?? '', format: parsed.format ?? '{住所数字} {苗字}', dedup: parsed.dedup ?? true,
+		...(parsed.schedule === undefined ? {} : { schedule: parsed.schedule })
 	};
 }
 
@@ -577,7 +547,9 @@ async function loadHataOfficialFile(event) {
 		assertStorageSession(generation);
 		currentDistrict.hata = config;
 		renderHataCard();
+		const loadedSettings = JSON.stringify(currentDistrict.hata);
 		await saveDistrictLocal();
+		markHataSaved(loadedSettings);
 	} catch (error) {
 		alert('旗振り設定の読み込みに失敗しました: ' + error.message);
 	} finally {
@@ -718,15 +690,15 @@ function buildHataScheduleHtml(schedule, viewMode = 'sheet', config = null) {
  */
 function buildHataPrintHtml(schedule, config) {
 	const c = config || {};
-	const title = c.title || c.scheduleTitle || '登校見守り活動シフト表';
+	const title = c.title ?? c.scheduleTitle ?? '登校見守り活動シフト表';
 	const yr = new Date().getFullYear();
 	const mo = new Date().getMonth() + 1;
 	const da = new Date().getDate();
 	const defaultCreatedDate = `作成日：${yr}年${mo}月${da}日`;
-	const createdDate = c.createdDate || c.scheduleCreatedDate || defaultCreatedDate;
-	const district = c.district || (typeof currentDistrict !== 'undefined' ? currentDistrict.district : '') || '第1地区';
-	const location = c.location || '〇〇交差点・小学校正門前';
-	const time = c.time || '7:55 〜 8:25';
+	const createdDate = c.createdDate ?? c.scheduleCreatedDate ?? defaultCreatedDate;
+	const district = c.district ?? (typeof currentDistrict !== 'undefined' ? currentDistrict.district : '') ?? '第1地区';
+	const location = c.location ?? '〇〇交差点・小学校正門前';
+	const time = c.time ?? '7:55 〜 8:25';
 
 	const selectedDays = Array.isArray(c.weekdays) ? c.weekdays : [1, 2, 3, 4, 5];
 	const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
@@ -853,6 +825,22 @@ function renderHataCard() {
 	}
 
 	const h = currentDistrict.hata;
+	if (h.createdDate === undefined) {
+		const today = new Date();
+		h.createdDate = h.scheduleCreatedDate ?? `作成日：${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
+	}
+	if (h.members === undefined) h.members = extractHouseholdsFromStudents(currentDistrict.students || []).map(hh => hh.displayName).join('\n');
+	for (const [field, id] of [['members', 'hata-members'], ['createdDate', 'hata-created-date'], ['district', 'hata-district']]) {
+		const el = document.getElementById(id);
+		if (el) el.value = h[field] ?? (field === 'district' ? currentDistrict.district : '');
+	}
+	for (const el of document.querySelectorAll('[data-change="updateHataWeekdays"]')) el.checked = (h.weekdays ?? [1, 2, 3, 4, 5]).includes(Number(el.value));
+	const fmtEl = document.getElementById('hata-format');
+	if (fmtEl) fmtEl.value = h.format ?? '{住所数字} {苗字}';
+	const dedupEl = document.getElementById('hata-dedup');
+	if (dedupEl) dedupEl.checked = h.dedup ?? true;
+	checkHataMemberDuplicates();
+	updateHataPreview();
 	const titleEl = document.getElementById('hata-title');
 	if (titleEl) titleEl.value = h.title || '';
 	const locEl = document.getElementById('hata-location');
@@ -927,6 +915,7 @@ function toggleHataExempt(householdKey, isExempt) {
 		set.delete(householdKey);
 	}
 	currentDistrict.hata.exemptHouseholds = Array.from(set);
+	markHataDirty();
 	saveDistrictLocal();
 }
 
@@ -939,6 +928,7 @@ function applyHataPeriodPreset(presetKey) {
 	if (!currentDistrict.hata) currentDistrict.hata = {};
 	currentDistrict.hata.startDate = dates.startDate;
 	currentDistrict.hata.endDate = dates.endDate;
+	markHataDirty();
 	const startEl = document.getElementById('hata-start-date');
 	if (startEl) startEl.value = dates.startDate;
 	const endEl = document.getElementById('hata-end-date');
@@ -953,9 +943,12 @@ function syncHataMembersFromStudents() {
 	const households = extractHouseholdsFromStudents(currentDistrict.students || []);
 	const membersText = households.map(h => h.displayName).join('\n');
 	if (!currentDistrict.hata) currentDistrict.hata = {};
+	if (currentDistrict.hata.members && currentDistrict.hata.members !== membersText && !confirm('編集した旗振り名簿を児童名簿の世帯一覧で置き換えますか？')) return currentDistrict.hata.members;
 	currentDistrict.hata.members = membersText;
 	const memEl = document.getElementById('hata-members');
 	if (memEl) memEl.value = membersText;
+	checkHataMemberDuplicates();
+	markHataDirty();
 	saveDistrictLocal();
 	return membersText;
 }
@@ -965,11 +958,76 @@ function syncHataMembersFromStudents() {
  */
 function runAutoHataGeneration() {
 	if (!currentDistrict.hata) return;
-	const members = extractHouseholdsFromStudents(currentDistrict.students || []).map(household => household.displayName).join('\n');
+	const members = currentDistrict.hata.members ?? extractHouseholdsFromStudents(currentDistrict.students || []).map(household => household.displayName).join('\n');
 	const schedule = generateHataSchedule({ ...currentDistrict.hata, members });
-	syncHataMembersFromStudents();
+	currentDistrict.hata.members = members;
 	renderHataSchedulePreview(schedule);
 	saveDistrictLocal();
+}
+
+function checkHataMemberDuplicates() {
+	const names = String(currentDistrict.hata?.members ?? '').split('\n').map(name => name.trim()).filter(Boolean);
+	const counts = new Map();
+	const duplicates = [];
+	for (const name of names) {
+		counts.set(name, (counts.get(name) || 0) + 1);
+		if (counts.get(name) === 2) duplicates.push(name);
+	}
+	const alertEl = document.getElementById('hata-duplicate-alert');
+	if (alertEl) {
+		alertEl.textContent = duplicates.length ? '氏名の重複があるため、割当回数を確認してください：' + duplicates.join('、') : '';
+		alertEl.hidden = duplicates.length === 0;
+	}
+	return duplicates;
+}
+
+function buildHataLineText(schedule, config) {
+	const c = config || {};
+	let text = `【${c.title ?? ''}】\n地区: ${c.district ?? currentDistrict.district ?? ''}\n場所: ${c.location ?? ''}\n時間: ${c.time ?? ''}\n`;
+	if (c.headerMsg) text += `\n${c.headerMsg}\n`;
+	text += '--------------------\n';
+	for (const row of schedule || []) {
+		const label = row.type === 'holiday' ? `休み（${row.note || '祝日'}）` : row.type === 'special' ? `★${row.person}（${row.note || '特別枠'}）` : row.person;
+		text += `${row.date.slice(5).replace('-', '/')}(${row.day || row.dayOfWeek}): ${label}\n`;
+	}
+	text += '--------------------\n';
+	if (c.footerMsg) text += c.footerMsg + '\n';
+	if (c.contactMsg) text += c.contactMsg + '\n';
+	return text;
+}
+
+async function copyHataForLine() {
+	renderHataSchedulePreview();
+	if (!hataCurrentSchedule.length) { alert('先に期間と曜日を設定してシフトを作成してください。'); return; }
+	const text = buildHataLineText(hataCurrentSchedule, currentDistrict.hata);
+	const output = document.getElementById('hata-line-text');
+	if (output) { output.value = text; output.hidden = false; }
+	try {
+		await navigator.clipboard.writeText(text);
+		alert('LINE送信用シフトをコピーしました。');
+	} catch (_) {
+		if (output) { output.focus(); output.select(); }
+		alert('表示したシフト本文を選択してコピーしてください。');
+	}
+}
+
+let hataHasUnsavedChanges = false;
+function markHataDirty() {
+	hataHasUnsavedChanges = true;
+	const el = document.getElementById('hata-save-status');
+	if (el) el.textContent = 'ファイル未保存の変更あり（端末への自動保存とは別）';
+	const output = document.getElementById('hata-line-text');
+	if (output) { output.value = ''; output.hidden = true; }
+}
+function markHataSaved(expectedSettings) {
+	if (expectedSettings !== undefined && expectedSettings !== JSON.stringify(currentDistrict.hata)) return;
+	hataHasUnsavedChanges = false;
+	const el = document.getElementById('hata-save-status');
+	if (el) el.textContent = '設定ファイル保存・読込済み';
+}
+function getHataFilenameDate(config) {
+	const parts = (config?.createdDate || '').match(/\d+/g);
+	return parts && parts.length >= 3 ? parts[0] + parts[1].padStart(2, '0') + parts[2].padStart(2, '0') : new Date().toISOString().slice(0, 10).replace(/-/g, '');
 }
 
 let hataCurrentSchedule = [];
@@ -985,9 +1043,8 @@ function renderHataSchedulePreview(explicitSchedule) {
 		assertHataExpansionSize(explicitSchedule.length);
 		hataCurrentSchedule = explicitSchedule;
 	} else if (currentDistrict.hata && currentDistrict.hata.startDate && currentDistrict.hata.endDate) {
-		const members = extractHouseholdsFromStudents(currentDistrict.students || []).map(household => household.displayName).join('\n');
+		const members = currentDistrict.hata.members ?? extractHouseholdsFromStudents(currentDistrict.students || []).map(household => household.displayName).join('\n');
 		const schedule = generateHataSchedule({ ...currentDistrict.hata, members });
-		syncHataMembersFromStudents();
 		hataCurrentSchedule = schedule;
 	} else {
 		hataCurrentSchedule = [];
@@ -1012,9 +1069,7 @@ function renderHataSchedulePreview(explicitSchedule) {
  * ハタフロット印刷を実行します
  */
 function printHataSchedule() {
-	if (!hataCurrentSchedule || hataCurrentSchedule.length === 0) {
-		runAutoHataGeneration();
-	}
+	renderHataSchedulePreview();
 	const printContent = buildHataPrintHtml(hataCurrentSchedule, currentDistrict.hata);
 
 	// 印刷ウィンドウまたはインライン印刷
@@ -1026,7 +1081,7 @@ function printHataSchedule() {
 
 	const origTitle = document.title;
 	const hata = currentDistrict.hata;
-	const targetTitle = (hata && hata.title) ? hata.title : '旗振りシフト表';
+	const targetTitle = `${hata?.title || '旗振りシフト表'}_${hata?.district || currentDistrict.district || 'PTA'}_${getHataFilenameDate(hata)}`.replace(/[\/\\:*?"<>|]/g, '_');
 	const pageStyle = document.createElement('style');
 	pageStyle.textContent = `@media print { @page { size: A4 ${hata?.orientation === 'landscape' ? 'landscape' : 'portrait'}; margin: 10mm; } }`;
 	document.head.appendChild(pageStyle);
@@ -1048,6 +1103,7 @@ function printHataSchedule() {
 
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
+		checkHataMemberDuplicates, buildHataLineText, copyHataForLine, markHataDirty, markHataSaved, getHataFilenameDate,
 		updateHataPreview,
 		copyHataList,
 		extractHouseholdsFromStudents,
@@ -1059,7 +1115,6 @@ if (typeof module !== 'undefined' && module.exports) {
 		swapScheduleDates,
 		setDateOverride,
 		clearDateOverride,
-		exportHataOfficialJson,
 		importHataOfficialJson,
 		loadHataOfficialFile,
 		calculateHataStats,

@@ -6,11 +6,12 @@ const { dispatchUiEvent, bindUiEvents } = require('../../js/events');
 
 // HTMLの属性文字列をコードとして解釈せず、実UIの操作契約だけを検証する。
 const simpleButtons = [
+	'openBrowserHandoff', 'clearBrowserHandoff', 'createBrowserHandoff', 'saveBrowserHandoff', 'copyBrowserHandoff', 'restoreBrowserHandoff',
 	'triggerPwaInstall', 'openStorageSettingsModal', 'toggleModeSelector', 'addOfficer',
 	'openNeighborImportPanel', 'loadPastedNeighborTextIntoDistrict', 'addNeighborhoodRow',
 	'toggleTransferImportPanel', 'loadPastedTransferTextIntoDistrict', 'sortStudentsDesc',
 	'addStudentRow', 'printSingleDistrictSelected', 'printSingleDistrictSeparately',
-	'copyHataList', 'runAutoHataGeneration', 'printHataSchedule', 'toggleHataSummary',
+	'copyHataList', 'copyHataForLine', 'syncHataMembersFromStudents', 'runAutoHataGeneration', 'printHataSchedule', 'toggleHataSummary',
 	'exportDistrictTxt', 'loadPastedTextToDistrict', 'runDistrictYearUpdate', 'addNewRepDistrict',
 	'clearAllRepDistricts', 'addSzExternalRow', 'swapSeatWindowCorridor', 'executeRepSelectedPrint',
 	'loadPastedTextToRep', 'addCurrentDistrictToRep', 'loadPastedTransferTextIntoRep',
@@ -40,13 +41,14 @@ function fresh() {
 		'handleWebAuthnUnlock', 'checkAppVersion', 'onHanListInput', 'confirmAddRepDistrict',
 		'updateN', 'updateS', 'updateNeighborItem', 'updateTransferChild', 'updateModalOfficer',
 		'updateModalStudent', 'updateModalNeighbor', 'updateSzEx', 'renderSeatEditor', 'updateSeatCell',
-		'toggleHataExempt', 'setDistrictPrintSelection', 'toggleSzNeighbor', 'moveNeighborRow',
+		'markHataDirty', 'markHataSaved', 'checkHataMemberDuplicates', 'toggleHataExempt', 'setDistrictPrintSelection', 'toggleSzNeighbor', 'moveNeighborRow',
 		'toggleAllDistrictChecks', 'setRepPrintChecks', 'removeN', 'removeS', 'removeOfficer',
 		'removeNeighborRow', 'removeTransferChildRow', 'removeModalOfficerRow', 'removeModalStudentRow',
 		'removeModalNeighborRow', 'openRepDistrictDetailModal', 'exportSingleDistrictFromRep',
 		'deleteRepDistrict', 'deleteSzExternalRow', 'loadNeighborFileIntoDistrict',
 		'loadTransferFileIntoDistrict', 'loadHataOfficialFile', 'loadDistrictTxt', 'loadMultipleDistrictFiles',
 		'loadTransferFileIntoRep', 'loadRepMasterTxt', 'loadNeighborTxt', 'downloadTextFile']) spy(name);
+	global.getHataFilenameDate = () => '20261110';
 }
 function element(type, action, params = {}, parent = null) {
 	const el = new MockElement(type === 'submit' ? 'form' : type === 'click' ? 'button' : 'input');
@@ -85,7 +87,7 @@ test('events: all plain UI buttons call only their explicitly assigned operation
 	}
 	fire('change', 'resizeSeatGrid');
 	fire('change', 'updateHataPreview');
-	assert.deepEqual(calls.slice(-2), [{ name: 'resizeSeatGrid', args: [] }, { name: 'updateHataPreview', args: [] }]);
+	assert.deepEqual(calls.slice(-4), [{ name: 'resizeSeatGrid', args: [] }, { name: 'updateHataPreview', args: [] }, { name: 'markHataDirty', args: [] }, { name: 'saveDistrictLocal', args: [] }]);
 });
 
 test('events: tab, card, print, sharing and password actions preserve typed arguments', () => {
@@ -214,7 +216,7 @@ test('events: fixed settings operations preserve updates and do not interpret va
 	fresh();
 	const payload = '<img src=x onerror=alert(1)>';
 	for (const field of ['title', 'location', 'time', 'startDate', 'endDate', 'orientation', 'holidays',
-		'specials', 'headerMsg', 'footerMsg', 'contactMsg']) {
+		'specials', 'headerMsg', 'footerMsg', 'contactMsg', 'createdDate', 'district', 'members']) {
 		const value = { startDate: '2026-04-01', endDate: '2026-09-30', orientation: 'portrait' }[field] || payload;
 		fire('input', 'updateHataConfig', { field }, value);
 		assert.equal(currentDistrict.hata[field], value, field);
@@ -235,15 +237,25 @@ test('events: fixed settings operations preserve updates and do not interpret va
 	const error = document.getElementById('rep-new-district-error'); error.textContent = '地区名が必要です';
 	fire('input', 'clearAddDistrictError');
 	assert.equal(error.textContent, ''); assert.equal(error.style.display, 'none');
-	global.currentDistrict = { district: '地区名', hata: { title: '設定' } };
-	global.exportHataOfficialJson = config => { assert.equal(config, currentDistrict.hata); return 'json-content'; };
-	fire('click', 'exportHataSettings');
-	assert.equal(calls.at(-1).name, 'downloadTextFile');
-	assert.equal(calls.at(-1).args[0], 'json-content');
-	assert.match(calls.at(-1).args[1], /^HataFuRotto設定_地区名_\d{8}\.json$/);
-	currentDistrict.district = '';
-	fire('click', 'exportHataSettings');
-	assert.match(calls.at(-1).args[1], /^HataFuRotto設定_PTA_\d{8}\.json$/);
+	assert.doesNotThrow(() => fire('click', 'exportHataSettings'));
+	assert.equal(calls.some(call => call.name === 'downloadTextFile'), false, 'Removed JSON action cannot export');
+});
+
+test('events: weekday changes persist all selected days and keep an empty selection', () => {
+	fresh();
+	const monday = document.createElement('input');
+	monday.setAttribute('name', 'hata-weekday'); monday.value = '1'; monday.checked = true;
+	const saturday = document.createElement('input');
+	saturday.setAttribute('name', 'hata-weekday'); saturday.value = '6'; saturday.checked = true;
+	document.body.appendChild(monday); document.body.appendChild(saturday);
+	fire('change', 'updateHataWeekdays');
+	assert.deepEqual(currentDistrict.hata.weekdays, [1, 6]);
+	assert.equal(calls.at(-1).name, 'saveDistrictLocal');
+	monday.checked = false; saturday.checked = false;
+	fire('change', 'updateHataWeekdays');
+	assert.deepEqual(currentDistrict.hata.weekdays, []);
+	delete currentDistrict.hata;
+	assert.doesNotThrow(() => fire('change', 'updateHataWeekdays'));
 });
 
 test('events: unknown names and invalid parameters cannot resolve global functions or object properties', t => {

@@ -1216,6 +1216,8 @@ test('district: runDistrictYearUpdate preserves hata configuration while resetti
 		],
 		hata: {
 			title: '見守り活動シフト表',
+			district: '印刷表示地区',
+			dedup: false,
 			location: 'セブン前交差点',
 			time: '7:45〜8:15',
 			weekdays: [1, 2, 3, 4, 5],
@@ -1228,12 +1230,15 @@ test('district: runDistrictYearUpdate preserves hata configuration while resetti
 		}
 	};
 
+	districtLib.renderDistrictForm();
 	global.confirm = () => true;
 	districtLib.runDistrictYearUpdate();
 
 	// 旗振りの基本設定は新年度役員のために維持
 	assert.ok(state.currentDistrict.hata);
 	assert.strictEqual(state.currentDistrict.hata.title, '見守り活動シフト表');
+	assert.strictEqual(state.currentDistrict.hata.district, '印刷表示地区');
+	assert.strictEqual(state.currentDistrict.hata.dedup, false);
 	assert.strictEqual(state.currentDistrict.hata.location, 'セブン前交差点');
 	assert.strictEqual(state.currentDistrict.hata.time, '7:45〜8:15');
 	assert.strictEqual(state.currentDistrict.hata.orientation, 'landscape');

@@ -8,7 +8,7 @@ const UI_PASSWORD_TARGETS = ['d-pass', 'd-pass-confirm', 'rep-pass', 'rep-pass-c
 	'neighbor-pass', 'neighbor-pass-confirm', 'neighbor-import-pass', 'transfer-export-pass',
 	'transfer-export-pass-confirm', 'modal-unlock-pass', 'modal-set-pass', 'modal-set-pass-confirm'];
 const UI_HATA_FIELDS = ['title', 'location', 'time', 'startDate', 'endDate', 'orientation',
-	'holidays', 'specials', 'headerMsg', 'footerMsg', 'contactMsg'];
+	'holidays', 'specials', 'headerMsg', 'footerMsg', 'contactMsg', 'createdDate', 'district', 'members'];
 const UI_PASTE_TARGETS = ['d-paste-panel', 'd-transfer-paste-panel', 'rep-transfer-paste-panel'];
 const uiBoundRoots = new WeakSet();
 
@@ -24,7 +24,14 @@ function uiBooleanFlag(element) {
 }
 
 const uiEventHandlers = new Map([
+	['openBrowserHandoff', () => openBrowserHandoff()],
+	['clearBrowserHandoff', () => clearBrowserHandoff()],
+	['createBrowserHandoff', () => createBrowserHandoff()],
+	['saveBrowserHandoff', () => saveBrowserHandoff()],
+	['copyBrowserHandoff', () => copyBrowserHandoff()],
+	['restoreBrowserHandoff', () => restoreBrowserHandoff()],
 	['triggerPwaInstall', () => triggerPwaInstall()],
+	['closePwaInstallHelp', () => document.getElementById('pwa-ios-help').close()],
 	['openStorageSettingsModal', () => openStorageSettingsModal()],
 	['toggleModeSelector', () => toggleModeSelector()],
 	['addOfficer', () => addOfficer()],
@@ -38,6 +45,8 @@ const uiEventHandlers = new Map([
 	['printSingleDistrictSelected', () => printSingleDistrictSelected()],
 	['printSingleDistrictSeparately', () => printSingleDistrictSeparately()],
 	['copyHataList', () => copyHataList()],
+	['copyHataForLine', () => copyHataForLine()],
+	['syncHataMembersFromStudents', () => syncHataMembersFromStudents()],
 	['runAutoHataGeneration', () => runAutoHataGeneration()],
 	['printHataSchedule', () => printHataSchedule()],
 	['toggleHataSummary', () => toggleHataSummary()],
@@ -81,7 +90,20 @@ const uiEventHandlers = new Map([
 	['saveRepLocal', () => saveRepLocal()],
 	['saveNeighborLocal', () => saveNeighborLocal()],
 	['resizeSeatGrid', () => resizeSeatGrid()],
-	['updateHataPreview', () => updateHataPreview()],
+	['updateHataPreview', () => {
+		if (!currentDistrict.hata) return;
+		currentDistrict.hata.format = document.getElementById('hata-format').value;
+		currentDistrict.hata.dedup = document.getElementById('hata-dedup').checked;
+		updateHataPreview();
+		markHataDirty();
+		saveDistrictLocal();
+	}],
+	['updateHataWeekdays', () => {
+		if (!currentDistrict.hata) return;
+		currentDistrict.hata.weekdays = Array.from(document.querySelectorAll('[name="hata-weekday"]:checked'), el => Number(el.value));
+		markHataDirty();
+		saveDistrictLocal();
+	}],
 	['sanitizePasswordInput', element => sanitizePasswordInput(element)],
 	['onHanListInput', element => onHanListInput(element.value)],
 	['checkAppVersion', () => checkAppVersion(true)],
@@ -125,18 +147,17 @@ const uiEventHandlers = new Map([
 	['updateHataConfig', element => {
 		if (!UI_HATA_FIELDS.includes(element.dataset.field)) return;
 		if (currentDistrict.hata) currentDistrict.hata[element.dataset.field] = element.value;
+		if (element.dataset.field === 'members') checkHataMemberDuplicates();
+		markHataDirty();
 		saveDistrictLocal();
 	}],
 	['updateHataColumns', element => {
 		if (currentDistrict.hata && /^[1-6]$/.test(element.value)) {
 			currentDistrict.hata.layoutColumns = element.value;
+			markHataDirty();
 			saveDistrictLocal();
 			renderHataSchedulePreview();
 		}
-	}],
-	['exportHataSettings', () => {
-		const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-		downloadTextFile(exportHataOfficialJson(currentDistrict.hata), `HataFuRotto設定_${currentDistrict.district || 'PTA'}_${date}.json`);
 	}],
 	['setDistrictPrintSelection', element => {
 		const index = uiRowIndex(element);

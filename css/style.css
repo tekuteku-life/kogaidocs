@@ -1239,3 +1239,32 @@ table.edit-table th { background: #f8fafc; font-weight: bold; white-space: nowra
 }
 
 
+
+/* 旗振り設定の主要操作を詳細設定の外へ配置する。 */
+.hata-weekdays, .hata-members-panel {
+	margin: 0 0 16px;
+	padding: 12px;
+	border: 1px solid #cbd5e1;
+	border-radius: 6px;
+	min-width: 0;
+}
+.hata-weekdays { display: flex; flex-wrap: wrap; gap: 8px; }
+.hata-weekdays label { display: inline-flex; align-items: center; gap: 6px; margin: 0; min-height: 44px; padding: 0 8px; cursor: pointer; }
+.hata-weekdays input { width: auto; }
+#hata-duplicate-alert { color: #9a3412; overflow-wrap: anywhere; }
+#hata-preview, #hata-line-text, #hata-members { width: 100%; box-sizing: border-box; }
+#hata-line-text[hidden], #hata-duplicate-alert[hidden] { display: none; }
+#pwa-ios-help { max-width: min(480px, calc(100% - 48px)); border: 0; border-radius: 12px; padding: 24px; }
+#pwa-ios-help::backdrop { background: rgb(15 23 42 / 55%); }
+#pwa-ios-help li { margin: 12px 0; }
+@media print { #pwa-ios-help { display: none; } }
+
+.line-browser-notice { margin: 12px auto; padding: 16px; max-width: 1160px; background: #fff7ed; border: 1px solid #fb923c; border-radius: 8px; }
+.line-browser-notice[hidden], #handoff-result[hidden], [data-external-browser-link][hidden] { display: none; }
+#browser-handoff-dialog { width: min(600px, calc(100% - 48px)); max-height: 85vh; overflow: auto; box-sizing: border-box; border: 0; border-radius: 12px; padding: 20px; }
+#browser-handoff-dialog::backdrop { background: rgb(15 23 42 / 55%); }
+#browser-handoff-dialog section { padding: 12px 0; border-top: 1px solid #cbd5e1; }
+#browser-handoff-dialog input, #browser-handoff-dialog textarea { box-sizing: border-box; width: 100%; margin-bottom: 10px; }
+#browser-handoff-dialog button { margin: 4px 0; }
+#handoff-status { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media print { #browser-handoff-dialog, .line-browser-notice { display: none; } }

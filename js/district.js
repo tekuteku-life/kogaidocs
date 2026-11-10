@@ -393,6 +393,8 @@ function runDistrictYearUpdate() {
 	if (currentDistrict.hata) {
 		currentDistrict.hata = {
 			title: currentDistrict.hata.title || "登校見守り活動シフト表",
+			district: currentDistrict.hata.district ?? currentDistrict.district,
+			dedup: currentDistrict.hata.dedup ?? true,
 			location: currentDistrict.hata.location || "",
 			time: currentDistrict.hata.time || "",
 			weekdays: Array.isArray(currentDistrict.hata.weekdays) ? currentDistrict.hata.weekdays : [1, 2, 3, 4, 5],
@@ -473,6 +475,7 @@ async function exportDistrictTxt() {
 		return;
 	}
 
+	const hataSnapshot = JSON.stringify(currentDistrict.hata);
 	const encoded = await encryptPayload(JSON.stringify(currentDistrict), pass);
 	const dateStr = new Date().toISOString().slice(0,10);
 	const hanPart = currentDistrict.han ? `_${currentDistrict.han}` : "";
@@ -483,6 +486,7 @@ async function exportDistrictTxt() {
 		`:END_DATA`
 	].join('\n');
 	downloadTextFile(content, `校外地区データ_${currentDistrict.district}${hanPart}_${dateStr}.txt`);
+	if (typeof markHataSaved === 'function') markHataSaved(hataSnapshot);
 }
 
 /**

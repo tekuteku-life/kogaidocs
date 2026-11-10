@@ -1156,7 +1156,7 @@ test('system [機能21]: 全削除確認ガード・代表カード1整理・代
 	assert.strictEqual(scheduleConfig.manualOverrides[d1].person, p2);
 	assert.strictEqual(scheduleConfig.manualOverrides[d2].person, p1);
 
-	// 公式JSON保存
-	const jsonStr = hata.exportHataOfficialJson(scheduleConfig);
-	assert.ok(jsonStr.includes('登校見守り活動シフト表'));
+	// 外部JSON形式の読み込み
+	const jsonStr = JSON.stringify(scheduleConfig);
+	assert.strictEqual(hata.importHataOfficialJson(jsonStr).title, scheduleConfig.title);
 });
