@@ -567,7 +567,7 @@ for (const lastName of ["O'Neil", "');window.__injected=1;//", '<img src=x onerr
 	}, { beforeLoad: new Function(`window.__surname = ${JSON.stringify(lastName)};`) });
 }
 
-browserTest('UI hata: generation, exemption, stats, JSON export, print title and cleanup', async () => {
+browserTest('UI hata: generation, exemption, stats, import-only controls, print title and cleanup', async () => {
 	await ui.district();
 	await ui.click('#btn-add-student-bottom');
 	ui.field('#students-tbody tr:nth-child(2)', 'lastName', '佐藤');
@@ -578,20 +578,19 @@ browserTest('UI hata: generation, exemption, stats, JSON export, print title and
 	ui.fill('#hata-holidays', '2026-10-20,休校');
 	ui.fill('#hata-specials', '2026-10-21,固定担当,行事');
 	assert.ok(ui.element('#hata-exempt-list').textContent.includes('佐藤'), 'Exemption choices follow student additions');
+	await ui.click('button[data-click="syncHataMembersFromStudents"]');
 	await ui.click('#hata-exempt-list label:first-child');
 	await ui.click('button[data-click="runAutoHataGeneration"]');
 	assert.ok(ui.element('#hata-schedule-preview').textContent.includes('固定担当'), 'Special day rendered');
 	assert.ok(ui.element('#hata-schedule-preview').textContent.includes('休校'), 'Holiday rendered');
 	await ui.click('button[data-click="toggleHataSummary"]');
 	assert.ok(ui.element('#hata-summary-container').textContent.includes('佐藤'), 'Stats rendered');
-	ui.captureDownloads();
-	await ui.click('#card-d-hata button[data-click="exportHataSettings"]');
-	assert.strictEqual(JSON.parse(__downloads[0].content).specials, '2026-10-21,固定担当,行事', 'Official JSON carries schedule settings');
+	assert.strictEqual(document.querySelector('[data-click="exportHataSettings"]'), null, 'Official JSON is import only');
 	const title = document.title;
 	let printCount = 0;
 	window.print = () => {
 		printCount++;
-		assert.strictEqual(document.title, currentDistrict.hata.title, 'Hata PDF title');
+		assert.strictEqual(document.title, `${currentDistrict.hata.title}_${currentDistrict.hata.district || currentDistrict.district}_${getHataFilenameDate(currentDistrict.hata)}`, 'Hata PDF name includes title, district and date');
 		assert.ok(document.body.classList.contains('printing-hata'), 'Hata print mode set');
 		assert.ok(ui.element('#hata-print-active-sheet').textContent.includes('固定担当'), 'Print contains shift');
 	};

@@ -2,8 +2,9 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
-const CURRENT_APP_VERSION = "2.8.4";
+const CURRENT_APP_VERSION = "2.9.0";
 let deferredInstallPrompt = null;
+let pwaInstallationCompleted = false;
 
 function switchTab(mode) {
 	const tabD = document.getElementById('tab-district');
@@ -36,6 +37,8 @@ function switchTab(mode) {
 	} catch (e) {
 		console.warn("Failed to persist active mode", e);
 	}
+
+	if (typeof updateLineBrowserNotice === 'function') updateLineBrowserNotice();
 
 	// ブラウザURLのHistory同期（Action Item A-2）
 	try {
@@ -174,13 +177,32 @@ async function shareAppUrl(specificMode) {
 /**
  * PWAのインストールを促すダイアログを開きます
  */
+function isStandaloneApp() {
+	return navigator.standalone === true || (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches);
+}
+function isIosDevice() {
+	return /iPhone|iPad|iPod/.test(navigator.userAgent || '') || (/Mac/.test(navigator.platform || '') && navigator.maxTouchPoints > 1);
+}
+function updatePwaInstallButton() {
+	const button = document.getElementById('pwa-install-btn');
+	if (!button) return;
+	const secure = window.location.protocol === 'https:' || (window.location.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(window.location.hostname));
+	button.style.display = secure && !pwaInstallationCompleted && !isStandaloneApp() && (isIosDevice() || deferredInstallPrompt) ? 'inline-flex' : 'none';
+	button.textContent = isIosDevice() ? '📲 ホーム画面に追加' : '📲 アプリをインストール';
+}
 function triggerPwaInstall() {
+	if (isStandaloneApp()) return;
+	if (isIosDevice()) {
+		const dialog = document.getElementById('pwa-ios-help');
+		if (dialog && typeof dialog.showModal === 'function') dialog.showModal();
+		else alert('Safariでこのページを開き、共有メニューから「ホーム画面に追加」を選んでください。「Webアプリとして開く」がある場合はオンにして「追加」を押してください。');
+		return;
+	}
 	if (deferredInstallPrompt) {
 		deferredInstallPrompt.prompt();
-		deferredInstallPrompt.userChoice.then((choiceResult) => {
+		deferredInstallPrompt.userChoice.then(() => {
 			deferredInstallPrompt = null;
-			const installBtn = document.getElementById('pwa-install-btn');
-			if (installBtn) installBtn.style.display = 'none';
+			updatePwaInstallButton();
 		});
 	}
 }
@@ -552,12 +574,14 @@ function clearMemoryAndDomForLock() {
 		currentDistrict.students = [{ grade: "1", class: "", han: "", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "", leader: "", isOutOfDistrict: false }];
 		currentDistrict.hata = {};
 		if (typeof hataCurrentSchedule !== 'undefined') hataCurrentSchedule = [];
+		if (typeof hataHasUnsavedChanges !== 'undefined') hataHasUnsavedChanges = false;
 	}
 	if (typeof repState !== 'undefined') {
 		repState.districts = [];
 		repState.szExternals = [];
 		repState.seatConfig = { cols: 4, rows: 5, leftSide: '窓側', rightSide: '廊下側', topLabel: '前方', bottomLabel: '後方', cells: {} };
 	}
+	if (typeof clearBrowserHandoff === 'function') clearBrowserHandoff();
 	if (typeof closeRepDistrictDetailModalWithoutSaving === 'function') closeRepDistrictDetailModalWithoutSaving();
 	if (typeof closeAddDistrictModal === 'function') closeAddDistrictModal();
 	if (typeof neighborState !== 'undefined') {
@@ -975,11 +999,23 @@ async function performAppUpdate(targetVersion = null) {
 window.addEventListener('beforeinstallprompt', (e) => {
 	e.preventDefault();
 	deferredInstallPrompt = e;
-	const installBtn = document.getElementById('pwa-install-btn');
-	if (installBtn) installBtn.style.display = 'inline-flex';
+	updatePwaInstallButton();
 });
 
+window.addEventListener('appinstalled', () => {
+	pwaInstallationCompleted = true;
+	deferredInstallPrompt = null;
+	updatePwaInstallButton();
+});
+window.addEventListener('beforeunload', event => {
+	if (typeof hataHasUnsavedChanges !== 'undefined' && hataHasUnsavedChanges) {
+		event.preventDefault();
+		event.returnValue = '';
+	}
+});
 window.addEventListener('DOMContentLoaded', async () => {
+	updatePwaInstallButton();
+	if (typeof initializeBrowserHandoff === 'function') initializeBrowserHandoff();
 	// ServiceWorker 登録（PWA対応）
 	if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
 		navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(err => {
@@ -1037,6 +1073,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		restoreActiveMode,
 		toggleModeSelector,
 		shareAppUrl,
+		isStandaloneApp, isIosDevice, updatePwaInstallButton,
 		triggerPwaInstall,
 		updateSecurityBadge,
 		showStorageUnlockModal,

@@ -530,6 +530,7 @@ function validateHataConfig(config) {
 	requireImportShape(isImportObject(config));
 	const strings = ['scheduleTitle', 'title', 'metaCreatedDate', 'createdDate', 'scheduleCreatedDate', 'district', 'metaLocation', 'location', 'metaTime', 'time', 'metaHeaderMsg', 'headerMsg', 'metaFooterMsg', 'footerMsg', 'metaContactMsg', 'contactMsg', 'startDate', 'endDate', 'specials', 'format'];
 	strings.forEach(key => requireImportShape(config[key] === undefined || typeof config[key] === 'string'));
+	requireImportShape(config.dedup === undefined || typeof config.dedup === 'boolean');
 	if (config.weekdays !== undefined) requireImportShape(Array.isArray(config.weekdays) && config.weekdays.every(day => Number.isInteger(day) && day >= 0 && day <= 6));
 	if (config.exemptHouseholds !== undefined) requireImportShape(Array.isArray(config.exemptHouseholds) && config.exemptHouseholds.every(key => typeof key === 'string'));
 	for (const key of ['metaOrientation', 'orientation']) requireImportShape(config[key] === undefined || ['landscape', 'portrait'].includes(config[key]));
@@ -686,6 +687,8 @@ if (typeof window !== 'undefined') {
 
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
+		requireImportShape,
+		isImportObject,
 		validateImportData,
 		validateHataConfig,
 		validateImportStructure,

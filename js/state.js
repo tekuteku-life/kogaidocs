@@ -149,33 +149,28 @@ function saveDistrictLocal() {
 		currentDistrict.officers = newOfficers;
 	}
 
-	// ハタフロット（旗振りシフト）入力値の同期収集（要素が存在し入力値がある場合のみ更新）
+	// 空文字・曜日全解除も有効な編集であり、保存時に取りこぼさない。
 	const hTitle = document.getElementById('hata-title');
-	if (hTitle && hTitle.value.trim() !== '') {
+	if (hTitle) {
 		currentDistrict.hata = currentDistrict.hata || {};
-		currentDistrict.hata.title = hTitle.value.trim();
-		const hLoc = document.getElementById('hata-location');
-		if (hLoc && hLoc.value.trim() !== '') currentDistrict.hata.location = hLoc.value.trim();
-		const hTime = document.getElementById('hata-time');
-		if (hTime && hTime.value.trim() !== '') currentDistrict.hata.time = hTime.value.trim();
-		const hStart = document.getElementById('hata-start-date');
-		if (hStart && hStart.value) currentDistrict.hata.startDate = hStart.value;
-		const hEnd = document.getElementById('hata-end-date');
-		if (hEnd && hEnd.value) currentDistrict.hata.endDate = hEnd.value;
-		const hOrient = document.getElementById('hata-orientation');
-		if (hOrient && hOrient.value) currentDistrict.hata.orientation = hOrient.value;
-		const hCols = document.getElementById('hata-columns');
-		if (hCols && hCols.value) currentDistrict.hata.layoutColumns = String(hCols.value);
-		const hHols = document.getElementById('hata-holidays');
-		if (hHols && hHols.value) currentDistrict.hata.holidays = hHols.value;
-		const hSpecs = document.getElementById('hata-specials');
-		if (hSpecs && hSpecs.value) currentDistrict.hata.specials = hSpecs.value;
-		const hHeader = document.getElementById('hata-header-msg');
-		if (hHeader && hHeader.value) currentDistrict.hata.headerMsg = hHeader.value;
-		const hFooter = document.getElementById('hata-footer-msg');
-		if (hFooter && hFooter.value) currentDistrict.hata.footerMsg = hFooter.value;
-		const hContact = document.getElementById('hata-contact-msg');
-		if (hContact && hContact.value) currentDistrict.hata.contactMsg = hContact.value;
+		for (const [field, id] of [
+			['title', 'hata-title'], ['location', 'hata-location'], ['time', 'hata-time'],
+			['startDate', 'hata-start-date'], ['endDate', 'hata-end-date'],
+			['orientation', 'hata-orientation'], ['layoutColumns', 'hata-columns'],
+			['holidays', 'hata-holidays'], ['specials', 'hata-specials'],
+			['headerMsg', 'hata-header-msg'], ['footerMsg', 'hata-footer-msg'], ['contactMsg', 'hata-contact-msg'],
+			['members', 'hata-members'], ['createdDate', 'hata-created-date'], ['district', 'hata-district'], ['format', 'hata-format']
+		]) {
+			const el = document.getElementById(id);
+			if (!el) continue;
+			if (field === 'orientation' && !['portrait', 'landscape'].includes(el.value)) continue;
+			if (field === 'layoutColumns' && !/^[1-6]$/.test(el.value)) continue;
+			currentDistrict.hata[field] = el.value;
+		}
+		const days = document.querySelectorAll('[name="hata-weekday"]');
+		if (days.length) currentDistrict.hata.weekdays = Array.from(days).filter(el => el.checked).map(el => Number(el.value));
+		const dedup = document.getElementById('hata-dedup');
+		if (dedup) currentDistrict.hata.dedup = dedup.checked;
 	}
 
 	// パスワード安全記憶処理（多層防御・二重防壁）

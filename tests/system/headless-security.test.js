@@ -241,6 +241,7 @@ securityTest('Security CSP: inline script, inline event, eval, base and form sub
 });
 
 function seedPrivateStorage() {
+	window.__authAtSeed = localStorage.getItem('kogai_auth_meta') !== null;
 	if (localStorage.getItem('kogai_auth_meta') !== null) return;
 	localStorage.setItem('kogai_district_v2', JSON.stringify({ district: '受入秘密地区', hanList: [], officers: [{}], students: [], neighborhood: [] }));
 	localStorage.setItem('kogai_rep_v2', JSON.stringify({ districts: [], szExternals: [{ attend: true, category: '学校関係者', org: '学校', role: '校長', lastName: '受入秘密校長' }], seatConfig: { cols: 2, rows: 2, cells: {} } }));
@@ -260,8 +261,8 @@ for (const mode of ['district', 'rep', 'neighbor', 'transfer']) {
 		const tampered = prefix + uint8ToBase64(bytes);
 		localStorage.setItem(key, tampered);
 		localStorage.setItem('__security_tampered_ciphertext', tampered);
-	}, { beforeLoad: new Function(`window.__tamperMode = ${JSON.stringify(mode)}; (${seedPrivateStorage.toString()})();`), afterReload: async () => {
-		assert.ok(ui.visible('#storage-lock-modal'), 'Encrypted restart begins locked');
+	}, { allowFileAccess: true, beforeLoad: new Function(`window.__tamperMode = ${JSON.stringify(mode)}; (${seedPrivateStorage.toString()})();`), afterReload: async () => {
+		assert.ok(ui.visible('#storage-lock-modal'), 'Encrypted restart begins locked ' + JSON.stringify({ encrypted: isStorageEncrypted(), unlocked: isStorageUnlocked(), display: getComputedStyle(ui.element('#storage-lock-modal')).display, top: ui.element('#storage-lock-modal').getBoundingClientRect().top, ready: document.readyState, authAtSeed: window.__authAtSeed, origin: location.origin, path: location.pathname, tamperSaved: localStorage.getItem('__security_tampered_ciphertext') !== null }));
 		const key = `kogai_${window.__tamperMode}_v2`;
 		const tampered = localStorage.getItem('__security_tampered_ciphertext');
 		assert.strictEqual(localStorage.getItem(key), tampered, 'Actual reload preserves the injected authentication-tag corruption');

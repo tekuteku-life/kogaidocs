@@ -314,6 +314,22 @@ function getModalCurrentDistrict() {
 	return modalCurrentDistrict;
 }
 
+function captureRepDetailDraft() {
+	return modalCurrentDistrict ? JSON.parse(JSON.stringify({ index: modalDistrictIndex, district: modalCurrentDistrict,
+		officerIndexes: modalOfficerIndexes, neighborIndexes: modalNeighborIndexes })) : null;
+}
+
+function restoreRepDetailDraft(draft) {
+	closeRepDistrictDetailModalWithoutSaving();
+	if (!draft) return;
+	modalDistrictIndex = draft.index;
+	modalCurrentDistrict = draft.district;
+	modalOfficerIndexes = draft.officerIndexes;
+	modalNeighborIndexes = draft.neighborIndexes;
+	document.getElementById('rep-district-detail-modal').style.display = 'block';
+	renderRepDistrictDetailModal();
+}
+
 function openRepDistrictDetailModal(index) {
 	if (typeof index !== 'number' || index < 0 || !repState.districts || index >= repState.districts.length) return;
 	modalDistrictIndex = index;
@@ -1142,6 +1158,8 @@ if (typeof module !== 'undefined' && module.exports) {
 		saveAndCloseRepDistrictDetailModal,
 		renderRepDistrictDetailModal,
 		getModalCurrentDistrict,
+		captureRepDetailDraft,
+		restoreRepDetailDraft,
 		addModalOfficerRow,
 		removeModalOfficerRow,
 		updateModalOfficer,

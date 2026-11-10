@@ -146,6 +146,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 
 		browser = spawn(process.env.CHROMIUM_PATH || (existsSync('/usr/lib/chromium/chromium') ? '/usr/lib/chromium/chromium' : 'chromium'), [
 			'--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+			...(options.allowFileAccess ? ['--allow-file-access-from-files'] : []),
 			'--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--no-proxy-server',
 			`--user-data-dir=${profileDir}`, '--remote-debugging-pipe', 'about:blank'
 		], { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
@@ -179,6 +180,9 @@ async function runInHeadlessChrome(testFn, options = {}) {
 					if (!task) continue;
 					if (message.error) task.reject(new Error(JSON.stringify(message.error)));
 					else task.resolve(message.result);
+				} else if (message.method === 'Page.javascriptDialogOpening' && message.params.type === 'beforeunload') {
+					// 再起動シナリオでは、利用者が離脱確認を了承した操作を再現する。
+					send('Page.handleJavaScriptDialog', { accept: true }).catch(failPending);
 				} else if (options.observeNetwork && message.sessionId === sessionId && message.method === 'Network.requestWillBeSent') {
 					const { request, type } = message.params;
 					requests.push({ url: request.url, method: request.method, headers: request.headers, postData: request.postData || '', type });

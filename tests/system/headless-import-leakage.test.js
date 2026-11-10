@@ -95,7 +95,7 @@ function prepareLeakage() {
 				metaFooterMsg: `FOOTER:${attack}`, metaContactMsg: `CONTACT:${attack}`,
 				startDate: '2026-10-19', endDate: '2026-10-20',
 				specials: `2026-10-19,ASSIGNEE:${attack},NOTE:${attack}`,
-				members: 'EXTERNAL_MEMBERS_MUST_NOT_REPLACE_ROSTER'
+				members: `MEMBER:${attack}`
 			};
 			await ui.file('#card-d-hata input[data-change="loadHataOfficialFile"]', JSON.stringify(config), 'hostile-official.json');
 			await ui.waitFor(() => currentDistrict.hata.title === config.scheduleTitle && ui.element('#card-d-hata input[type="file"]').value === '', 'Official JSON file selection completes');
@@ -104,10 +104,10 @@ function prepareLeakage() {
 		},
 		async printHata() {
 			await ui.click('button[data-click="runAutoHataGeneration"]');
-			assert.ok(currentDistrict.hata.members.includes(roster), 'Hata members are regenerated from the actual imported student roster');
-			assert.ok(!currentDistrict.hata.members.includes('EXTERNAL_MEMBERS_MUST_NOT_REPLACE_ROSTER'), 'Official JSON members never replace the roster');
+			assert.strictEqual(currentDistrict.hata.members, `MEMBER:${attack}`, 'Official edited roster survives generation and restart as text');
+			assert.strictEqual(currentDistrict.students[0].firstName, roster, 'Editing the flag roster preserves the original student roster');
 			const preview = ui.element('#hata-schedule-preview').textContent;
-			const prefixes = ['TITLE', 'LOCATION', 'HEADER', 'FOOTER', 'CONTACT', 'ASSIGNEE', 'NOTE'];
+			const prefixes = ['TITLE', 'LOCATION', 'HEADER', 'FOOTER', 'CONTACT', 'ASSIGNEE', 'NOTE', 'MEMBER'];
 			for (const prefix of prefixes) assert.ok(preview.includes(`${prefix}:${attack}`), `Actual preview preserves complete hostile ${prefix} text`);
 			assert.strictEqual(hataCurrentSchedule[0].person, `ASSIGNEE:${attack}`, 'Special assignee preserves hostile text');
 			assert.strictEqual(hataCurrentSchedule[0].note, `NOTE:${attack}`, 'Special note preserves hostile text');

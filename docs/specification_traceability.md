@@ -76,7 +76,7 @@
 | R-08 / E-02 / I-04 | 当番生成・免除・特別日・手動調整 | [hata.test.js:239](../tests/unit/hata.test.js#L239) `hata: generateHataSchedule allocates duties evenly and respects exclusions & overrides`、[同283行](../tests/unit/hata.test.js#L283) `hata: swapScheduleDates and setDateOverride modifies schedule and updates manualOverrides` | 特別日優先、休日person=`-`、免除世帯の非割当、手動指定と交換結果/overrideを確認する。通常当番の担当数差に対するassertionは不足しているため、均等性まで確認済みとは判定しない。 |
 | R-08 / E-02 / I-04・I-05 | 設定・休日復元と実再起動 | [headless-workflows.test.js:526](../tests/system/headless-workflows.test.js#L526) `UI hata: imported holidays survive DOM/state/storage/schedule and actual reload`、[同1033行](../tests/system/headless-workflows.test.js#L1033) `UI hata holiday arrays: normalize, use, save and restore after reload` | 休日のDOM/状態/保存/生成表への反映、配列形式の正規化と実再読込を検査する。 |
 | R-08 / E-02 / I-03・I-04 | 不正公式JSONと同一ファイル再選択 | [headless-workflows.test.js:542](../tests/system/headless-workflows.test.js#L542) `UI hata: malformed JSON is reported, state preserved and same file retry enabled` | 空/構文不正/型不正を拒否し旧設定・通知・file input空復帰を検査する。 |
-| R-08 / E-02 / I-04・I-05 | 公式JSON双方向と印刷 | [hata.test.js:309](../tests/unit/hata.test.js#L309) `hata: exportHataOfficialJson and importHataOfficialJson guarantee bilateral compatibility`、[headless-workflows.test.js:570](../tests/system/headless-workflows.test.js#L570) `UI hata: generation, exemption, stats, JSON export, print title and cleanup` | エクスポート/取込の設定値、実UIで特別日・休日・統計表示、JSON値、印刷タイトル、作業用印刷DOM消去を確認する。 |
+| R-08 / E-02 / I-04・I-05 | 公式JSON読込と印刷 | [hata.test.js:309](../tests/unit/hata.test.js#L309) `hata: official JSON import preserves supported settings`、[headless-workflows.test.js:570](../tests/system/headless-workflows.test.js#L570) `UI hata: generation, exemption, stats, import-only controls, print title and cleanup` | JSON取込と地区暗号化ファイルの設定値、実UIで特別日・休日・統計表示、JSON値、印刷タイトル、作業用印刷DOM消去を確認する。 |
 | R-09 / E-03 / I-04 | 出席者の座席候補 | [seat.test.js:12](../tests/unit/seat.test.js#L12) `seat: getAllSzParticipantsForSeat lists facility, officers, neighborhood, and externals` | 印刷対象地区の役員/自治会と出席externalだけを候補とし、未選択地区・欠席者を除外する。施設マーカーも確認する。 |
 | R-09 / E-03 / I-03・I-04 | 座席寸法・自由文・左右反転 | [headless-workflows.test.js:604](../tests/system/headless-workflows.test.js#L604) `UI seat editor: min/max resize, facility/custom text, side labels, attendance selection` | 2〜10列・2〜14行、実DOMセル数、施設・自由文、会場ラベル、左右反転、欠席による候補除外を確認する。ドラッグ&ドロップを確認したテストではない。 |
 | R-09 / E-03 / I-04 | 外部関係者削除と本人追跡 | [headless-workflows.test.js:628](../tests/system/headless-workflows.test.js#L628) `UI seat deletion: removing another external attendee preserves assigned person` | A削除後もBを割当て、B削除時だけ解除し、取消時の配列保持を確認する。 |
@@ -271,3 +271,25 @@ SEC-18/19先行Redの記録は64件中7件合格・57件失敗であり、本番
 今回の最終実測は `npm test` 709/709、`npm run test:ui` 111/111であり、いずれも失敗・取消・スキップ0件である。追加した保存パスワード非混入の1件を含む。12本番モジュールはすべてLine 100%、Branch 95.27〜100%、Funcs 98.55〜100%であり、要求閾値を満たす。実行環境と全モジュールの値は[検証記録](reviews/review59_specifications_verification.md)、独立判定は[テストGate 2](reviews/review58_specification_tests.md)と[最終Gate 3](reviews/review60_specifications_security_final.md)に記録する。
 
 本表で今回特定したアサーション不足は第8・9・11節の追加テストで補完した。公開配信・実認証器・OS印刷/共有先の境界は、これらの数値をもって検証済みとはしない。
+
+## 12. ハタフロット全機能統合とiOS導線（2026年11月10日）
+
+| 要件・仕様 | 実アサーション | 環境・境界 |
+| --- | --- | --- |
+| R-08 / E-02-10 / I-04-08 | `hata-complete.test.js` の上流JSON読込は全キー・空文字・空曜日・false・不正dedup型を確認する。LINE本文は通常/休日/特別枠と連絡文を確認する。 | Node、DOMモックである。 |
+| R-08・R-11 / E-02-10 | `headless-hata-complete.test.js` の375/1280px試験は手編集・重複警告・反映取消・曜日・複数行時間・最新設定の印刷・全hata値の暗号化ファイル出力/実読込・再起動復元を確認する。 | 実Chromium、file起動、実WebCrypto。印刷ダイアログと保存先の完了は代替する。 |
+| R-08・R-15 / E-02-10 | `headless-import-leakage.test.js` は外部名簿を保持しつつ児童名簿が変わらないこと、悪意文字列のDOM非生成・イベント非実行・通信非発生を確認する。 | CDPの観測であり、HTTP本番配信を証明しない。 |
+| R-08 / I-04-08 | `hata-complete.test.js` は暗号化処理中に編集が入った場合に古い保存スナップショットで未保存警告を消さないことを確認する。 | Node、状態と表示の検証である。 |
+| R-16 / E-01-08 / I-06-08 | `pwa-install.test.js` はHTTPS/通常HTTP/fileとiOS/Mac型iPad/standaloneのボタン条件、保留プロンプト消費、appinstalled、PNG実体を確認する。 | navigator/locationはモックである。 |
+| R-16 / E-01-08 | `headless-hata-complete.test.js` はiPhone/iPad型UA・standalone・desktopの認識、metaタグ、native dialogの表示/閉じる/Escapeを確認する。 | Chromium上のUA再現である。fileではボタン非表示を確認し、案内開閉は直接関数を呼ぶ。iPhone実機のSafariで共有→ホーム画面追加→独立起動は未検証である。 |
+
+比較元の機能一覧・コミットは [統合設計記録](reviews/review61_hata_integration_design.md) に示す。将来の上流変更の追従を保証するものではない。
+
+## 13. LINE内ブラウザとJSON読込専用化（追加要件）
+
+| 要件・仕様 | 実アサーション | 環境・境界 |
+| --- | --- | --- |
+| R-08 / E-02-10 | `hata-complete.test.js` と `headless-hata-complete.test.js` はJSON出力API/ボタンの廃止と読込維持、地区暗号化ファイルによる全設定保存を確認する。 | Nodeと実Chromiumである。 |
+| R-17 / E-01-09 / I-06-09 | `browser-handoff.test.js` はLINE/通常UAと、元URLの機微なquery/hashを除外した外部ブラウザURLを確認する。 | UA・locationはモックである。 |
+| R-12・R-15・R-17 | 同単体試験は未完了転入者・全設定・代表下書きの型/旧行index検証、誤鍵、不正型、全モデル保存失敗のrollback、暗号化維持とロック拒否を確認する。 | Node、実WebCrypto、ストレージ/API制御を含む。 |
+| R-14・R-17 | `headless-browser-handoff.test.js` はLINE警告、暗号化ファイル/貼付復元、独立保存領域相当の消去後の復元と再起動、未確定名簿の取消、誤鍵・置換取消、Escape・ロック後の遅い暗号化の無効化を確認する。 | 実Chromiumのfile起動である。LINE/Safari実機間の切替とOSファイル配送は未検証である。 |

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#1d4ed8">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="校外名簿管理">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.json">
@@ -23,6 +24,7 @@
 <script src="js/neighbor.js"></script>
 <script src="js/transfer.js"></script>
 <script src="js/print.js"></script>
+<script src="js/handoff.js"></script>
 <script src="js/app.js"></script>
 <script src="js/events.js"></script>
 </head>
@@ -33,6 +35,7 @@
 		<h1><img src="icons/icon.svg" alt="" style="width:28px; height:28px; vertical-align:-6px; margin-right:6px;">kogaidocs - 校外委員名簿管理システム</h1>
 		<div class="header-actions">
 			<button type="button" id="btn-share-app" class="btn btn-secondary btn-sm" data-click="shareAppUrl" title="他役員へアプリのURLを共有">🔗 アプリを共有</button>
+			<button type="button" class="btn btn-outline btn-sm" data-click="openBrowserHandoff">ブラウザ間引き継ぎ</button>
 			<button type="button" id="pwa-install-btn" class="btn btn-outline btn-sm" style="display:none;" data-click="triggerPwaInstall">📲 アプリをインストール</button>
 			<div id="storage-security-badge" class="security-badge is-plain" data-click="openStorageSettingsModal">
 				🔓 ストレージ未暗号化
@@ -51,6 +54,16 @@
 		</button>
 	</div>
 </header>
+<aside id="line-browser-notice" class="no-print line-browser-notice" role="alert" hidden>
+	<strong>LINE内ブラウザで開いています。</strong>
+	<p>インストールやファイル操作のため、Safari・Chromeなどの通常ブラウザに切り替えてください。途中入力は自動では移りません。先に「入力を引き継ぐ」で暗号化データを保存・コピーしてください。</p>
+	<div class="flex-row" style="gap:8px;flex-wrap:wrap;">
+		<button type="button" class="btn btn-primary btn-sm" data-click="openBrowserHandoff">入力を引き継ぐ</button>
+		<a class="btn btn-outline btn-sm" data-external-browser-link target="_blank" rel="noopener noreferrer">通常ブラウザを開く</a>
+	</div>
+	<p class="help-text">切り替わらない場合は、LINEのメニューから「ブラウザで開く」を選んでください。</p>
+</aside>
+
 
 <div class="container no-print">
 
@@ -248,12 +261,20 @@
 							<input type="text" id="hata-title" value="登校見守り活動シフト表" placeholder="〇〇地区 登校見守り活動シフト表" data-input="updateHataConfig" data-field="title">
 						</div>
 						<div>
+							<label for="hata-created-date">作成日（印刷表示）</label>
+							<input type="text" id="hata-created-date" placeholder="作成日：2026年11月10日" data-input="updateHataConfig" data-field="createdDate">
+						</div>
+						<div>
+							<label for="hata-district">シフト表の地区名</label>
+							<input type="text" id="hata-district" data-input="updateHataConfig" data-field="district">
+						</div>
+						<div>
 							<label>当番場所・交差点</label>
 							<input type="text" id="hata-location" placeholder="例: セブンイレブン前交差点" data-input="updateHataConfig" data-field="location">
 						</div>
 						<div>
 							<label>活動時間帯</label>
-							<input type="text" id="hata-time" value="7:55 〜 8:25" placeholder="例: 7:55 〜 8:25" data-input="updateHataConfig" data-field="time">
+							<textarea id="hata-time" rows="2" placeholder="例: 7:55 〜 8:25" data-input="updateHataConfig" data-field="time"></textarea>
 						</div>
 						<div>
 							<label>活動期間（開始日 〜 終了日）</label>
@@ -282,10 +303,32 @@
 								<option value="3">3段</option>
 								<option value="4">4段</option>
 								<option value="1">1段</option>
+								<option value="5">5段（横向き推奨）</option>
+								<option value="6">6段（横向き推奨）</option>
 							</select>
 						</div>
 					</div>
 				</div>
+
+				<fieldset class="hata-weekdays">
+					<legend>実施曜日（複数選択）</legend>
+					<label><input type="checkbox" name="hata-weekday" value="1" data-change="updateHataWeekdays" checked> 月</label>
+					<label><input type="checkbox" name="hata-weekday" value="2" data-change="updateHataWeekdays" checked> 火</label>
+					<label><input type="checkbox" name="hata-weekday" value="3" data-change="updateHataWeekdays" checked> 水</label>
+					<label><input type="checkbox" name="hata-weekday" value="4" data-change="updateHataWeekdays" checked> 木</label>
+					<label><input type="checkbox" name="hata-weekday" value="5" data-change="updateHataWeekdays" checked> 金</label>
+					<label><input type="checkbox" name="hata-weekday" value="6" data-change="updateHataWeekdays"> 土</label>
+					<label><input type="checkbox" name="hata-weekday" value="0" data-change="updateHataWeekdays"> 日</label>
+				</fieldset>
+				<section class="hata-members-panel">
+					<label for="hata-members">当番名簿（1行につき1世帯・担当者、記載順に割当）</label>
+					<textarea id="hata-members" rows="6" data-input="updateHataConfig" data-field="members" aria-describedby="hata-members-help hata-duplicate-alert"></textarea>
+					<div class="flex-row" style="flex-wrap:wrap; gap:8px;">
+						<button type="button" class="btn btn-outline btn-sm" data-click="syncHataMembersFromStudents">児童名簿の世帯一覧を反映</button>
+						<span class="help-text" id="hata-members-help">自由に追記・削除・並べ替え可能です。編集内容はシフト再生成でも保持されます。</span>
+					</div>
+					<p id="hata-duplicate-alert" role="status" hidden></p>
+				</section>
 
 				<!-- 詳細アコーディオン：対象世帯・免除・祝日・連絡事項設定 -->
 				<details style="background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;">
@@ -331,7 +374,8 @@
 								</label>
 								<button type="button" class="btn btn-outline btn-xs" data-click="copyHataList">テキストコピー</button>
 							</div>
-							<textarea id="hata-preview" rows="2" readonly style="display:none;"></textarea>
+							<label for="hata-preview" class="help-text">コピー用名簿プレビュー</label>
+							<textarea id="hata-preview" rows="3" readonly></textarea>
 						</div>
 					</div>
 				</details>
@@ -340,15 +384,17 @@
 				<div class="flex-row hata-toolbar" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
 					<button type="button" class="btn btn-primary" data-click="runAutoHataGeneration">⚡ シフトを自動均等生成</button>
 					<div class="flex-row hata-toolbar-sub" style="gap: 6px;">
+						<button type="button" class="btn btn-outline btn-sm" data-click="copyHataForLine">📋 LINE用シフトコピー</button>
 						<button type="button" class="btn btn-success" data-click="printHataSchedule">🖨️ A4印刷 / PDF保存</button>
 						<label class="btn btn-outline btn-sm" style="cursor:pointer; margin-bottom:0;">
 							📥 公式JSON読込
 							<input type="file" accept=".json" style="display:none;" data-change="loadHataOfficialFile">
 						</label>
-						<button type="button" class="btn btn-outline btn-sm" data-click="exportHataSettings">💾 公式JSON保存</button>
 					</div>
 				</div>
 
+				<p id="hata-save-status" class="help-text" role="status">設定は地区の保存用ファイルにも含まれます。</p>
+				<textarea id="hata-line-text" rows="8" readonly hidden aria-label="LINE送信用シフト本文"></textarea>
 				<!-- 当番回数アコーディオン -->
 				<button type="button" class="hata-accordion-toggle" data-click="toggleHataSummary">
 					<span>📊 各自の当番回数を確認（※印刷物には含まれません）</span>
@@ -1015,6 +1061,7 @@
 					<div id="rep-new-district-error" class="pass-feedback-msg pass-msg-ng" style="display:none; margin-top:6px;"></div>
 				</div>
 				<div class="modal-actions" style="display:flex; justify-content:flex-end; gap:8px;">
+					<button type="button" class="btn btn-outline" data-click="openBrowserHandoff">途中入力を引き継ぐ</button>
 					<button type="button" class="btn btn-outline" data-click="closeAddDistrictModal">キャンセル</button>
 					<button type="submit" class="btn btn-primary" id="btn-confirm-add-district">追加する</button>
 				</div>
@@ -1117,6 +1164,7 @@
 
 			<hr style="margin: 16px 0; border: 0; border-top: 1px solid var(--border);">
 			<div class="flex-row" style="justify-content: flex-end; gap: 10px;">
+				<button type="button" class="btn btn-outline" data-click="openBrowserHandoff">途中編集を引き継ぐ</button>
 				<button type="button" class="btn btn-outline" data-click="closeRepDistrictDetailModalWithoutSaving">キャンセル（破棄）</button>
 				<button type="button" class="btn btn-primary" data-click="saveAndCloseRepDistrictDetailModal">💾 変更を保存して閉じる</button>
 			</div>
@@ -1124,5 +1172,47 @@
 	</div>
 </div>
 
+<dialog id="pwa-ios-help" aria-labelledby="pwa-ios-title">
+	<h2 id="pwa-ios-title">iPhone・iPadでホーム画面に追加</h2>
+	<ol>
+		<li>このページをSafariで開きます。アプリ内ブラウザの場合は、メニューからSafariで開いてください。</li>
+		<li>Safariの共有メニュー（四角から上向き矢印）を開きます。表示位置はSafariの設定によって異なります。</li>
+		<li>「ホーム画面に追加」を選びます。「Webアプリとして開く」がある場合はオンにします。</li>
+		<li>「追加」を押し、ホーム画面のアイコンから起動します。</li>
+	</ol>
+	<button type="button" class="btn btn-primary" data-click="closePwaInstallHelp" autofocus>閉じる</button>
+</dialog>
+<dialog id="browser-handoff-dialog" aria-labelledby="handoff-title">
+	<h2 id="handoff-title">ブラウザ間の途中入力引き継ぎ</h2>
+	<p>地区・旗振り・代表・自治会・転入者の途中入力と、未確定の名簿編集を暗号化して移します。パスワード・端末の暗号化設定・未読込ファイルは移動先で再入力・再設定してください。</p>
+	<section>
+		<h3>① このブラウザで引き継ぎデータを作成</h3>
+		<label for="handoff-create-pass">引き継ぎパスワード（半角英数記号12文字以上）</label>
+		<input id="handoff-create-pass" type="password" autocomplete="new-password">
+		<label for="handoff-confirm-pass">パスワード確認</label>
+		<input id="handoff-confirm-pass" type="password" autocomplete="new-password">
+		<button type="button" class="btn btn-primary" data-click="createBrowserHandoff" data-handoff-task>暗号化データを作成</button>
+		<div id="handoff-result" hidden>
+			<label for="handoff-output">引き継ぎデータ（暗号化済み）</label>
+			<textarea id="handoff-output" rows="3" readonly></textarea>
+			<button type="button" class="btn btn-outline" data-click="saveBrowserHandoff">引き継ぎファイルを保存</button>
+			<button type="button" class="btn btn-outline" data-click="copyBrowserHandoff">引き継ぎデータをコピー</button>
+		</div>
+		<p>保存・コピーの後で通常ブラウザへ移動してください。パスワードも控えておいてください。</p>
+		<a class="btn btn-outline" data-external-browser-link target="_blank" rel="noopener noreferrer">通常ブラウザを開く</a>
+	</section>
+	<section>
+		<h3>② 移動先のブラウザで復元</h3>
+		<label for="handoff-file">引き継ぎファイル</label>
+		<input id="handoff-file" type="file" accept=".txt,text/plain">
+		<label for="handoff-input">または引き継ぎデータを貼り付け（ファイル選択時はファイルを使用）</label>
+		<textarea id="handoff-input" rows="3"></textarea>
+		<label for="handoff-restore-pass">引き継ぎパスワード</label>
+		<input id="handoff-restore-pass" type="password" autocomplete="off">
+		<button type="button" class="btn btn-primary" data-click="restoreBrowserHandoff" data-handoff-task>途中入力を復元</button>
+	</section>
+	<p id="handoff-status" role="status" aria-live="polite"></p>
+	<button type="button" class="btn btn-outline" data-click="clearBrowserHandoff">閉じる</button>
+</dialog>
 </body>
 </html>

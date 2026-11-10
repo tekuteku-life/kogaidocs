@@ -306,7 +306,7 @@ test('hata: swapScheduleDates and setDateOverride modifies schedule and updates 
 	assert.strictEqual(currentDistrict.hata.manualOverrides['2026-06-03'], undefined);
 });
 
-test('hata: exportHataOfficialJson and importHataOfficialJson guarantee bilateral compatibility', () => {
+test('hata: official JSON import preserves supported settings', () => {
 	const config = {
 		title: '登校見守り活動シフト表',
 		createdDate: '2026-10-18',
@@ -328,12 +328,12 @@ test('hata: exportHataOfficialJson and importHataOfficialJson guarantee bilatera
 		manualOverrides: {}
 	};
 
-	// 公式JSON出力
-	const jsonStr = hata.exportHataOfficialJson(config);
+	// 外部JSON入力fixture
+	const jsonStr = JSON.stringify(config);
 	assert.ok(typeof jsonStr === 'string');
 	const parsed = JSON.parse(jsonStr);
-	assert.strictEqual(parsed.scheduleTitle, '登校見守り活動シフト表');
-	assert.strictEqual(parsed.metaLocation, 'セブン前交差点');
+	assert.strictEqual(parsed.title, '登校見守り活動シフト表');
+	assert.strictEqual(parsed.location, 'セブン前交差点');
 
 	// 公式JSON読込・インポート
 	const importedConfig = hata.importHataOfficialJson(jsonStr);
@@ -562,8 +562,7 @@ test('hata: exhaustive branch booster for all conditional paths', () => {
 	hata.clearDateOverride(emptyConfig, '2026-06-01');
 	assert.strictEqual(emptyConfig.manualOverrides['2026-06-01'], undefined);
 
-	// 5. exportHataOfficialJson / importHataOfficialJson 空オブジェクト
-	assert.ok(hata.exportHataOfficialJson(null).includes('登校見守り活動シフト表'));
+	// 5. importHataOfficialJson 空オブジェクト
 	assert.deepStrictEqual(hata.importHataOfficialJson(null), {});
 	const importedObj = hata.importHataOfficialJson({ title: '任意タイトル' });
 	assert.strictEqual(importedObj.title, '任意タイトル');
@@ -999,9 +998,7 @@ test('hata: precision branch booster to achieve 100% line and >95% branch covera
 	hata.clearDateOverride(setCfg, '2026-05-01');
 	assert.strictEqual(setCfg.manualOverrides['2026-05-01'], undefined);
 
-	// 5. exportHataOfficialJson & importHataOfficialJson: null / 空 / オブジェクト直接
-	const expNull = JSON.parse(hata.exportHataOfficialJson(null));
-	assert.strictEqual(expNull.scheduleTitle, '登校見守り活動シフト表');
+	// 5. importHataOfficialJson: null / 空 / オブジェクト直接
 	assert.deepStrictEqual(hata.importHataOfficialJson(null), {});
 	const impDirect = hata.importHataOfficialJson({ title: '直接オブジェクト', metaLocation: '地点A' });
 	assert.strictEqual(impDirect.title, '直接オブジェクト');
@@ -1140,6 +1137,6 @@ test('hata: printHataSchedule dynamically sets document.title to shift table tit
 	};
 
 	hata.printHataSchedule();
-	assert.strictEqual(titleDuringPrint, '1丁目 登校見守り活動シフト表', 'Title during print should match hata.title');
+	assert.strictEqual(titleDuringPrint, `1丁目 登校見守り活動シフト表_1丁目_${hata.getHataFilenameDate(state.currentDistrict.hata)}`, 'PDF name includes title, print district and created date');
 	assert.strictEqual(document.title, origTitle, 'Title after print should be restored');
 });

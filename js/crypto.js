@@ -754,6 +754,30 @@ async function saveStorageData(storageKey, dataObj) {
 	});
 }
 
+/** 全モードのブラウザ引き継ぎを、保存方式を維持して一括確定する。 */
+async function replaceStoredAppData(models, guard = () => {}) {
+	const generation = getStorageSessionGeneration();
+	const values = STORAGE_DATA_KEYS.map((key, index) => validateStorageModel(models[index], key));
+	return withStorageLock('exclusive', async () => {
+		assertStorageSession(generation);
+		guard();
+		const authSnapshot = localStorage.getItem(STORAGE_AUTH_KEY);
+		const encrypted = isStorageEncrypted();
+		const key = activeStorageKey;
+		const entries = [];
+		for (let index = 0; index < STORAGE_DATA_KEYS.length; index++) {
+			const serialized = JSON.stringify(values[index]);
+			const encoded = encrypted ? await encryptStorageValue(serialized, key, STORAGE_DATA_KEYS[index]) : serialized;
+			assertStorageContext(generation, authSnapshot);
+			entries.push([STORAGE_DATA_KEYS[index], encoded]);
+		}
+		guard();
+		writeStorageTransaction(entries);
+		storageSessionGeneration++;
+		return { models: values, generation: getStorageSessionGeneration() };
+	});
+}
+
 /**
  * ローカルストレージからデータを読み出し・復号します
  */
@@ -811,6 +835,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		clearStorageSecurity,
 		saveStorageData,
 		loadStorageDecrypted,
+		replaceStoredAppData,
 		get activeStorageKey() { return activeStorageKey; },
 		set activeStorageKey(v) { activeStorageKey = v; }
 	};
