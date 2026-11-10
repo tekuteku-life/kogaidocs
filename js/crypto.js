@@ -754,6 +754,33 @@ async function saveStorageData(storageKey, dataObj) {
 	});
 }
 
+/** 取込候補を検証・保存してから呼出元へ返す。本状態とDOMは保存完了前に変更しない。 */
+async function commitImportedModel(storageKey, model, generation = getStorageSessionGeneration()) {
+	assertStorageSession(generation);
+	const clean = validateStorageModel(model, storageKey);
+	return withStorageLock('exclusive', async () => {
+		assertStorageSession(generation);
+		if (!isStorageEncrypted()) delete clean.savedFilePassword;
+		let saved;
+		try { saved = await saveStorageDataUnlocked(storageKey, JSON.stringify(clean)); }
+		catch (_) {
+			const failure = new Error('端末への保存に失敗したため、読み込みを中止しました。空き容量を確認して再試行してください。');
+			failure.code = 'IMPORT_SAVE_FAILED';
+			throw failure;
+		}
+		if (saved === false) throw new Error('STORAGE_SESSION_CHANGED');
+		assertStorageSession(generation);
+		// 復号/保存待ちの古い取込・自動保存に今回の確定結果を上書きさせない。
+		storageSessionGeneration++;
+		return { model: clean, generation: getStorageSessionGeneration() };
+	});
+}
+
+function adoptImportedModel(result) {
+	assertStorageSession(result.generation);
+	return result.model;
+}
+
 /** 全モードのブラウザ引き継ぎを、保存方式を維持して一括確定する。 */
 async function replaceStoredAppData(models, guard = () => {}) {
 	const generation = getStorageSessionGeneration();
@@ -808,6 +835,7 @@ async function loadStorageDecrypted(storageKey) {
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		getStorageSessionGeneration,
+		commitImportedModel, adoptImportedModel,
 		assertStorageSession,
 		invalidateStorageSecurity,
 		STORAGE_AUTH_KEY,

@@ -29,25 +29,25 @@ function renderNeighborTable() {
 				</div>
 			</td>
 			<td>
-				<input type="text" value="${esc(row.role || '')}" placeholder="会長・副会長等" data-input="updateNeighborItem" data-index="${i}" data-field="role">
+				<input type="text" maxlength="4096" value="${esc(row.role || '')}" placeholder="会長・副会長等" data-input="updateNeighborItem" data-index="${i}" data-field="role">
 			</td>
 			<td>
 				<div class="name-field-box">
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(row.lastNameKana || '')}" placeholder="せい" class="input-kana" data-input="updateNeighborItem" data-index="${i}" data-field="lastNameKana">
-						<input type="text" value="${esc(row.firstNameKana || '')}" placeholder="めい" class="input-kana" data-input="updateNeighborItem" data-index="${i}" data-field="firstNameKana">
+						<input type="text" maxlength="4096" value="${esc(row.lastNameKana || '')}" placeholder="せい" class="input-kana" data-input="updateNeighborItem" data-index="${i}" data-field="lastNameKana">
+						<input type="text" maxlength="4096" value="${esc(row.firstNameKana || '')}" placeholder="めい" class="input-kana" data-input="updateNeighborItem" data-index="${i}" data-field="firstNameKana">
 					</div>
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(row.lastName || '')}" placeholder="姓" data-input="updateNeighborItem" data-index="${i}" data-field="lastName">
-						<input type="text" value="${esc(row.firstName || '')}" placeholder="名" data-input="updateNeighborItem" data-index="${i}" data-field="firstName">
+						<input type="text" maxlength="4096" value="${esc(row.lastName || '')}" placeholder="姓" data-input="updateNeighborItem" data-index="${i}" data-field="lastName">
+						<input type="text" maxlength="4096" value="${esc(row.firstName || '')}" placeholder="名" data-input="updateNeighborItem" data-index="${i}" data-field="firstName">
 					</div>
 				</div>
 			</td>
-			<td><input type="text" value="${esc(row.address || '')}" placeholder="住所（〇〇1-2-3）" data-input="updateNeighborItem" data-index="${i}" data-field="address"></td>
+			<td><input type="text" maxlength="4096" value="${esc(row.address || '')}" placeholder="住所（〇〇1-2-3）" data-input="updateNeighborItem" data-index="${i}" data-field="address"></td>
 			<td><input type="tel" value="${esc(row.tel || '')}" placeholder="090-0000-0000" data-input="updateNeighborItem" data-index="${i}" data-field="tel"></td>
 			<td>
 				<input type="email" value="${esc(row.email || '')}" placeholder="メールアドレス（任意）" data-input="updateNeighborItem" data-index="${i}" data-field="email" style="margin-bottom:4px;">
-				<input type="text" value="${esc(row.note || '')}" placeholder="備考" data-input="updateNeighborItem" data-index="${i}" data-field="note">
+				<input type="text" maxlength="4096" value="${esc(row.note || '')}" placeholder="備考" data-input="updateNeighborItem" data-index="${i}" data-field="note">
 			</td>
 			<td style="text-align:center;">
 				<button type="button" class="btn btn-danger btn-sm" data-click="removeNeighborRow" data-index="${i}">×</button>
@@ -241,14 +241,13 @@ async function loadNeighborTxt(e) {
 			if (passEl) passEl.value = promptPass;
 		}
 
-		neighborState.district = data.district;
-		neighborState.neighborhood = data.neighborhood;
-		neighborState.neighborhood.forEach(normalizeNameFields);
+		const candidate = { ...neighborState, district: data.district, neighborhood: data.neighborhood };
+		candidate.neighborhood.forEach(normalizeNameFields);
+		neighborState = adoptImportedModel(await commitImportedModel('kogai_neighbor_v2', candidate, generation));
 		renderNeighborForm();
-		saveNeighborLocal();
 		alert(`自治会役員データ「${neighborState.district}」（${neighborState.neighborhood.length}名）を読み込みました。`);
 	} catch (err) {
-		alert(err.code === 'INVALID_IMPORT_DATA' ? err.message : "ファイルの読み込み・復号に失敗しました。パスワードをご確認ください。");
+		alert(['INVALID_IMPORT_DATA', 'IMPORT_SAVE_FAILED'].includes(err.code) ? err.message : "ファイルの読み込み・復号に失敗しました。パスワードをご確認ください。");
 	}
 	e.target.value = "";
 }
@@ -275,15 +274,14 @@ async function loadPastedTextToNeighbor() {
 			if (passEl) passEl.value = promptPass;
 		}
 
-		neighborState.district = data.district;
-		neighborState.neighborhood = data.neighborhood;
-		neighborState.neighborhood.forEach(normalizeNameFields);
+		const candidate = { ...neighborState, district: data.district, neighborhood: data.neighborhood };
+		candidate.neighborhood.forEach(normalizeNameFields);
+		neighborState = adoptImportedModel(await commitImportedModel('kogai_neighbor_v2', candidate, generation));
 		renderNeighborForm();
-		saveNeighborLocal();
 		box.value = "";
 		alert(`自治会役員データ「${neighborState.district}」（${neighborState.neighborhood.length}名）を読み込みました。`);
 	} catch (err) {
-		alert(err.code === 'INVALID_IMPORT_DATA' ? err.message : "復号に失敗しました。パスワードを確認してください。");
+		alert(['INVALID_IMPORT_DATA', 'IMPORT_SAVE_FAILED'].includes(err.code) ? err.message : "復号に失敗しました。パスワードを確認してください。");
 	}
 }
 

@@ -2,7 +2,7 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
-const CURRENT_APP_VERSION = "2.9.1";
+const CURRENT_APP_VERSION = "2.9.2";
 let deferredInstallPrompt = null;
 let pwaInstallationCompleted = false;
 

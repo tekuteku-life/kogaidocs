@@ -48,6 +48,7 @@ function fresh() {
 		'deleteRepDistrict', 'deleteSzExternalRow', 'loadNeighborFileIntoDistrict',
 		'loadTransferFileIntoDistrict', 'loadHataOfficialFile', 'loadDistrictTxt', 'loadMultipleDistrictFiles',
 		'loadTransferFileIntoRep', 'loadRepMasterTxt', 'loadNeighborTxt', 'downloadTextFile']) spy(name);
+	global.renderHataInputStatus = () => true;
 	global.collectHataScheduleInputs = require('../../js/utils').collectHataScheduleInputs;
 	global.getHataFilenameDate = () => '20261110';
 }
@@ -220,7 +221,7 @@ test('events: fixed settings operations preserve updates and do not interpret va
 		'specials', 'headerMsg', 'footerMsg', 'contactMsg', 'createdDate', 'district', 'members']) {
 		const value = { startDate: '2026-04-01', endDate: '2026-09-30', orientation: 'portrait' }[field] || payload;
 		fire('input', 'updateHataConfig', { field }, value);
-		assert.equal(['holidays', 'specials'].includes(field) ? currentDistrict.hata.inputDrafts[field] : currentDistrict.hata[field], value, field);
+		assert.equal(['holidays', 'specials', 'members'].includes(field) ? currentDistrict.hata.inputDrafts[field] : currentDistrict.hata[field], value, field);
 		assert.equal(calls.at(-1).name, 'saveDistrictLocal');
 	}
 	fire('change', 'updateHataColumns', {}, '3');

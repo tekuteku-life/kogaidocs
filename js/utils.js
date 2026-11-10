@@ -508,14 +508,74 @@ function validateHataExpansionBudget(config) {
 	return total;
 }
 
+// 文字列から作る配列・テンプレート・反復表示にも入力構造とは別の上限を適用する。
+const MAX_HATA_TEXT_LENGTH = 4096;
+const MAX_HATA_OUTPUT_BYTES = 1024 * 1024;
+function requireHataOutputSize(condition) {
+	if (condition) return;
+	const error = new Error('旗振り名簿・書式・シフト表示量が上限を超えています（1項目4096文字、10000担当者、展開1MiB）。');
+	error.code = 'INVALID_IMPORT_DATA';
+	throw error;
+}
+function splitHataInputLines(value) {
+	const lines = value.split('\n', MAX_IMPORT_ARRAY_ITEMS + 1);
+	requireHataOutputSize(lines.length <= MAX_IMPORT_ARRAY_ITEMS);
+	return lines;
+}
+function validateHataTextBudget(config) {
+	const members = typeof config.members === 'string' ? splitHataInputLines(config.members).map(name => name.trim()).filter(Boolean) : (Array.isArray(config.members) ? config.members : []);
+	requireHataOutputSize(members.length <= MAX_IMPORT_ARRAY_ITEMS);
+	let sourceBytes = 0, longestPerson = 0, longestNote = 0;
+	const size = value => {
+		const text = typeof value === 'string' ? value : '';
+		requireHataOutputSize(text.length <= MAX_HATA_TEXT_LENGTH);
+		return utf8ByteLength(text);
+	};
+	for (const name of members) {
+		const bytes = size(name);
+		sourceBytes += bytes + (sourceBytes ? 1 : 0);
+		longestPerson = Math.max(longestPerson, bytes);
+	}
+	requireHataOutputSize(sourceBytes <= MAX_HATA_OUTPUT_BYTES);
+	size(config.format);
+	for (const field of ['holidays', 'specials']) {
+		const lines = Array.isArray(config[field]) ? config[field].map(row => `${row?.date || ''},${row?.name || ''}`) : splitHataInputLines(String(config[field] || ''));
+		for (const line of lines) {
+			size(line);
+			const parts = line.split(',');
+			if (field === 'specials') longestPerson = Math.max(longestPerson, size(parts[1]));
+			longestNote = Math.max(longestNote, size(parts[field === 'holidays' ? 1 : 2]));
+		}
+	}
+	for (const row of Object.values(config.manualOverrides || {})) {
+		longestPerson = Math.max(longestPerson, size(row?.person));
+		longestNote = Math.max(longestNote, size(row?.note));
+	}
+	const start = parseIsoDate(config.startDate), end = parseIsoDate(config.endDate);
+	// 最長の担当者・注記を全日付へ配置した場合の保守的な見積もりである。
+	const days = start && end && end >= start ? Math.floor((end - start) / 86400000) + 1 : 0;
+	requireHataOutputSize(days * (longestPerson + longestNote + 32) <= MAX_HATA_OUTPUT_BYTES);
+	return config;
+}
+function validateHataScheduleOutput(schedule) {
+	requireHataOutputSize(schedule.length <= MAX_DATE_EXPANSION_DAYS);
+	let bytes = 0;
+	for (const row of schedule) {
+		for (const field of ['date', 'day', 'dayOfWeek', 'person', 'note', 'tag']) bytes += utf8ByteLength(row[field] || '');
+		requireHataOutputSize(bytes <= MAX_HATA_OUTPUT_BYTES);
+	}
+	return schedule;
+}
+
 // 未完成の手入力を有効設定とは別に保持し、日付展開へ渡さない。
-const HATA_SCHEDULE_INPUTS = ['startDate', 'endDate', 'holidays', 'specials'];
+const HATA_SCHEDULE_INPUTS = ['startDate', 'endDate', 'holidays', 'specials', 'members', 'format'];
 function collectHataScheduleInputs(config, inputs) {
 	const drafts = { ...config.inputDrafts, ...inputs };
 	const candidate = { ...config, ...drafts };
 	try {
 		validateDateExpansion(candidate.startDate, candidate.endDate);
 		validateHataExpansionBudget(candidate);
+		validateHataTextBudget(candidate);
 	} catch (_) {
 		config.inputDrafts = drafts;
 		return false;
@@ -586,7 +646,32 @@ function validateHataConfig(config) {
 	} else requireImportShape(config.members === undefined || typeof config.members === 'string');
 	validateHataExpansionBudget(config);
 	validateDateExpansion(config.startDate, config.endDate);
+	validateHataTextBudget(clean);
+	if (clean.schedule) validateHataScheduleOutput(clean.schedule);
 	return clean;
+}
+
+// 行数と選択肢数の積は、JSON自体の容量では制限できない。
+function validateDistrictRenderBudget(district) {
+	const students = district.students || [], officers = district.officers || [];
+	const hans = district.hanList?.length ? district.hanList.filter(Boolean) : [...new Set([
+		district.han || '', ...officers.map(row => row.han || ''), ...students.map(row => row.han || '')
+	].filter(Boolean))];
+	const options = hans.reduce((bytes, han) => bytes + 128 + 2 * utf8ByteLength(esc(han)), 0);
+	requireImportShape((students.length + officers.length) * (options + 256) <= 4 * 1024 * 1024);
+}
+function validateRepRenderBudget(data) {
+	let options = 1024;
+	const add = text => { options += 128 + 2 * utf8ByteLength(esc(text)); };
+	for (const district of data.districts) {
+		for (const person of district.officers) {
+			if (getFullName(person) || person.role) add(`${district.district} ${person.han || district.han || ''} ${person.role || ''} ${getFullName(person)}`);
+		}
+		for (const person of district.neighborhood) add(`${district.district} ${person.role || ''} ${getFullName(person)}`);
+	}
+	for (const person of data.szExternals) add(`${person.category || ''} ${person.org || ''} ${person.role || ''} ${getFullName(person)}`);
+	const cells = (data.seatConfig?.rows || 5) * (data.seatConfig?.cols || 4);
+	requireImportShape(options * cells <= 16 * 1024 * 1024);
 }
 
 function validateImportData(data, kind) {
@@ -595,7 +680,7 @@ function validateImportData(data, kind) {
 	const textFields = ['district', 'han', 'name', 'kana', 'lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'role', 'address', 'tel', 'email', 'note', 'org', 'category', 'contact', 'childName', 'childKana', 'childLastName', 'childFirstName', 'childLastNameKana', 'childFirstNameKana', 'grade', 'class', 'className', 'leader', 'childGrade', 'childClass', 'id'];
 	const checkRow = row => {
 		requireValid(isObject(row));
-		for (const key of textFields) requireValid(row[key] == null || typeof row[key] === 'string');
+		for (const key of textFields) requireValid(row[key] == null || (typeof row[key] === 'string' && row[key].length <= 4096));
 		requireValid(row.isOutOfDistrict === undefined || typeof row.isOutOfDistrict === 'boolean');
 	};
 	const list = (value, optional = true) => {
@@ -653,14 +738,16 @@ function validateImportData(data, kind) {
 			clean.students = list(clean.students);
 			if (clean.officer != null) checkRow(clean.officer);
 			requireValid(clean.savedFilePassword === undefined || typeof clean.savedFilePassword === 'string');
-			requireValid(clean.hanList == null || (Array.isArray(clean.hanList) && clean.hanList.every(h => typeof h === 'string')));
+			requireValid(clean.hanList == null || (Array.isArray(clean.hanList) && clean.hanList.every(h => typeof h === 'string' && h.length <= 4096)));
 			if (clean.szNeighborChecks != null) {
 				requireValid(isObject(clean.szNeighborChecks));
 				Object.entries(clean.szNeighborChecks).forEach(([key, value]) => requireValid(/^\d+$/.test(key) && typeof value === 'boolean'));
 			}
 			if (clean.hata != null) clean.hata = validateHataConfig(clean.hata);
+			validateDistrictRenderBudget(clean);
 		}
 	}
+	if (kind === 'rep') validateRepRenderBudget(clean);
 	return clean;
 }
 
@@ -673,7 +760,7 @@ function validateStoredData(data, storageKey) {
 		const fields = ['id', 'lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'grade', 'class', 'className', 'address', 'tel'];
 		clean.children.forEach(child => {
 			requireImportShape(isImportObject(child));
-			fields.forEach(key => requireImportShape(child[key] === undefined || typeof child[key] === 'string'));
+			fields.forEach(key => requireImportShape(child[key] === undefined || (typeof child[key] === 'string' && child[key].length <= 4096)));
 		});
 		clean.memo = clean.memo || '';
 		return clean;
@@ -712,7 +799,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		isImportObject,
 		validateImportData,
 		validateHataConfig,
-		collectHataScheduleInputs,
+		collectHataScheduleInputs, validateHataTextBudget, validateHataScheduleOutput, requireHataOutputSize,
 		validateImportStructure,
 		validateStoredData,
 		validateDateExpansion,

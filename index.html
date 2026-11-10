@@ -90,11 +90,11 @@
 				<div class="grid-form" style="margin-bottom: 14px;">
 					<div>
 						<label>地区名（必須）</label>
-						<input type="text" id="d-name" placeholder="例：1丁目 / 〇〇自治会" data-input="saveDistrictLocal">
+						<input type="text" maxlength="4096" id="d-name" placeholder="例：1丁目 / 〇〇自治会" data-input="saveDistrictLocal">
 					</div>
 					<div>
 						<label>班名リスト（カンマまたは空白で区切って入力）</label>
-						<input type="text" id="d-han-list" placeholder="例：1班, 2班, 3班（または A班, B班）" data-input="onHanListInput">
+						<input type="text" maxlength="4096" id="d-han-list" placeholder="例：1班, 2班, 3班（または A班, B班）" data-input="onHanListInput">
 						<input type="hidden" id="d-han">
 						<div class="help-text">※ここに登録した班名が児童名簿・校外役員の選択プルダウンに反映されます。</div>
 					</div>
@@ -596,11 +596,11 @@
 					</div>
 					<div>
 						<label>前方ラベル</label>
-						<input type="text" id="seat-top-label" value="前方（演台・司会・スクリーン側）" data-input="saveRepLocal">
+						<input type="text" maxlength="4096" id="seat-top-label" value="前方（演台・司会・スクリーン側）" data-input="saveRepLocal">
 					</div>
 					<div>
 						<label>後方ラベル</label>
-						<input type="text" id="seat-bottom-label" value="後方（出入口側）" data-input="saveRepLocal">
+						<input type="text" maxlength="4096" id="seat-bottom-label" value="後方（出入口側）" data-input="saveRepLocal">
 					</div>
 				</div>
 
@@ -792,7 +792,7 @@
 				<div class="grid-form" style="margin-bottom: 14px;">
 					<div>
 						<label>自治会名・町内会名（必須）</label>
-						<input type="text" id="neighbor-district-name" placeholder="例：〇〇自治会 / 1丁目町内会" data-input="saveNeighborLocal">
+						<input type="text" maxlength="4096" id="neighbor-district-name" placeholder="例：〇〇自治会 / 1丁目町内会" data-input="saveNeighborLocal">
 						<div class="help-text">※校外委員会・PTAの「地区名」に対応する名称を入力してください。</div>
 					</div>
 				</div>
@@ -1052,7 +1052,7 @@
 			<form data-submit="confirmAddRepDistrict" autocomplete="off">
 				<div class="form-group" style="margin-bottom: 16px;">
 					<label for="rep-new-district-name" style="display:block; font-weight:bold; margin-bottom:6px;">地区名 <span class="badge badge-required">* 必須</span></label>
-					<input type="text" id="rep-new-district-name" class="input-field" placeholder="例: 5丁目" maxlength="50" style="width:100%; font-size:1rem; padding:8px 10px;" data-input="clearAddDistrictError" required>
+					<input type="text" maxlength="4096" id="rep-new-district-name" class="input-field" placeholder="例: 5丁目" maxlength="50" style="width:100%; font-size:1rem; padding:8px 10px;" data-input="clearAddDistrictError" required>
 					<div id="rep-new-district-error" class="pass-feedback-msg pass-msg-ng" style="display:none; margin-top:6px;"></div>
 				</div>
 				<div class="modal-actions" style="display:flex; justify-content:flex-end; gap:8px;">

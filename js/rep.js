@@ -9,8 +9,8 @@ function renderRepAll() {
 	renderSeatEditor();
 }
 
-function upsertRepDistrict(d) {
-	const previous = captureSeatState();
+function upsertRepDistrict(d, target = repState, persist = true) {
+	const previous = captureSeatState(target);
 	const cleanD = JSON.parse(JSON.stringify(d));
 	delete cleanD.hata;
 	delete cleanD.hatafurotto;
@@ -34,13 +34,13 @@ function upsertRepDistrict(d) {
 
 	if (d.hanList === undefined) d.hanList = getDistrictHanList(d);
 	d.han = d.han || "";
-	let existingIdx = repState.districts.findIndex(x => x.district === d.district && (x.han || "") === d.han);
+	let existingIdx = target.districts.findIndex(x => x.district === d.district && (x.han || "") === d.han);
 	if (existingIdx < 0) {
 		// 自治会先行インポートで作成された空のプレースホルダーがあれば置き換え対象とする
-		const placeholderIdx = repState.districts.findIndex(x => 
-			x.district === d.district && 
-			(!x.students || x.students.length === 0) && 
-			(!x.officers || x.officers.length === 0) && 
+		const placeholderIdx = target.districts.findIndex(x =>
+			x.district === d.district &&
+			(!x.students || x.students.length === 0) &&
+			(!x.officers || x.officers.length === 0) &&
 			(!x.han)
 		);
 		if (placeholderIdx >= 0) {
@@ -52,8 +52,8 @@ function upsertRepDistrict(d) {
 	// 代表側にすでに有効な自治会役員が存在し、提出データ側の neighborhood が空の場合は代表側の自治会役員を保護
 	const incomingHasNeighbors = (d.neighborhood || []).some(n => n.lastName || n.firstName || n.role);
 	if (!incomingHasNeighbors) {
-		const existingWithNeighbors = repState.districts.find(x => 
-			x.district === d.district && 
+		const existingWithNeighbors = target.districts.find(x =>
+			x.district === d.district &&
 			(x.neighborhood || []).some(n => n.lastName || n.firstName || n.role)
 		);
 		if (existingWithNeighbors) {
@@ -72,19 +72,19 @@ function upsertRepDistrict(d) {
 
 	const wrapped = {
 		...JSON.parse(JSON.stringify(d)),
-		selectedForPrint: existingIdx >= 0 ? repState.districts[existingIdx].selectedForPrint : true,
-		szNeighborChecks: existingIdx >= 0 ? (repState.districts[existingIdx].szNeighborChecks || defaultChecks) : defaultChecks
+		selectedForPrint: existingIdx >= 0 ? target.districts[existingIdx].selectedForPrint : true,
+		szNeighborChecks: existingIdx >= 0 ? (target.districts[existingIdx].szNeighborChecks || defaultChecks) : defaultChecks
 	};
 
-	if (existingIdx >= 0) repState.districts[existingIdx] = wrapped;
-	else repState.districts.push(wrapped);
-	reconcileSeatState(previous);
-	saveRepLocal();
+	if (existingIdx >= 0) target.districts[existingIdx] = wrapped;
+	else target.districts.push(wrapped);
+	reconcileSeatState(previous, {}, target);
+	if (persist) saveRepLocal();
 }
 
-function mergeNeighborDataIntoRep(data) {
+function mergeNeighborDataIntoRep(data, target = repState, persist = true) {
 	if (!data) return;
-	const previous = captureSeatState();
+	const previous = captureSeatState(target);
 	const nList = data.neighborhood || (Array.isArray(data) ? data : []);
 	const dName = (data.district || "").trim() || "未設定地区";
 	nList.forEach(normalizeNameFields);
@@ -97,14 +97,14 @@ function mergeNeighborDataIntoRep(data) {
 		defaultChecks[0] = true;
 	}
 
-	const matching = repState.districts.filter(x => (x.district || "").trim() === dName);
+	const matching = target.districts.filter(x => (x.district || "").trim() === dName);
 	if (matching.length > 0) {
 		matching.forEach(d => {
 			d.neighborhood = JSON.parse(JSON.stringify(nList));
 			d.szNeighborChecks = { ...defaultChecks, ...(d.szNeighborChecks || {}) };
 		});
 	} else {
-		repState.districts.push({
+		target.districts.push({
 			district: dName,
 			han: "",
 			hanList: [],
@@ -115,12 +115,13 @@ function mergeNeighborDataIntoRep(data) {
 			szNeighborChecks: defaultChecks
 		});
 	}
-	reconcileSeatState(previous);
-	saveRepLocal();
+	reconcileSeatState(previous, {}, target);
+	if (persist) saveRepLocal();
 }
 
-async function applyRepImport(data, password) {
-	if (data.isTransferData) return integrateTransferDataIntoRep(data, password);
+async function applyRepImport(data, password, generation = getStorageSessionGeneration()) {
+	assertStorageSession(generation);
+	if (data.isTransferData) return integrateTransferDataIntoRep(data, password, generation);
 	if (data.districts) {
 		data.districts.forEach(d => {
 			if (d.han === undefined) d.han = '';
@@ -136,30 +137,34 @@ async function applyRepImport(data, password) {
 		});
 		data.szExternals.forEach(normalizeNameFields);
 		if (!data.seatConfig) data.seatConfig = { cols: 4, rows: 5, cells: {} };
-		repState = data;
-		saveRepLocal();
-	} else if (data.isNeighborhoodData || (!data.students && Array.isArray(data.neighborhood))) {
-		mergeNeighborDataIntoRep(data);
-	} else upsertRepDistrict(data);
+		repState = adoptImportedModel(await commitImportedModel('kogai_rep_v2', data, generation));
+	} else {
+		const candidate = JSON.parse(JSON.stringify(repState));
+		if (data.isNeighborhoodData || (!data.students && Array.isArray(data.neighborhood))) mergeNeighborDataIntoRep(data, candidate, false);
+		else upsertRepDistrict(data, candidate, false);
+		repState = adoptImportedModel(await commitImportedModel('kogai_rep_v2', candidate, generation));
+	}
 	return true;
 }
 
 async function loadMultipleDistrictFiles(e) {
-	const generation = getStorageSessionGeneration();
+	let generation = getStorageSessionGeneration();
 	const importKind = 'auto';
 	const files = Array.from(e.target.files);
 	if (!files.length) return;
 	const pass = document.getElementById('rep-pass').value;
-	let ok = 0, ng = 0;
+	let ok = 0, ng = 0, saveFailures = 0;
 	for (const f of files) {
 		try {
 			const data = await parseTxtContent(await readImportFile(f), pass, generation, importKind);
-			if (!await applyRepImport(data, pass)) continue;
+			if (!await applyRepImport(data, pass, generation)) continue;
+			assertStorageSession(generation + 1);
+			generation++;
 			ok++;
-		} catch (err) { ng++; }
+		} catch (err) { ng++; if (err.code === 'IMPORT_SAVE_FAILED') saveFailures++; }
 	}
 	renderRepAll();
-	alert(`${ok}件のファイルを読み込みました。` + (ng ? `\n（${ng}件はパスワード不一致等で失敗）` : ""));
+	alert(`${ok}件のファイルを読み込みました。` + (ng ? `\n（${ng}件はパスワード不一致等で失敗）` : "") + (saveFailures ? `\n${saveFailures}件は端末への保存に失敗しました。空き容量を確認して再試行してください。` : ""));
 	e.target.value = "";
 }
 
@@ -173,7 +178,7 @@ async function loadPastedTextToRep() {
 	const pass = document.getElementById('rep-pass')?.value || "";
 	try {
 		const data = await parseTxtContent(raw, pass, generation, importKind);
-		if (!await applyRepImport(data, pass)) return;
+		if (!await applyRepImport(data, pass, generation)) return;
 		box.value = '';
 		renderRepAll();
 		if (!data.isTransferData) {
@@ -182,7 +187,7 @@ async function loadPastedTextToRep() {
 			else alert(`「${data.district}${data.han ? `（${data.han}）` : ''}」を追加しました。`);
 		}
 	} catch (err) {
-		alert("復号に失敗しました。パスワードを確認してください。");
+		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "復号に失敗しました。パスワードを確認してください。");
 	}
 }
 
@@ -266,12 +271,12 @@ async function loadRepMasterTxt(e) {
 	const pass = document.getElementById('rep-pass').value;
 	try {
 		const data = await parseTxtContent(await readImportFile(file), pass, generation, importKind);
-		if (await applyRepImport(data, pass)) {
+		if (await applyRepImport(data, pass, generation)) {
 			renderRepAll();
 			if (!data.isTransferData) alert(data.districts ? '代表統合マスターデータを読み込みました。' : `地区データ「${data.district || '自治会'}${data.han ? `（${data.han}）` : ''}」として追加しました。`);
 		}
 	} catch (err) {
-		alert("読み込みに失敗しました。パスワードを確認してください。");
+		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "読み込みに失敗しました。パスワードを確認してください。");
 	}
 	e.target.value = "";
 }
@@ -550,20 +555,20 @@ function renderRepDistrictDetailModal() {
 	if (oBody) {
 		oBody.innerHTML = (modalCurrentDistrict.officers || []).map((off, idx) => `
 			<tr>
-				<td><input type="text" value="${esc(off.role || '')}" placeholder="校外委員" style="width:100px;" data-input="updateModalOfficer" data-index="${idx}" data-field="role"></td>
+				<td><input type="text" maxlength="4096" value="${esc(off.role || '')}" placeholder="校外委員" style="width:100px;" data-input="updateModalOfficer" data-index="${idx}" data-field="role"></td>
 				<td>
-					<input type="text" value="${esc(off.lastName || '')}" placeholder="姓" style="width:65px;" data-input="updateModalOfficer" data-index="${idx}" data-field="lastName">
-					<input type="text" value="${esc(off.firstName || '')}" placeholder="名" style="width:65px;" data-input="updateModalOfficer" data-index="${idx}" data-field="firstName">
+					<input type="text" maxlength="4096" value="${esc(off.lastName || '')}" placeholder="姓" style="width:65px;" data-input="updateModalOfficer" data-index="${idx}" data-field="lastName">
+					<input type="text" maxlength="4096" value="${esc(off.firstName || '')}" placeholder="名" style="width:65px;" data-input="updateModalOfficer" data-index="${idx}" data-field="firstName">
 				</td>
-				<td><input type="text" value="${esc(off.han || '')}" placeholder="担当班" style="width:70px;" data-input="updateModalOfficer" data-index="${idx}" data-field="han"></td>
-				<td><input type="text" value="${esc(off.tel || '')}" placeholder="電話番号" style="width:100px;" data-input="updateModalOfficer" data-index="${idx}" data-field="tel"></td>
-				<td><input type="text" value="${esc(off.email || '')}" placeholder="メール" style="width:120px;" data-input="updateModalOfficer" data-index="${idx}" data-field="email"></td>
+				<td><input type="text" maxlength="4096" value="${esc(off.han || '')}" placeholder="担当班" style="width:70px;" data-input="updateModalOfficer" data-index="${idx}" data-field="han"></td>
+				<td><input type="text" maxlength="4096" value="${esc(off.tel || '')}" placeholder="電話番号" style="width:100px;" data-input="updateModalOfficer" data-index="${idx}" data-field="tel"></td>
+				<td><input type="text" maxlength="4096" value="${esc(off.email || '')}" placeholder="メール" style="width:120px;" data-input="updateModalOfficer" data-index="${idx}" data-field="email"></td>
 				<td>
 					<div style="display:flex; gap:2px; align-items:center;">
-						<input type="text" value="${esc(off.childGrade || '')}" placeholder="年" style="width:28px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childGrade">
-						<input type="text" value="${esc(off.childClass || '')}" placeholder="組" style="width:32px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childClass">
-						<input type="text" value="${esc(off.childLastName || '')}" placeholder="姓" style="width:50px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childLastName">
-						<input type="text" value="${esc(off.childFirstName || '')}" placeholder="名" style="width:50px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childFirstName">
+						<input type="text" maxlength="4096" value="${esc(off.childGrade || '')}" placeholder="年" style="width:28px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childGrade">
+						<input type="text" maxlength="4096" value="${esc(off.childClass || '')}" placeholder="組" style="width:32px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childClass">
+						<input type="text" maxlength="4096" value="${esc(off.childLastName || '')}" placeholder="姓" style="width:50px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childLastName">
+						<input type="text" maxlength="4096" value="${esc(off.childFirstName || '')}" placeholder="名" style="width:50px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childFirstName">
 					</div>
 				</td>
 				<td style="text-align:center;">
@@ -577,18 +582,18 @@ function renderRepDistrictDetailModal() {
 	if (stBody) {
 		stBody.innerHTML = (modalCurrentDistrict.students || []).map((s, idx) => `
 			<tr>
-				<td><input type="text" value="${esc(s.grade || '')}" style="width:40px;" data-input="updateModalStudent" data-index="${idx}" data-field="grade"></td>
-				<td><input type="text" value="${esc(s.class || '')}" style="width:45px;" data-input="updateModalStudent" data-index="${idx}" data-field="class"></td>
-				<td><input type="text" value="${esc(s.han || '')}" style="width:50px;" data-input="updateModalStudent" data-index="${idx}" data-field="han"></td>
+				<td><input type="text" maxlength="4096" value="${esc(s.grade || '')}" style="width:40px;" data-input="updateModalStudent" data-index="${idx}" data-field="grade"></td>
+				<td><input type="text" maxlength="4096" value="${esc(s.class || '')}" style="width:45px;" data-input="updateModalStudent" data-index="${idx}" data-field="class"></td>
+				<td><input type="text" maxlength="4096" value="${esc(s.han || '')}" style="width:50px;" data-input="updateModalStudent" data-index="${idx}" data-field="han"></td>
 				<td>
-					<input type="text" value="${esc(s.lastName || '')}" placeholder="姓" style="width:65px;" data-input="updateModalStudent" data-index="${idx}" data-field="lastName">
-					<input type="text" value="${esc(s.firstName || '')}" placeholder="名" style="width:65px;" data-input="updateModalStudent" data-index="${idx}" data-field="firstName">
+					<input type="text" maxlength="4096" value="${esc(s.lastName || '')}" placeholder="姓" style="width:65px;" data-input="updateModalStudent" data-index="${idx}" data-field="lastName">
+					<input type="text" maxlength="4096" value="${esc(s.firstName || '')}" placeholder="名" style="width:65px;" data-input="updateModalStudent" data-index="${idx}" data-field="firstName">
 				</td>
 				<td>
-					<input type="text" value="${esc(s.address || '')}" placeholder="住所" style="width:110px;" data-input="updateModalStudent" data-index="${idx}" data-field="address">
+					<input type="text" maxlength="4096" value="${esc(s.address || '')}" placeholder="住所" style="width:110px;" data-input="updateModalStudent" data-index="${idx}" data-field="address">
 				</td>
 				<td>
-					<input type="text" value="${esc(s.tel || '')}" placeholder="電話番号" style="width:100px;" data-input="updateModalStudent" data-index="${idx}" data-field="tel">
+					<input type="text" maxlength="4096" value="${esc(s.tel || '')}" placeholder="電話番号" style="width:100px;" data-input="updateModalStudent" data-index="${idx}" data-field="tel">
 				</td>
 				<td style="text-align:center;">
 					<button type="button" class="btn btn-danger btn-xs" data-click="removeModalStudentRow" data-index="${idx}">×</button>
@@ -601,12 +606,12 @@ function renderRepDistrictDetailModal() {
 	if (nBody) {
 		nBody.innerHTML = (modalCurrentDistrict.neighborhood || []).map((n, idx) => `
 			<tr>
-				<td><input type="text" value="${esc(n.role || '')}" placeholder="役職" style="width:80px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="role"></td>
+				<td><input type="text" maxlength="4096" value="${esc(n.role || '')}" placeholder="役職" style="width:80px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="role"></td>
 				<td>
-					<input type="text" value="${esc(n.lastName || '')}" placeholder="姓" style="width:65px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="lastName">
-					<input type="text" value="${esc(n.firstName || '')}" placeholder="名" style="width:65px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="firstName">
+					<input type="text" maxlength="4096" value="${esc(n.lastName || '')}" placeholder="姓" style="width:65px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="lastName">
+					<input type="text" maxlength="4096" value="${esc(n.firstName || '')}" placeholder="名" style="width:65px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="firstName">
 				</td>
-				<td><input type="text" value="${esc(n.tel || '')}" placeholder="電話番号" style="width:110px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="tel"></td>
+				<td><input type="text" maxlength="4096" value="${esc(n.tel || '')}" placeholder="電話番号" style="width:110px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="tel"></td>
 				<td style="text-align:center;">
 					<button type="button" class="btn btn-danger btn-xs" data-click="removeModalNeighborRow" data-index="${idx}">×</button>
 				</td>
@@ -852,21 +857,21 @@ function renderSzExternalTable() {
 					${cats.map(c => `<option value="${c}" ${ex.category===c?'selected':''}>${c}</option>`).join('')}
 				</select>
 			</td>
-			<td><input type="text" value="${esc(ex.org)}" placeholder="〇〇区役所 地域振興課" data-input="updateSzEx" data-index="${i}" data-field="org"></td>
-			<td><input type="text" value="${esc(ex.role)}" placeholder="校長・会長・課長等" data-input="updateSzEx" data-index="${i}" data-field="role"></td>
+			<td><input type="text" maxlength="4096" value="${esc(ex.org)}" placeholder="〇〇区役所 地域振興課" data-input="updateSzEx" data-index="${i}" data-field="org"></td>
+			<td><input type="text" maxlength="4096" value="${esc(ex.role)}" placeholder="校長・会長・課長等" data-input="updateSzEx" data-index="${i}" data-field="role"></td>
 			<td>
 				<div class="name-field-box">
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(ex.lastNameKana)}" placeholder="せい" class="input-kana" data-input="updateSzEx" data-index="${i}" data-field="lastNameKana">
-						<input type="text" value="${esc(ex.firstNameKana)}" placeholder="めい" class="input-kana" data-input="updateSzEx" data-index="${i}" data-field="firstNameKana">
+						<input type="text" maxlength="4096" value="${esc(ex.lastNameKana)}" placeholder="せい" class="input-kana" data-input="updateSzEx" data-index="${i}" data-field="lastNameKana">
+						<input type="text" maxlength="4096" value="${esc(ex.firstNameKana)}" placeholder="めい" class="input-kana" data-input="updateSzEx" data-index="${i}" data-field="firstNameKana">
 					</div>
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(ex.lastName)}" placeholder="姓" data-input="updateSzEx" data-index="${i}" data-field="lastName">
-						<input type="text" value="${esc(ex.firstName)}" placeholder="名" data-input="updateSzEx" data-index="${i}" data-field="firstName">
+						<input type="text" maxlength="4096" value="${esc(ex.lastName)}" placeholder="姓" data-input="updateSzEx" data-index="${i}" data-field="lastName">
+						<input type="text" maxlength="4096" value="${esc(ex.firstName)}" placeholder="名" data-input="updateSzEx" data-index="${i}" data-field="firstName">
 					</div>
 				</div>
 			</td>
-			<td><input type="text" value="${esc(ex.contact)}" placeholder="電話番号・備考等" data-input="updateSzEx" data-index="${i}" data-field="contact"></td>
+			<td><input type="text" maxlength="4096" value="${esc(ex.contact)}" placeholder="電話番号・備考等" data-input="updateSzEx" data-index="${i}" data-field="contact"></td>
 			<td style="text-align:center;"><button type="button" class="btn btn-danger btn-sm" data-click="deleteSzExternalRow" data-index="${i}">×</button></td>
 		`;
 		tbody.appendChild(tr);
@@ -897,7 +902,8 @@ function addSzExternalRow() {
 	renderSeatEditor();
 }
 
-async function integrateTransferDataIntoRep(payload, password) {
+async function integrateTransferDataIntoRep(payload, password, generation = getStorageSessionGeneration()) {
+	assertStorageSession(generation);
 	if (!payload || !payload.isTransferData) {
 		alert("転入児童データではありません。");
 		return false;
@@ -908,7 +914,8 @@ async function integrateTransferDataIntoRep(payload, password) {
 		return false;
 	}
 
-	const existingDistricts = (repState.districts || []).map(d => d.district).filter(Boolean);
+	const candidate = JSON.parse(JSON.stringify(repState));
+	const existingDistricts = (candidate.districts || []).map(d => d.district).filter(Boolean);
 	const distPromptMsg = existingDistricts.length > 0
 		? `転入児童を統合する地区名を入力してください（既存地区: ${existingDistricts.join(', ')}）：`
 		: `転入児童を統合する地区名を入力してください：`;
@@ -919,7 +926,7 @@ async function integrateTransferDataIntoRep(payload, password) {
 	}
 	const targetDistrictName = selectedDist.trim();
 
-	let targetDistrict = repState.districts.find(d => d.district === targetDistrictName);
+	let targetDistrict = candidate.districts.find(d => d.district === targetDistrictName);
 	const isNewDistrict = !targetDistrict;
 	if (isNewDistrict) {
 		targetDistrict = {
@@ -933,7 +940,6 @@ async function integrateTransferDataIntoRep(payload, password) {
 		};
 	}
 
-	const backupStudents = JSON.parse(JSON.stringify(targetDistrict.students || []));
 	const tempStudents = JSON.parse(JSON.stringify(targetDistrict.students || []));
 	const defaultHan = targetDistrict.han || (targetDistrict.hanList && targetDistrict.hanList[0]) || "1班";
 
@@ -956,7 +962,6 @@ async function integrateTransferDataIntoRep(payload, password) {
 		const promptMsg = `転入児童「${normChild.lastName} ${normChild.firstName}」（${normChild.grade}年${normChild.class}組）の所属班を入力してください：`;
 		const assignedHan = safePrompt(promptMsg, defaultHan);
 		if (assignedHan === null) {
-			targetDistrict.students = backupStudents;
 			return false;
 		}
 		normChild.han = (assignedHan || defaultHan).trim();
@@ -969,8 +974,7 @@ async function integrateTransferDataIntoRep(payload, password) {
 		if (duplicate) {
 			const confirmMsg = `児童「${normChild.lastName} ${normChild.firstName}」（${normChild.grade}年生）は地区「${targetDistrictName}」に既に存在します。重複して統合しますか？`;
 			if (!confirm(confirmMsg)) {
-				targetDistrict.students = backupStudents;
-				return false;
+					return false;
 			}
 		}
 
@@ -980,12 +984,10 @@ async function integrateTransferDataIntoRep(payload, password) {
 	targetDistrict.students = tempStudents;
 	targetDistrict.students.sort(compareStudents);
 	if (isNewDistrict) {
-		repState.districts.push(targetDistrict);
+		candidate.districts.push(targetDistrict);
 	}
+	repState = adoptImportedModel(await commitImportedModel('kogai_rep_v2', candidate, generation));
 	renderRepAll();
-	if (typeof saveRepLocal === 'function') {
-		saveRepLocal();
-	}
 
 	alert(`${rawList.length}名の転入児童データを「${targetDistrictName}」へ統合しました。`);
 	return true;
@@ -1008,9 +1010,9 @@ async function loadTransferFileIntoRep(e) {
 			if (!promptPass) { if (e.target) e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass, generation, importKind);
 		}
-		await integrateTransferDataIntoRep(data, pass);
+		await integrateTransferDataIntoRep(data, pass, generation);
 	} catch (err) {
-		alert("転入児童データの読み込みに失敗しました。パスワードをご確認ください。");
+		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの読み込みに失敗しました。パスワードをご確認ください。");
 	}
 	if (e.target) e.target.value = "";
 }
@@ -1031,11 +1033,11 @@ async function loadPastedTransferTextIntoRep(text) {
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass, generation, importKind);
 		}
-		await integrateTransferDataIntoRep(data, pass);
+		await integrateTransferDataIntoRep(data, pass, generation);
 		const box = document.getElementById('rep-transfer-paste-box');
 		if (box) box.value = "";
 	} catch (err) {
-		alert("転入児童データの復号に失敗しました。パスワードをご確認ください。");
+		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの復号に失敗しました。パスワードをご確認ください。");
 	}
 }
 

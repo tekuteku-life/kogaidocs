@@ -157,7 +157,7 @@ function saveDistrictLocal() {
 			['title', 'hata-title'], ['location', 'hata-location'], ['time', 'hata-time'],
 			['orientation', 'hata-orientation'], ['layoutColumns', 'hata-columns'],
 			['headerMsg', 'hata-header-msg'], ['footerMsg', 'hata-footer-msg'], ['contactMsg', 'hata-contact-msg'],
-			['members', 'hata-members'], ['createdDate', 'hata-created-date'], ['district', 'hata-district'], ['format', 'hata-format']
+			['createdDate', 'hata-created-date'], ['district', 'hata-district']
 		]) {
 			const el = document.getElementById(id);
 			if (!el) continue;
@@ -166,7 +166,7 @@ function saveDistrictLocal() {
 			currentDistrict.hata[field] = el.value;
 		}
 		const inputs = {};
-		for (const [field, id] of [['startDate', 'hata-start-date'], ['endDate', 'hata-end-date'], ['holidays', 'hata-holidays'], ['specials', 'hata-specials']]) {
+		for (const [field, id] of [['startDate', 'hata-start-date'], ['endDate', 'hata-end-date'], ['holidays', 'hata-holidays'], ['specials', 'hata-specials'], ['members', 'hata-members'], ['format', 'hata-format']]) {
 			const el = document.getElementById(id);
 			if (el) inputs[field] = el.value;
 		}
@@ -230,6 +230,13 @@ if (typeof module !== 'undefined' && module.exports) {
 	global.saveRepLocal = saveRepLocal;
 	global.saveNeighborLocal = saveNeighborLocal;
 	global.saveTransferLocal = saveTransferLocal;
+	// CommonJS試験でもブラウザの共有グローバルと同じモデルを参照する。
+	for (const [name, get, set] of [
+		['currentDistrict', () => currentDistrict, value => { currentDistrict = value; }],
+		['repState', () => repState, value => { repState = value; }],
+		['neighborState', () => neighborState, value => { neighborState = value; }],
+		['transferState', () => transferState, value => { transferState = value; }]
+	]) Object.defineProperty(global, name, { configurable: true, get, set });
 	module.exports = {
 		get currentDistrict() { return global.currentDistrict !== undefined ? global.currentDistrict : currentDistrict; },
 		set currentDistrict(v) { currentDistrict = v; global.currentDistrict = v; },

@@ -40,31 +40,31 @@ function renderTransferForm() {
 					</div>
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">組 <span style="color: #ef4444;">*</span></label>
-						<input type="text" class="form-control" value="${esc(child.className || child.class || '')}" placeholder="例: 1組" data-input="updateTransferChild" data-index="${index}" data-field="className" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="text" maxlength="4096" class="form-control" value="${esc(child.className || child.class || '')}" placeholder="例: 1組" data-input="updateTransferChild" data-index="${index}" data-field="className" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 				</div>
 				<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem;">
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">氏名（姓） <span style="color: #ef4444;">*</span></label>
-						<input type="text" class="form-control" value="${esc(child.lastName || '')}" placeholder="例: 山田" data-input="updateTransferChild" data-index="${index}" data-field="lastName" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="text" maxlength="4096" class="form-control" value="${esc(child.lastName || '')}" placeholder="例: 山田" data-input="updateTransferChild" data-index="${index}" data-field="lastName" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">氏名（名） <span style="color: #ef4444;">*</span></label>
-						<input type="text" class="form-control" value="${esc(child.firstName || '')}" placeholder="例: 太郎" data-input="updateTransferChild" data-index="${index}" data-field="firstName" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="text" maxlength="4096" class="form-control" value="${esc(child.firstName || '')}" placeholder="例: 太郎" data-input="updateTransferChild" data-index="${index}" data-field="firstName" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">ふりがな（せい）</label>
-						<input type="text" class="form-control" value="${esc(child.lastNameKana || '')}" placeholder="例: やまだ" data-input="updateTransferChild" data-index="${index}" data-field="lastNameKana" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="text" maxlength="4096" class="form-control" value="${esc(child.lastNameKana || '')}" placeholder="例: やまだ" data-input="updateTransferChild" data-index="${index}" data-field="lastNameKana" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">ふりがな（めい）</label>
-						<input type="text" class="form-control" value="${esc(child.firstNameKana || '')}" placeholder="例: たろう" data-input="updateTransferChild" data-index="${index}" data-field="firstNameKana" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="text" maxlength="4096" class="form-control" value="${esc(child.firstNameKana || '')}" placeholder="例: たろう" data-input="updateTransferChild" data-index="${index}" data-field="firstNameKana" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 				</div>
 				<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">住所 <span style="color: #ef4444;">*</span></label>
-						<input type="text" class="form-control" value="${esc(child.address || '')}" placeholder="例: ○○町1-2-3 ○○マンション101" data-input="updateTransferChild" data-index="${index}" data-field="address" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<input type="text" maxlength="4096" class="form-control" value="${esc(child.address || '')}" placeholder="例: ○○町1-2-3 ○○マンション101" data-input="updateTransferChild" data-index="${index}" data-field="address" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">電話番号 <span style="color: #ef4444;">*</span></label>
@@ -305,10 +305,12 @@ function saveTransferLocal() {
 
 // ローカルストレージからの読み込み
 async function loadTransferLocal() {
+	const generation = getStorageSessionGeneration();
 	try {
 		const data = await loadStorageDecrypted('kogai_transfer_v2');
 		if (data !== null) {
 			const clean = validateStoredData(data, 'kogai_transfer_v2');
+			assertStorageSession(generation);
 			transferState.children = clean.children;
 			transferState.memo = clean.memo;
 		}

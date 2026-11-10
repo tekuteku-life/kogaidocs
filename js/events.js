@@ -91,7 +91,8 @@ const uiEventHandlers = new Map([
 	['resizeSeatGrid', () => resizeSeatGrid()],
 	['updateHataFormat', () => {
 		if (!currentDistrict.hata) return;
-		currentDistrict.hata.format = document.getElementById('hata-format').value;
+		collectHataScheduleInputs(currentDistrict.hata, { format: document.getElementById('hata-format').value });
+		if (!renderHataInputStatus()) renderHataSchedulePreview();
 		currentDistrict.hata.dedup = document.getElementById('hata-dedup').checked;
 		markHataDirty();
 		saveDistrictLocal();
@@ -145,7 +146,7 @@ const uiEventHandlers = new Map([
 	['updateHataConfig', element => {
 		if (!UI_HATA_FIELDS.includes(element.dataset.field)) return;
 		if (currentDistrict.hata) {
-			if (['startDate', 'endDate', 'holidays', 'specials'].includes(element.dataset.field)) collectHataScheduleInputs(currentDistrict.hata, { [element.dataset.field]: element.value });
+			if (['startDate', 'endDate', 'holidays', 'specials', 'members'].includes(element.dataset.field)) collectHataScheduleInputs(currentDistrict.hata, { [element.dataset.field]: element.value });
 			else currentDistrict.hata[element.dataset.field] = element.value;
 		}
 		if (element.dataset.field === 'members') { checkHataMemberDuplicates(); renderHataExemptList(); }

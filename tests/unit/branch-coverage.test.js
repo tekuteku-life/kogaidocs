@@ -1272,11 +1272,11 @@ test('branch-booster: neighbor.js, district.js, rep.js, app.js, state.js exhaust
 	assert.strictEqual(distTarget.value, "");
 
 	// 2.2 mergeNeighborDataIntoDistrict: data falsy and else if (dName && !curName) (lines 473, 481-485)
-	district.mergeNeighborDataIntoDistrict(null);
+	await district.mergeNeighborDataIntoDistrict(null);
 
 	state.currentDistrict = createMockDistrict({ district: "" });
 	document.getElementById('d-name').value = "";
-	district.mergeNeighborDataIntoDistrict({
+	await district.mergeNeighborDataIntoDistrict({
 		isNeighborhoodData: true,
 		district: "自動設定地区",
 		neighborhood: [{ role: "会長", lastName: "新田" }]
@@ -2566,10 +2566,10 @@ test('branch-booster: district.js transfer and neighbor branch completion', asyn
 
 	// mergeNeighborDataIntoDistrict: dName !== curName confirm cancel and confirm proceed
 	global.confirm = () => false;
-	district.mergeNeighborDataIntoDistrict({ district: '別自治会名', neighborhood: [{ role: '会長', lastName: 'テスト' }] });
+	await district.mergeNeighborDataIntoDistrict({ district: '別自治会名', neighborhood: [{ role: '会長', lastName: 'テスト' }] });
 
 	global.confirm = () => true;
-	district.mergeNeighborDataIntoDistrict({ district: '別自治会名', neighborhood: [{ role: '会長', lastName: 'テスト' }] });
+	await district.mergeNeighborDataIntoDistrict({ district: '別自治会名', neighborhood: [{ role: '会長', lastName: 'テスト' }] });
 
 	// integrateTransferDataIntoDistrict: existing child duplicate confirm proceed
 	state.currentDistrict.students = [{ id: 's1', lastName: '重複', firstName: '太郎', grade: '3', han: '1班' }];
@@ -2932,9 +2932,9 @@ test('branch-booster: district.js and rep.js 95%+ branch coverage enhancements',
 	assert.strictEqual(state.currentDistrict.han, '自動1班');
 
 	// 1-C: mergeNeighborDataIntoDistrict edge cases
-	district.mergeNeighborDataIntoDistrict(null); // null guard
+	await district.mergeNeighborDataIntoDistrict(null); // null guard
 	global.confirm = () => false; // User cancels district mismatch
-	district.mergeNeighborDataIntoDistrict({ district: '全く別地区', neighborhood: [{ role: '会長' }] });
+	await district.mergeNeighborDataIntoDistrict({ district: '全く別地区', neighborhood: [{ role: '会長' }] });
 
 	// 1-D: integrateTransferDataIntoDistrict edge cases
 	// (i) Invalid payload guards
@@ -3654,11 +3654,11 @@ test('branch-booster: district.js and rep.js 95%+ branch coverage enhancements',
 	}
 
 	// Array-only neighborhood data
-	district.mergeNeighborDataIntoDistrict([{ role: '役職', lastName: '姓' }]);
+	await district.mergeNeighborDataIntoDistrict([{ role: '役職', lastName: '姓' }]);
 
 	// Overwrite existing neighbor with same role & name
 	state.currentDistrict.neighborhood = [{ role: '会長', lastName: '同名役員', tel: '000' }];
-	district.mergeNeighborDataIntoDistrict({
+	await district.mergeNeighborDataIntoDistrict({
 		district: state.currentDistrict.district,
 		neighborhood: [{ role: '会長', lastName: '同名役員', tel: '999' }]
 	});

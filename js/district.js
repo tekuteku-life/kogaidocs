@@ -90,15 +90,15 @@ function renderOfficersList() {
 				<div>
 					<label>役員 氏名（姓 / 名）</label>
 					<div class="name-pair-grid">
-						<input type="text" data-field="lastName" value="${esc(off.lastName || '')}" placeholder="姓（山田）" data-input="saveDistrictLocal">
-						<input type="text" data-field="firstName" value="${esc(off.firstName || '')}" placeholder="名（花子）" data-input="saveDistrictLocal">
+						<input type="text" maxlength="4096" data-field="lastName" value="${esc(off.lastName || '')}" placeholder="姓（山田）" data-input="saveDistrictLocal">
+						<input type="text" maxlength="4096" data-field="firstName" value="${esc(off.firstName || '')}" placeholder="名（花子）" data-input="saveDistrictLocal">
 					</div>
 				</div>
 				<div>
 					<label>役員 ふりがな（せい / めい）</label>
 					<div class="name-pair-grid">
-						<input type="text" data-field="lastNameKana" class="input-kana" value="${esc(off.lastNameKana || '')}" placeholder="せい（やまだ）" data-input="saveDistrictLocal">
-						<input type="text" data-field="firstNameKana" class="input-kana" value="${esc(off.firstNameKana || '')}" placeholder="めい（はなこ）" data-input="saveDistrictLocal">
+						<input type="text" maxlength="4096" data-field="lastNameKana" class="input-kana" value="${esc(off.lastNameKana || '')}" placeholder="せい（やまだ）" data-input="saveDistrictLocal">
+						<input type="text" maxlength="4096" data-field="firstNameKana" class="input-kana" value="${esc(off.firstNameKana || '')}" placeholder="めい（はなこ）" data-input="saveDistrictLocal">
 					</div>
 				</div>
 				<div>
@@ -111,7 +111,7 @@ function renderOfficersList() {
 				</div>
 				<div style="grid-column: 1 / -1;">
 					<label>役員のご住所（※学校提出用名簿に記載）</label>
-					<input type="text" data-field="address" value="${esc(off.address || '')}" placeholder="例：〇〇町1-2-3 〇〇マンション101" data-input="saveDistrictLocal">
+					<input type="text" maxlength="4096" data-field="address" value="${esc(off.address || '')}" placeholder="例：〇〇町1-2-3 〇〇マンション101" data-input="saveDistrictLocal">
 				</div>
 			</div>
 			<hr style="margin: 10px 0; border: none; border-top: 1px dashed var(--border);">
@@ -125,20 +125,20 @@ function renderOfficersList() {
 				</div>
 				<div>
 					<label>【封筒宛名・学校用】お子様のクラス</label>
-					<input type="text" data-field="childClass" value="${esc(off.childClass || '')}" placeholder="例：1" data-input="saveDistrictLocal">
+					<input type="text" maxlength="4096" data-field="childClass" value="${esc(off.childClass || '')}" placeholder="例：1" data-input="saveDistrictLocal">
 				</div>
 				<div>
 					<label>【封筒宛名・学校用】お子様の氏名（姓 / 名）</label>
 					<div class="name-pair-grid">
-						<input type="text" data-field="childLastName" value="${esc(off.childLastName || '')}" placeholder="姓（山田）" data-input="saveDistrictLocal">
-						<input type="text" data-field="childFirstName" value="${esc(off.childFirstName || '')}" placeholder="名（太郎）" data-input="saveDistrictLocal">
+						<input type="text" maxlength="4096" data-field="childLastName" value="${esc(off.childLastName || '')}" placeholder="姓（山田）" data-input="saveDistrictLocal">
+						<input type="text" maxlength="4096" data-field="childFirstName" value="${esc(off.childFirstName || '')}" placeholder="名（太郎）" data-input="saveDistrictLocal">
 					</div>
 				</div>
 				<div>
 					<label>【封筒宛名・学校用】お子様のふりがな（せい / めい）</label>
 					<div class="name-pair-grid">
-						<input type="text" data-field="childLastNameKana" class="input-kana" value="${esc(off.childLastNameKana || '')}" placeholder="せい（やまだ）" data-input="saveDistrictLocal">
-						<input type="text" data-field="childFirstNameKana" class="input-kana" value="${esc(off.childFirstNameKana || '')}" placeholder="めい（たろう）" data-input="saveDistrictLocal">
+						<input type="text" maxlength="4096" data-field="childLastNameKana" class="input-kana" value="${esc(off.childLastNameKana || '')}" placeholder="せい（やまだ）" data-input="saveDistrictLocal">
+						<input type="text" maxlength="4096" data-field="childFirstNameKana" class="input-kana" value="${esc(off.childFirstNameKana || '')}" placeholder="めい（たろう）" data-input="saveDistrictLocal">
 					</div>
 				</div>
 			</div>
@@ -179,20 +179,20 @@ function renderNeighborhoodTable() {
 		normalizeNameFields(row);
 		const tr = document.createElement('tr');
 		tr.innerHTML = `
-			<td><input type="text" value="${esc(row.role)}" placeholder="会長・副会長等" data-input="updateN" data-index="${i}" data-field="role"></td>
+			<td><input type="text" maxlength="4096" value="${esc(row.role)}" placeholder="会長・副会長等" data-input="updateN" data-index="${i}" data-field="role"></td>
 			<td>
 				<div class="name-field-box">
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(row.lastNameKana)}" placeholder="せい" class="input-kana" data-input="updateN" data-index="${i}" data-field="lastNameKana">
-						<input type="text" value="${esc(row.firstNameKana)}" placeholder="めい" class="input-kana" data-input="updateN" data-index="${i}" data-field="firstNameKana">
+						<input type="text" maxlength="4096" value="${esc(row.lastNameKana)}" placeholder="せい" class="input-kana" data-input="updateN" data-index="${i}" data-field="lastNameKana">
+						<input type="text" maxlength="4096" value="${esc(row.firstNameKana)}" placeholder="めい" class="input-kana" data-input="updateN" data-index="${i}" data-field="firstNameKana">
 					</div>
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(row.lastName)}" placeholder="姓" data-input="updateN" data-index="${i}" data-field="lastName">
-						<input type="text" value="${esc(row.firstName)}" placeholder="名" data-input="updateN" data-index="${i}" data-field="firstName">
+						<input type="text" maxlength="4096" value="${esc(row.lastName)}" placeholder="姓" data-input="updateN" data-index="${i}" data-field="lastName">
+						<input type="text" maxlength="4096" value="${esc(row.firstName)}" placeholder="名" data-input="updateN" data-index="${i}" data-field="firstName">
 					</div>
 				</div>
 			</td>
-			<td><input type="text" value="${esc(row.address)}" placeholder="住所" data-input="updateN" data-index="${i}" data-field="address"></td>
+			<td><input type="text" maxlength="4096" value="${esc(row.address)}" placeholder="住所" data-input="updateN" data-index="${i}" data-field="address"></td>
 			<td><input type="tel" value="${esc(row.tel)}" placeholder="電話番号" data-input="updateN" data-index="${i}" data-field="tel"></td>
 			<td style="text-align:center;"><button class="btn btn-danger btn-sm" data-click="removeN" data-index="${i}">×</button></td>
 		`;
@@ -216,7 +216,7 @@ function renderStudentsTable() {
 					${[6,5,4,3,2,1].map(g => `<option value="${g}" ${String(row.grade)===String(g)?'selected':''}>${g}年</option>`).join('')}
 				</select>
 			</td>
-			<td><input type="text" value="${esc(row.class || '')}" placeholder="1" data-input="updateS" data-index="${i}" data-field="class"></td>
+			<td><input type="text" maxlength="4096" value="${esc(row.class || '')}" placeholder="1" data-input="updateS" data-index="${i}" data-field="class"></td>
 			<td>
 				<select data-change="updateS" data-index="${i}" data-field="han">
 					<option value="" ${!row.han ? 'selected' : ''}>（未指定）</option>
@@ -227,16 +227,16 @@ function renderStudentsTable() {
 			<td>
 				<div class="name-field-box">
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(row.lastNameKana || '')}" placeholder="せい" class="input-kana" data-input="updateS" data-index="${i}" data-field="lastNameKana">
-						<input type="text" value="${esc(row.firstNameKana || '')}" placeholder="めい" class="input-kana" data-input="updateS" data-index="${i}" data-field="firstNameKana">
+						<input type="text" maxlength="4096" value="${esc(row.lastNameKana || '')}" placeholder="せい" class="input-kana" data-input="updateS" data-index="${i}" data-field="lastNameKana">
+						<input type="text" maxlength="4096" value="${esc(row.firstNameKana || '')}" placeholder="めい" class="input-kana" data-input="updateS" data-index="${i}" data-field="firstNameKana">
 					</div>
 					<div class="name-pair-grid">
-						<input type="text" value="${esc(row.lastName || '')}" placeholder="姓" data-input="updateS" data-index="${i}" data-field="lastName">
-						<input type="text" value="${esc(row.firstName || '')}" placeholder="名" data-input="updateS" data-index="${i}" data-field="firstName">
+						<input type="text" maxlength="4096" value="${esc(row.lastName || '')}" placeholder="姓" data-input="updateS" data-index="${i}" data-field="lastName">
+						<input type="text" maxlength="4096" value="${esc(row.firstName || '')}" placeholder="名" data-input="updateS" data-index="${i}" data-field="firstName">
 					</div>
 				</div>
 			</td>
-			<td><input type="text" value="${esc(row.address || '')}" placeholder="1号棟203号室" data-input="updateS" data-index="${i}" data-field="address"></td>
+			<td><input type="text" maxlength="4096" value="${esc(row.address || '')}" placeholder="1号棟203号室" data-input="updateS" data-index="${i}" data-field="address"></td>
 			<td><input type="tel" value="${esc(row.tel || '')}" placeholder="電話番号" data-input="updateS" data-index="${i}" data-field="tel"></td>
 			<td>
 				<select data-change="updateS" data-index="${i}" data-field="leader">
@@ -608,7 +608,7 @@ async function loadDistrictTxt(e) {
 
 		const data = await parseTxtContent(rawText, pass, generation, importKind);
 		if (data.isNeighborhoodData || (!data.students && Array.isArray(data.neighborhood))) {
-			mergeNeighborDataIntoDistrict(data);
+			await mergeNeighborDataIntoDistrict(data, generation);
 			if (e && e.target) e.target.value = "";
 			return true;
 		}
@@ -654,18 +654,17 @@ async function loadDistrictTxt(e) {
 			}
 		}
 
-		currentDistrict = data;
-		currentDistrict.hanList = data.hanList || getDistrictHanList(data);
-		currentDistrict.han = data.han || (currentDistrict.hanList && currentDistrict.hanList[0]) || "";
+		data.hanList = data.hanList || getDistrictHanList(data);
+		data.han = data.han || data.hanList[0] || '';
+		currentDistrict = adoptImportedModel(await commitImportedModel('kogai_district_v2', data, generation));
 		renderDistrictForm();
-		await saveDistrictLocal();
 		const hanMsg = currentDistrict.han ? `（${currentDistrict.han}）` : "";
 		alert(`地区データ「${currentDistrict.district || ""}」${hanMsg}を読み込みました。`);
 		if (e && e.target) e.target.value = "";
 		return true;
 	} catch (err) {
 		console.error("Failed to load district file:", err);
-		alert("読み込みに失敗しました。パスワードを確認してください。");
+		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "読み込みに失敗しました。パスワードを確認してください。");
 		if (e && e.target) e.target.value = "";
 	}
 }
@@ -678,8 +677,10 @@ async function loadPastedTextToDistrict() {
 	if (restored) box.value = '';
 }
 
-function mergeNeighborDataIntoDistrict(data) {
+async function mergeNeighborDataIntoDistrict(data, generation = getStorageSessionGeneration()) {
+	assertStorageSession(generation);
 	if (!data) return;
+	const candidate = JSON.parse(JSON.stringify(currentDistrict));
 	const nList = data.neighborhood || (Array.isArray(data) ? data : []);
 	const dName = (data.district || "").trim();
 	const curName = (currentDistrict.district || "").trim();
@@ -688,14 +689,14 @@ function mergeNeighborDataIntoDistrict(data) {
 		const ok = confirm(`自治会名「${dName}」が現在の地区名「${curName}」と異なりますが、この地区の自治会役員名簿として統合しますか？\n（キャンセルした場合は統合されません）`);
 		if (!ok) return;
 	} else if (dName && !curName) {
-		currentDistrict.district = dName;
-		const dNameEl = document.getElementById('d-name');
-		if (dNameEl) dNameEl.value = dName;
+		candidate.district = dName;
 	}
 
-	currentDistrict.neighborhood = JSON.parse(JSON.stringify(nList));
-	currentDistrict.neighborhood.forEach(normalizeNameFields);
-	saveDistrictLocal();
+	candidate.neighborhood = JSON.parse(JSON.stringify(nList));
+	candidate.neighborhood.forEach(normalizeNameFields);
+	currentDistrict = adoptImportedModel(await commitImportedModel('kogai_district_v2', candidate, generation));
+	const nameEl = document.getElementById('d-name');
+	if (nameEl) nameEl.value = currentDistrict.district;
 	renderNeighborhoodTable();
 	alert(`自治会役員データ「${dName || curName}」（${currentDistrict.neighborhood.length}名）を統合しました。`);
 }
@@ -758,7 +759,8 @@ function toggleTransferImportPanel() {
 	}
 }
 
-async function integrateTransferDataIntoDistrict(payload, password) {
+async function integrateTransferDataIntoDistrict(payload, password, generation = getStorageSessionGeneration()) {
+	assertStorageSession(generation);
 	if (!payload || !payload.isTransferData) {
 		alert("転入児童データではありません。");
 		return false;
@@ -769,7 +771,6 @@ async function integrateTransferDataIntoDistrict(payload, password) {
 		return false;
 	}
 
-	const backupStudents = JSON.parse(JSON.stringify(currentDistrict.students || []));
 	const tempStudents = JSON.parse(JSON.stringify(currentDistrict.students || []));
 	const defaultHan = currentDistrict.han || (currentDistrict.hanList && currentDistrict.hanList[0]) || "1班";
 
@@ -792,7 +793,6 @@ async function integrateTransferDataIntoDistrict(payload, password) {
 		const promptMsg = `転入児童「${normChild.lastName} ${normChild.firstName}」（${normChild.grade}年${normChild.class}組）の所属班を入力してください：`;
 		const assignedHan = safePrompt(promptMsg, defaultHan);
 		if (assignedHan === null) {
-			currentDistrict.students = backupStudents;
 			return false;
 		}
 		normChild.han = (assignedHan || defaultHan).trim();
@@ -805,21 +805,17 @@ async function integrateTransferDataIntoDistrict(payload, password) {
 		if (duplicate) {
 			const confirmMsg = `児童「${normChild.lastName} ${normChild.firstName}」（${normChild.grade}年生）は既に「${duplicate.han}」に存在します。重複して統合しますか？`;
 			if (!confirm(confirmMsg)) {
-				currentDistrict.students = backupStudents;
-				return false;
+					return false;
 			}
 		}
 
 		tempStudents.push(normChild);
 	}
 
-	currentDistrict.students = tempStudents;
-	currentDistrict.students.sort(compareStudents);
+	const candidate = { ...currentDistrict, students: tempStudents.sort(compareStudents) };
+	currentDistrict = adoptImportedModel(await commitImportedModel('kogai_district_v2', candidate, generation));
 	renderStudentsTable();
 	updateStudentSummaryText();
-	if (typeof saveDistrictLocal === 'function') {
-		saveDistrictLocal();
-	}
 
 	alert(`${rawList.length}名の転入児童データを統合しました。`);
 	return true;
@@ -842,9 +838,9 @@ async function loadTransferFileIntoDistrict(e) {
 			if (!promptPass) { if (e.target) e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass, generation, importKind);
 		}
-		await integrateTransferDataIntoDistrict(data, pass);
+		await integrateTransferDataIntoDistrict(data, pass, generation);
 	} catch (err) {
-		alert("転入児童データの読み込みに失敗しました。パスワードをご確認ください。");
+		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの読み込みに失敗しました。パスワードをご確認ください。");
 	}
 	if (e.target) e.target.value = "";
 }
@@ -865,11 +861,11 @@ async function loadPastedTransferTextIntoDistrict(text) {
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass, generation, importKind);
 		}
-		await integrateTransferDataIntoDistrict(data, pass);
+		await integrateTransferDataIntoDistrict(data, pass, generation);
 		const box = document.getElementById('d-transfer-paste-box');
 		if (box) box.value = "";
 	} catch (err) {
-		alert("転入児童データの復号に失敗しました。パスワードをご確認ください。");
+		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの復号に失敗しました。パスワードをご確認ください。");
 	}
 }
 
@@ -890,9 +886,9 @@ async function loadNeighborFileIntoDistrict(e) {
 			if (!promptPass) { e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass, generation, importKind);
 		}
-		mergeNeighborDataIntoDistrict(data);
+		await mergeNeighborDataIntoDistrict(data, generation);
 	} catch (err) {
-		alert("自治会データの読み込みに失敗しました。パスワードをご確認ください。");
+		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "自治会データの読み込みに失敗しました。パスワードをご確認ください。");
 	}
 	e.target.value = "";
 }
@@ -915,10 +911,10 @@ async function loadPastedNeighborTextIntoDistrict() {
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass, generation, importKind);
 		}
-		mergeNeighborDataIntoDistrict(data);
+		await mergeNeighborDataIntoDistrict(data, generation);
 		box.value = "";
 	} catch (err) {
-		alert("自治会データの復号に失敗しました。パスワードをご確認ください。");
+		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "自治会データの復号に失敗しました。パスワードをご確認ください。");
 	}
 }
 
