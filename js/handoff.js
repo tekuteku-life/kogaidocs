@@ -179,14 +179,14 @@ async function restoreBrowserHandoff() {
 		renderDistrictForm(); renderRepAll(); renderNeighborForm(); renderTransferForm();
 		switchTab(payload.mode);
 		setAllCardsCollapse(false, 'tab-' + payload.mode);
-		if (!payload.repDraft && payload.drafts['rep-new-district-name']) openAddDistrictModal();
-		for (const [id, value] of Object.entries(payload.drafts)) document.getElementById(id).value = value;
 		for (const input of document.querySelectorAll('input')) {
 			if (input.type === 'password' || input.closest('.pass-input-group')) input.value = '';
 		}
-		restoreRepDetailDraft(payload.repDraft);
 		markHataSaved();
 		clearBrowserHandoff();
+		restoreRepDetailDraft(payload.repDraft);
+		if (!payload.repDraft && payload.drafts['rep-new-district-name']) openAddDistrictModal();
+		for (const [id, value] of Object.entries(payload.drafts)) document.getElementById(id).value = value;
 		alert('途中入力を復元しました。パスワードや未読込ファイルは再入力してください。');
 	});
 }

@@ -262,7 +262,7 @@ SEC-18/19先行Redの記録は64件中7件合格・57件失敗であり、本番
 
 | 要件 / 外部 / 内部 | 追加テストの正確な名称 | 追加したassertion |
 | :--- | :--- | :--- |
-| R-08・R-17 / E-02-07 / I-05 | [headless-specification-contracts.test.js:59](../tests/system/headless-specification-contracts.test.js#L59) `UI specification flag settings: ${width}px copy controls and four metadata groups follow their responsive layout` | 375pxではコピー行のcomputed flex-direction=column、format/同一世帯まとめ/copy controlの存在と順番、正の矩形寸法・縦の非重複・左辺揃いを検査する。768/1280pxでは休日/特別枠/header/footerの4枠と各入力の対応、computed2列、上段/下段の行と列座標、非重複を検査する計3件である。 |
+| R-08・R-17 / E-02-07 / I-05 | [headless-specification-contracts.test.js:59](../tests/system/headless-specification-contracts.test.js#L59) `UI specification flag settings: ${width}px member format controls and four metadata groups follow their responsive layout` | 375pxでは当番名簿内の書式行のcomputed flex-direction=column、format/同一世帯まとめの存在と順番、旧プレビュー・コピー操作の不在、正の矩形寸法・縦の非重複・左辺揃いを検査する。768/1280pxでは休日/特別枠/header/footerの4枠と各入力の対応、computed2列、上段/下段の行と列座標、非重複を検査する計3件である。 |
 | R-02・R-03・R-04・R-17 / E-02-08・E-03-01・E-04-04 / I-05 | [headless-specification-contracts.test.js:100](../tests/system/headless-specification-contracts.test.js#L100) `UI specification saving cards: district, representative and neighbor have four ordered sections inside the final workflow card` | 実モード切替/カード展開後、各保存カードがtab直下の最後のcard、全4sectionが同一card-body直下に正しい順序で存在、IDは文書内で一意、区分ごとの実password/import/export/year controlの包含、表示矩形の正の寸法と上下非重複を3モードすべてで検査する1件である。 |
 | R-07・R-13・R-15 / E-06-01・E-08-05 / I-03・I-04 | [specification-contracts.test.js:160](../tests/unit/specification-contracts.test.js#L160) `specification aggregation privacy: an imported remembered district password never reaches representative storage or decrypted master and split handoffs` | 正当な記憶パスワードと名簿を実暗号化して一般ファイル取込へ通し、名簿受理を確認したうえで代表状態・LocalStorage・実復号マスター・実復号切出からプロパティと秘密canaryを除外する。元地区オブジェクトと秘密は保持し、切出明示鍵は代表入力鍵より優先し、代表入力鍵では切出が復号できないことも確認する。 |
 
@@ -293,3 +293,26 @@ SEC-18/19先行Redの記録は64件中7件合格・57件失敗であり、本番
 | R-17 / E-01-09 / I-06-09 | `browser-handoff.test.js` はLINE/通常UAと、元URLの機微なquery/hashを除外した外部ブラウザURLを確認する。 | UA・locationはモックである。 |
 | R-12・R-15・R-17 | 同単体試験は未完了転入者・全設定・代表下書きの型/旧行index検証、誤鍵、不正型、全モデル保存失敗のrollback、暗号化維持とロック拒否を確認する。 | Node、実WebCrypto、ストレージ/API制御を含む。 |
 | R-14・R-17 | `headless-browser-handoff.test.js` はLINE警告、暗号化ファイル/貼付復元、独立保存領域相当の消去後の復元と再起動、未確定名簿の取消、誤鍵・置換取消、Escape・ロック後の遅い暗号化の無効化を確認する。 | 実Chromiumのfile起動である。LINE/Safari実機間の切替とOSファイル配送は未検証である。 |
+
+## 14. UI監査・当番名簿整理・安全な下書き（2.9.1）
+
+| 要件・仕様 | 実アサーションと環境 | 未検証境界 |
+| --- | --- | --- |
+| R-08 / E-02-11 / I-04-09 | `headless-ui-audit.test.js` は書式変更による手編集保護、取消/明示反映、全半角住所の兄弟重複排除/解除、未完成の期間/休日/特別枠の暗号化地区出力・引き継ぎ・再起動・修正、古いシフトの出力禁止を実UIで検査する。`hata-input-drafts.test.js` は許可キー/型と有効設定の保全をNodeで検査する。 | 実OSのクリップボード・印刷・ファイル配送は代替を含む。 |
+| R-17 / E-01-09 | `headless-ui-audit.test.js` は暗号化先4モデルと再起動、提出パスワード除外、平文/暗号化保存失敗の原子性、ファイル優先/容量超過/選択解除/再試行、不正な認証済みデータ、閉じる/ロック/再開/遅延/二重操作、地区追加Enter・代表下書き保存後の座席保持を検査する。 | LINEから通常ブラウザへのOS移動は未検証である。 |
+| R-11〜R-17 / E-01-03・E-01-09 | 同UI試験は375/768/1280pxのdialog矩形/スクロール/Tab/Escape/フォーカス復帰と、悪意ある引き継ぎ文字列のDOM不生成、イベント不実行、CDP通信監視の陽性対照と秘密文字列の通信不在を検査する。 | iPhone Safariでのホーム画面追加と安全な実HTTPS配信は別途実機確認が必要である。 |
+| R-08 | 同UI試験は土日指定・休日・特別枠・免除・JSON手動調整・集計・モバイル表示、暗号化出力中の追加編集による未保存警告保持を検査する。 | 日付交換関数の直接操作UIは存在しない。単体検証をクリック網羅と数えない。 |
+
+開始時の照合、失敗分類、最終測定値は [review65](reviews/review65_ui_coverage_audit.md) に記録する。
+
+## 15. 保存データ・UI再監査（2.9.2、SEC-20・SEC-21）
+
+| 要件・境界 | 追加した実アサーション | 実装・環境 |
+| --- | --- | --- |
+| R-08・R-11 / SEC-20 | `security-hata-output.test.js` は入力値内のトークンを再解釈しないこと、10000/10001行、4096/4097文字、UTF-8の1MiBちょうど/1バイト超過、空行の分割上限、日付への反復表示、班/座席選択肢の積を確認する。 | `validateHataTextBudget`、`validateHataScheduleOutput`、`validateDistrictRenderBudget`、`validateRepRenderBudget`、単一パス書式置換。Nodeである。 |
+| R-08・R-11・R-15・R-17 / SEC-20 | `headless-saved-data-audit.test.js` は暗号化ファイル/貼付・公式JSONの過大入力拒否、同名ファイル再試行、平文/実暗号化保存の受入拒否、過大な手入力の下書き・実再起動・修正、通常名簿/座席の増幅拒否を確認する。 | 実Chromium、実WebCrypto、CDP入力である。 |
+| R-11・R-15・R-17 | 同UI試験は悪意ある書式・免除属性・下書きを暗号化ファイル→引き継ぎ→暗号化保存→実再起動/解除→修正/反映→生成/印刷へ通し、完全な文字列の保持、攻撃DOM非生成、イベント不実行、CDP通信監視の陽性対照と秘密値非送信を確認する。 | ファイル選択はDataTransfer、印刷とOS共有先は代替を含む。 |
+| R-12・R-14 / SEC-21 | `security-import-commit.test.js` は平文/実暗号化先で取込中の旧自動保存の無効化、失敗時の旧保存値/世代保持、保存待機中/暗号化中のロック、保存結果の採用直前の世代失効、復号後に全消去した委譲取込の拒否を確認する。 | `commitImportedModel` と `adoptImportedModel`、共通のWeb Locks、世代照合。Node、実WebCrypto、競合制御を含む。 |
+| R-03〜R-06・R-08・R-12 / SEC-21 | 同UI試験は地区/代表/自治会/公式JSON/地区への自治会統合/代表への地区・自治会統合/地区・代表への転入統合の9経路について、平文と暗号化先それぞれで実保存APIの失敗、旧4モデル・全保存値の保持、保存失敗通知、同名ファイルの正常再試行を確認する。保存完了後の継続を止め、実ロックしても旧個人情報が画面へ戻らないことも確認する。 | 実Chromium、実保存Promise、Storage APIの容量例外を制御する。 |
+
+既存の4モードCRUD・年度更新・座席同定・全12帳票・PWA案内・認証/ロック・CSP/改ざん/予約キーのアサーションも全体/UI一式で再実行する。詳細な再現、試験側の待機/モデル参照の是正、最終測定値と未検証境界は [review66](reviews/review66_saved_data_security_audit.md) に記録する。

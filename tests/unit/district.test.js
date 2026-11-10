@@ -670,7 +670,7 @@ test('district: additional branch booster for loadNeighborFileIntoDistrict, merg
 	state.currentDistrict.neighborhood = [];
 	let confirmCalled = false;
 	global.confirm = () => { confirmCalled = true; return false; }; // cancel
-	districtLib.mergeNeighborDataIntoDistrict({
+	await districtLib.mergeNeighborDataIntoDistrict({
 		district: "白石町",
 		neighborhood: [{ role: "会長", lastName: "石田", firstName: "健" }]
 	});
@@ -679,7 +679,7 @@ test('district: additional branch booster for loadNeighborFileIntoDistrict, merg
 
 	// confirm = true
 	global.confirm = () => true;
-	districtLib.mergeNeighborDataIntoDistrict({
+	await districtLib.mergeNeighborDataIntoDistrict({
 		district: "白石町",
 		neighborhood: [{ role: "会長", lastName: "石田", firstName: "健" }]
 	});

@@ -90,11 +90,11 @@
 				<div class="grid-form" style="margin-bottom: 14px;">
 					<div>
 						<label>地区名（必須）</label>
-						<input type="text" id="d-name" placeholder="例：1丁目 / 〇〇自治会" data-input="saveDistrictLocal">
+						<input type="text" maxlength="4096" id="d-name" placeholder="例：1丁目 / 〇〇自治会" data-input="saveDistrictLocal">
 					</div>
 					<div>
 						<label>班名リスト（カンマまたは空白で区切って入力）</label>
-						<input type="text" id="d-han-list" placeholder="例：1班, 2班, 3班（または A班, B班）" data-input="onHanListInput">
+						<input type="text" maxlength="4096" id="d-han-list" placeholder="例：1班, 2班, 3班（または A班, B班）" data-input="onHanListInput">
 						<input type="hidden" id="d-han">
 						<div class="help-text">※ここに登録した班名が児童名簿・校外役員の選択プルダウンに反映されます。</div>
 					</div>
@@ -322,9 +322,18 @@
 				</fieldset>
 				<section class="hata-members-panel">
 					<label for="hata-members">当番名簿（1行につき1世帯・担当者、記載順に割当）</label>
+					<label for="hata-format" class="help-text">児童名簿から反映する書式</label>
+					<div class="flex-row hata-member-format-row" style="margin-top:4px; gap:8px;">
+						<input type="text" id="hata-format" value="{住所数字} {苗字}" style="flex:1; font-size:0.85rem;" data-input="updateHataFormat">
+						<label class="check-item" style="font-size:0.8rem; margin:0;">
+							<input type="checkbox" id="hata-dedup" checked data-change="updateHataFormat">
+							同一世帯まとめ
+						</label>
+					</div>
+					<p class="help-text">使用例：{住所数字} {苗字} ／ {氏名} {班}。{住所}・{地区}・{班名}・{名前}・{ふりがな}・{苗字ふりがな}・{名前ふりがな}・{学年}も指定可能です。書式は「児童名簿を反映」で適用します。</p>
 					<textarea id="hata-members" rows="6" data-input="updateHataConfig" data-field="members" aria-describedby="hata-members-help hata-duplicate-alert"></textarea>
 					<div class="flex-row" style="flex-wrap:wrap; gap:8px;">
-						<button type="button" class="btn btn-outline btn-sm" data-click="syncHataMembersFromStudents">児童名簿の世帯一覧を反映</button>
+						<button type="button" class="btn btn-outline btn-sm" data-click="syncHataMembersFromStudents">児童名簿を反映</button>
 						<span class="help-text" id="hata-members-help">自由に追記・削除・並べ替え可能です。編集内容はシフト再生成でも保持されます。</span>
 					</div>
 					<p id="hata-duplicate-alert" role="status" hidden></p>
@@ -362,21 +371,6 @@
 								<input type="text" id="hata-contact-msg" placeholder="校外委員連絡先：〇〇（TEL: 090-XXXX-XXXX）" style="margin-top:4px; font-size:0.85rem;" data-input="updateHataConfig" data-field="contactMsg">
 							</div>
 						</div>
-
-						<!-- 旧ハタフロット用テキスト出力（互換性アコーディオン） -->
-						<div style="margin-top: 10px; padding: 8px; background: #fafafa; border-radius: 4px;">
-							<span style="font-size:0.85rem; font-weight:600; color:#64748b;">公式ハタフロット用テキスト形式（旧連携機能）</span>
-							<div class="flex-row hata-text-copy-row" style="margin-top:4px; gap:8px;">
-								<input type="text" id="hata-format" value="{住所数字} {苗字}" style="flex:1; font-size:0.85rem;" data-input="updateHataPreview">
-								<label class="check-item" style="font-size:0.8rem; margin:0;">
-									<input type="checkbox" id="hata-dedup" checked data-change="updateHataPreview">
-									同一世帯まとめ
-								</label>
-								<button type="button" class="btn btn-outline btn-xs" data-click="copyHataList">テキストコピー</button>
-							</div>
-							<label for="hata-preview" class="help-text">コピー用名簿プレビュー</label>
-							<textarea id="hata-preview" rows="3" readonly></textarea>
-						</div>
 					</div>
 				</details>
 
@@ -393,6 +387,7 @@
 					</div>
 				</div>
 
+				<p id="hata-input-status" role="status" hidden></p>
 				<p id="hata-save-status" class="help-text" role="status">設定は地区の保存用ファイルにも含まれます。</p>
 				<textarea id="hata-line-text" rows="8" readonly hidden aria-label="LINE送信用シフト本文"></textarea>
 				<!-- 当番回数アコーディオン -->
@@ -601,11 +596,11 @@
 					</div>
 					<div>
 						<label>前方ラベル</label>
-						<input type="text" id="seat-top-label" value="前方（演台・司会・スクリーン側）" data-input="saveRepLocal">
+						<input type="text" maxlength="4096" id="seat-top-label" value="前方（演台・司会・スクリーン側）" data-input="saveRepLocal">
 					</div>
 					<div>
 						<label>後方ラベル</label>
-						<input type="text" id="seat-bottom-label" value="後方（出入口側）" data-input="saveRepLocal">
+						<input type="text" maxlength="4096" id="seat-bottom-label" value="後方（出入口側）" data-input="saveRepLocal">
 					</div>
 				</div>
 
@@ -797,7 +792,7 @@
 				<div class="grid-form" style="margin-bottom: 14px;">
 					<div>
 						<label>自治会名・町内会名（必須）</label>
-						<input type="text" id="neighbor-district-name" placeholder="例：〇〇自治会 / 1丁目町内会" data-input="saveNeighborLocal">
+						<input type="text" maxlength="4096" id="neighbor-district-name" placeholder="例：〇〇自治会 / 1丁目町内会" data-input="saveNeighborLocal">
 						<div class="help-text">※校外委員会・PTAの「地区名」に対応する名称を入力してください。</div>
 					</div>
 				</div>
@@ -1057,7 +1052,7 @@
 			<form data-submit="confirmAddRepDistrict" autocomplete="off">
 				<div class="form-group" style="margin-bottom: 16px;">
 					<label for="rep-new-district-name" style="display:block; font-weight:bold; margin-bottom:6px;">地区名 <span class="badge badge-required">* 必須</span></label>
-					<input type="text" id="rep-new-district-name" class="input-field" placeholder="例: 5丁目" maxlength="50" style="width:100%; font-size:1rem; padding:8px 10px;" data-input="clearAddDistrictError" required>
+					<input type="text" maxlength="4096" id="rep-new-district-name" class="input-field" placeholder="例: 5丁目" maxlength="50" style="width:100%; font-size:1rem; padding:8px 10px;" data-input="clearAddDistrictError" required>
 					<div id="rep-new-district-error" class="pass-feedback-msg pass-msg-ng" style="display:none; margin-top:6px;"></div>
 				</div>
 				<div class="modal-actions" style="display:flex; justify-content:flex-end; gap:8px;">

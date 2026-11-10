@@ -167,9 +167,8 @@ test('system [編集]: field editing, real-time title reflection, student multi-
 	state.currentDistrict.students = [
 		{ grade: "6", class: "2", han: "A班", lastName: "鈴木", firstName: "一郎", address: "港南３丁目１５番２号", isOutOfDistrict: false }
 	];
-	hata.updateHataPreview();
-	const previewBox = document.getElementById('hata-preview');
-	assert(previewBox.value.includes("A班 6年 鈴木 一郎（3-15-2）"));
+	const members = hata.buildHataMembersText(state.currentDistrict.students, hataTemplate.value, true);
+	assert(members.includes("A班 6年 鈴木 一郎（3-15-2）"));
 
 	// 5. Representative: SZ External editing
 	state.repState = createMockRepState();

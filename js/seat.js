@@ -2,7 +2,7 @@
    スクールゾーン協議会 座席表エディタ（窓側⇔廊下側入れ替え対応）
 ========================================================================= */
 
-function getAllSzParticipantsForSeat() {
+function getAllSzParticipantsForSeat(target = repState) {
 	const list = [
 		{ key: "", label: "（空席・通路）" },
 		{ key: "FAC_STAGE", label: "【設備】演台・司会席" },
@@ -12,7 +12,7 @@ function getAllSzParticipantsForSeat() {
 	];
 
 	// 校外役員（複数役員・同一地区別班データのキー重複防止）
-	repState.districts.forEach((d, dIdx) => {
+	target.districts.forEach((d, dIdx) => {
 		if (!d.selectedForPrint) return;
 		const offList = d.officers || [];
 		offList.forEach((off, oIdx) => {
@@ -31,7 +31,7 @@ function getAllSzParticipantsForSeat() {
 	});
 
 	// 自治会出席者（同一地区名の重複排除）
-	const uniqueNeighborDistricts = getUniqueNeighborhoodDistricts(repState.districts, true);
+	const uniqueNeighborDistricts = getUniqueNeighborhoodDistricts(target.districts, true);
 	uniqueNeighborDistricts.forEach(({ d }) => {
 		(d.neighborhood || []).forEach((n, nIdx) => {
 			if (d.szNeighborChecks && d.szNeighborChecks[nIdx]) {
@@ -47,7 +47,7 @@ function getAllSzParticipantsForSeat() {
 	});
 
 	// 外部関係者
-	(repState.szExternals || []).forEach((ex, exIdx) => {
+	(target.szExternals || []).forEach((ex, exIdx) => {
 		if (ex.attend) {
 			const exName = getFullName(ex);
 			list.push({
@@ -107,7 +107,7 @@ function renderSeatEditor() {
 			div.innerHTML = `
 				<div style="font-size:0.7rem; color:#64748b;">${r+1}段-${c+1}列</div>
 				<select data-change="updateSeatCell" data-target="${cellKey}" data-field="refKey">${optsHtml}</select>
-				<input type="text" value="${esc(cellData.customText)}" placeholder="自由記述・補足メモ" data-input="updateSeatCell" data-target="${cellKey}" data-field="customText">
+				<input type="text" maxlength="4096" value="${esc(cellData.customText)}" placeholder="自由記述・補足メモ" data-input="updateSeatCell" data-target="${cellKey}" data-field="customText">
 			`;
 			grid.appendChild(div);
 		}
@@ -128,10 +128,10 @@ function neighborIdentity(row) {
 	return JSON.stringify([getFullName(row), row.role || '', row.tel || '', row.address || '']);
 }
 
-function captureSeatState() {
+function captureSeatState(target = repState) {
 	return {
-		participants: getAllSzParticipantsForSeat(),
-		neighbors: getUniqueNeighborhoodDistricts(repState.districts, false).map(({ d, dIdx }) => ({
+		participants: getAllSzParticipantsForSeat(target),
+		neighbors: getUniqueNeighborhoodDistricts(target.districts, false).map(({ d, dIdx }) => ({
 			district: d.district,
 			sourceIndex: dIdx,
 			identities: (d.neighborhood || []).map(neighborIdentity),
@@ -140,9 +140,9 @@ function captureSeatState() {
 	};
 }
 
-function reconcileSeatState(previous, explicitKeys = {}) {
+function reconcileSeatState(previous, explicitKeys = {}, target = repState) {
 	// 同名地区の代表名簿が変わっても、出席チェックを別人へ引き継がない。
-	repState.districts.forEach(d => {
+	target.districts.forEach(d => {
 		const old = previous.neighbors.find(group => group.district === d.district);
 		if (!old || old.identities.length === 0) return;
 		const checks = {};
@@ -153,8 +153,8 @@ function reconcileSeatState(previous, explicitKeys = {}) {
 		});
 		d.szNeighborChecks = checks;
 	});
-	const current = getAllSzParticipantsForSeat();
-	Object.values(repState.seatConfig?.cells || {}).forEach(cell => {
+	const current = getAllSzParticipantsForSeat(target);
+	Object.values(target.seatConfig?.cells || {}).forEach(cell => {
 		const key = cell.refKey || '';
 		if (!key || key === 'CUSTOM' || key.startsWith('FAC_')) return;
 		if (Object.hasOwn(explicitKeys, key)) {

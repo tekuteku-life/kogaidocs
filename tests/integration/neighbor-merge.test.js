@@ -79,12 +79,12 @@ test('integration: Pattern A (Standard Order) - Neighbor Export -> District Merg
 	};
 	// Case 1: user cancels confirmation -> merge aborted
 	global.confirm = () => false;
-	districtLib.mergeNeighborDataIntoDistrict(mismatchData);
+	await districtLib.mergeNeighborDataIntoDistrict(mismatchData);
 	assert.strictEqual(state.currentDistrict.neighborhood[0].lastName, "田中");
 
 	// Case 2: user accepts confirmation -> merge proceeds
 	global.confirm = () => true;
-	districtLib.mergeNeighborDataIntoDistrict(mismatchData);
+	await districtLib.mergeNeighborDataIntoDistrict(mismatchData);
 	assert.strictEqual(state.currentDistrict.neighborhood[0].lastName, "異名");
 
 	// Restore original neighborhood data
@@ -345,7 +345,7 @@ test('integration: Clipboard Paste Workflows for Neighborhood Data in District a
 
 	// In district.js, loadDistrictTxt routing also applies when reading from loadDistrictTxt or mergeNeighborDataIntoDistrict
 	const parsedData = await cryptoLib.parseTxtContent(clipboardText, pass);
-	districtLib.mergeNeighborDataIntoDistrict(parsedData);
+	await districtLib.mergeNeighborDataIntoDistrict(parsedData);
 
 	assert.strictEqual(state.currentDistrict.students.length, 1);
 	assert.strictEqual(state.currentDistrict.neighborhood.length, 1);

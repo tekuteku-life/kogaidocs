@@ -2,21 +2,15 @@
    ハタフロット（旗振り当番シフト管理）ネイティブ統合エンジン
 ========================================================================= */
 
-/**
- * 児童データと設定フォーマットに基づいてハタフロット変換プレビューを更新します（後方互換）
- */
-function updateHataPreview() {
-	const fmtEl = document.getElementById('hata-format');
-	const dedupEl = document.getElementById('hata-dedup');
-	const previewEl = document.getElementById('hata-preview');
-	if (!fmtEl || !dedupEl || !previewEl) return;
-
-	const fmt = fmtEl.value;
-	const dedup = dedupEl.checked;
+/** 児童名簿を指定書式で当番名簿へ変換する。元の児童データは変更しない。 */
+function buildHataMembersText(students, fmt, dedup, source = currentDistrict) {
 	const seen = new Set();
 	const lines = [];
+	let outputBytes = 0;
+	requireHataOutputSize(fmt.length <= 4096);
 
-	(currentDistrict.students || []).forEach(s => {
+	(students || []).forEach(student => {
+		const s = { ...student };
 		if (!s.lastName && !s.firstName && !s.name && !s.address) return;
 		normalizeNameFields(s);
 
@@ -33,55 +27,35 @@ function updateHataPreview() {
 		const numMatches = normalizedAddr.match(/\d+/g);
 		const numAddr = numMatches ? numMatches.join('-') : rawAddr;
 
-		const defaultHan = (currentDistrict.han || "").trim();
+		const defaultHan = (source.han || "").trim();
 		const sHan = (s.han || "").trim();
 		const han = sHan || defaultHan;
-		const district = (currentDistrict.district || "").trim();
+		const district = (source.district || "").trim();
 
-		const line = fmt
-			.replace(/\{住所\}/g, () => rawAddr)
-			.replace(/\{住所数字\}/g, () => numAddr)
-			.replace(/\{地区\}/g, () => district)
-			.replace(/\{班\}/g, () => han)
-			.replace(/\{班名\}/g, () => han)
-			.replace(/\{苗字\}/g, () => lastName)
-			.replace(/\{名前\}/g, () => firstName)
-			.replace(/\{氏名\}/g, () => fullName)
-			.replace(/\{ふりがな\}/g, () => fullKana)
-			.replace(/\{苗字ふりがな\}/g, () => lastKana)
-			.replace(/\{名前ふりがな\}/g, () => firstKana)
-			.replace(/\{学年\}/g, () => (s.grade || "") + "年")
-			.trim();
+		const tokens = { '住所': rawAddr, '住所数字': numAddr, '地区': district, '班': han, '班名': han,
+			'苗字': lastName, '名前': firstName, '氏名': fullName, 'ふりがな': fullKana,
+			'苗字ふりがな': lastKana, '名前ふりがな': firstKana, '学年': (s.grade || '') + '年' };
+		let rowLength = 0, cursor = 0;
+		const line = fmt.replace(/\{(住所数字|住所|地区|班名|班|苗字ふりがな|名前ふりがな|苗字|名前|氏名|ふりがな|学年)\}/g, (match, token, offset) => {
+			rowLength += offset - cursor + tokens[token].length;
+			cursor = offset + match.length;
+			requireHataOutputSize(rowLength <= 4096);
+			return tokens[token];
+		}).trim();
 
 		if (dedup) {
 			const key = `${numAddr}_${lastName || fullName}`;
 			if (seen.has(key)) return;
 			seen.add(key);
 		}
-		if (line) lines.push(line);
+		if (line) {
+			outputBytes += new TextEncoder().encode(line).byteLength + (lines.length ? 1 : 0);
+			requireHataOutputSize(line.length <= 4096 && lines.length < 10000 && outputBytes <= 1024 * 1024);
+			lines.push(line);
+		}
 	});
 
-	previewEl.value = lines.join('\n');
-	renderHataExemptList();
-}
-
-/**
- * プレビューに表示されたハタフロット用リストをクリップボードにコピーします（後方互換）
- */
-async function copyHataList() {
-	const previewEl = document.getElementById('hata-preview');
-	const text = previewEl ? previewEl.value : "";
-	if (navigator.clipboard && navigator.clipboard.writeText) {
-		try {
-			await navigator.clipboard.writeText(text);
-			alert("ハタフロット用リストをクリップボードにコピーしました。");
-			return;
-		} catch (e) {}
-	}
-	if (previewEl) {
-		if (typeof previewEl.select === 'function') previewEl.select();
-		alert("ハタフロット用リストを選択しました。コピー（Ctrl+C）してご活用ください。");
-	}
+	return lines.join('\n');
 }
 
 /**
@@ -304,6 +278,7 @@ function getPeriodPresetDates(presetKey, baseYear) {
  */
 function generateHataSchedule(config) {
 	validateHataExpansionBudget(config || {});
+	validateHataTextBudget(config || {});
 	if (!config || !config.startDate || !config.endDate) return [];
 	const weekdays = Array.isArray(config.weekdays) ? config.weekdays : [1, 2, 3, 4, 5];
 	const weekdaysSet = new Set(weekdays);
@@ -468,7 +443,7 @@ function generateHataSchedule(config) {
 		}
 	});
 
-	return schedule;
+	return validateHataScheduleOutput(schedule);
 }
 
 /**
@@ -529,6 +504,7 @@ function importHataOfficialJson(jsonStr) {
 		holidays: parsed.holidays ?? '', specials: parsed.specials ?? '',
 		exemptHouseholds: parsed.exemptHouseholds ?? [], manualOverrides: parsed.manualOverrides ?? {},
 		members: parsed.members ?? '', format: parsed.format ?? '{住所数字} {苗字}', dedup: parsed.dedup ?? true,
+		...(parsed.inputDrafts === undefined ? {} : { inputDrafts: parsed.inputDrafts }),
 		...(parsed.schedule === undefined ? {} : { schedule: parsed.schedule })
 	};
 }
@@ -545,11 +521,10 @@ async function loadHataOfficialFile(event) {
 		// 展開上限も確定前に検査し、失敗時に現在の設定を置換しない。
 		generateHataSchedule(config);
 		assertStorageSession(generation);
-		currentDistrict.hata = config;
+		const candidate = adoptImportedModel(await commitImportedModel('kogai_district_v2', { ...currentDistrict, hata: config }, generation));
+		currentDistrict = candidate;
 		renderHataCard();
-		const loadedSettings = JSON.stringify(currentDistrict.hata);
-		await saveDistrictLocal();
-		markHataSaved(loadedSettings);
+		markHataSaved();
 	} catch (error) {
 		alert('旗振り設定の読み込みに失敗しました: ' + error.message);
 	} finally {
@@ -627,7 +602,7 @@ function toggleHataSummary() {
  * 生成されたシフト配列からレスポンシブHTML（スマホリスト / PCグリッド / 本家シート）を構築します
  */
 function buildHataScheduleHtml(schedule, viewMode = 'sheet', config = null) {
-	if (Array.isArray(schedule)) assertHataExpansionSize(schedule.length);
+	if (Array.isArray(schedule)) validateHataScheduleOutput(schedule);
 	if (!Array.isArray(schedule) || schedule.length === 0) {
 		return `<div class="help-text" style="text-align:center; padding:1.5rem;">シフトがまだ生成されていません。「自動生成」ボタンを押してください。</div>`;
 	}
@@ -716,7 +691,7 @@ function buildHataPrintHtml(schedule, config) {
 	const requestedColumns = Number(c.layoutColumns || 3);
 	const numCols = Number.isFinite(requestedColumns) ? Math.max(1, Math.min(6, Math.trunc(requestedColumns))) : 3;
 	const schedList = Array.isArray(schedule) ? schedule : [];
-	assertHataExpansionSize(schedList.length);
+	validateHataScheduleOutput(schedList);
 	const total = schedList.length;
 
 	let columnsHtml = '';
@@ -829,18 +804,21 @@ function renderHataCard() {
 		const today = new Date();
 		h.createdDate = h.scheduleCreatedDate ?? `作成日：${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
 	}
-	if (h.members === undefined) h.members = extractHouseholdsFromStudents(currentDistrict.students || []).map(hh => hh.displayName).join('\n');
+	if (h.members === undefined) {
+		const members = extractHouseholdsFromStudents(currentDistrict.students || []).map(hh => hh.displayName).join('\n');
+		h.members = '';
+		collectHataScheduleInputs(h, { members });
+	}
 	for (const [field, id] of [['members', 'hata-members'], ['createdDate', 'hata-created-date'], ['district', 'hata-district']]) {
 		const el = document.getElementById(id);
-		if (el) el.value = h[field] ?? (field === 'district' ? currentDistrict.district : '');
+		if (el) el.value = h.inputDrafts?.[field] ?? h[field] ?? (field === 'district' ? currentDistrict.district : '');
 	}
 	for (const el of document.querySelectorAll('[data-change="updateHataWeekdays"]')) el.checked = (h.weekdays ?? [1, 2, 3, 4, 5]).includes(Number(el.value));
 	const fmtEl = document.getElementById('hata-format');
-	if (fmtEl) fmtEl.value = h.format ?? '{住所数字} {苗字}';
+	if (fmtEl) fmtEl.value = h.inputDrafts?.format ?? h.format ?? '{住所数字} {苗字}';
 	const dedupEl = document.getElementById('hata-dedup');
 	if (dedupEl) dedupEl.checked = h.dedup ?? true;
 	checkHataMemberDuplicates();
-	updateHataPreview();
 	const titleEl = document.getElementById('hata-title');
 	if (titleEl) titleEl.value = h.title || '';
 	const locEl = document.getElementById('hata-location');
@@ -848,9 +826,9 @@ function renderHataCard() {
 	const timeEl = document.getElementById('hata-time');
 	if (timeEl) timeEl.value = h.time || '';
 	const startEl = document.getElementById('hata-start-date');
-	if (startEl) startEl.value = h.startDate || '';
+	if (startEl) startEl.value = h.inputDrafts?.startDate ?? h.startDate ?? '';
 	const endEl = document.getElementById('hata-end-date');
-	if (endEl) endEl.value = h.endDate || '';
+	if (endEl) endEl.value = h.inputDrafts?.endDate ?? h.endDate ?? '';
 	const orientEl = document.getElementById('hata-orientation');
 	if (orientEl) orientEl.value = h.orientation || 'portrait';
 	const colEl = document.getElementById('hata-columns');
@@ -862,7 +840,7 @@ function renderHataCard() {
 	const contactEl = document.getElementById('hata-contact-msg');
 	if (contactEl) contactEl.value = h.contactMsg || '';
 	const specEl = document.getElementById('hata-specials');
-	if (specEl) specEl.value = h.specials || '';
+	if (specEl) specEl.value = h.inputDrafts?.specials ?? h.specials ?? '';
 
 	// 名簿からの世帯抽出と免除チェックリストの描画
 	renderHataExemptList();
@@ -874,7 +852,7 @@ function renderHataCard() {
 		h.holidays = holis.map(x => `${x.date},${x.name}`).join('\n');
 	}
 	const holiEl = document.getElementById('hata-holidays');
-	if (holiEl) holiEl.value = h.holidays;
+	if (holiEl) holiEl.value = h.inputDrafts?.holidays ?? h.holidays;
 
 	// シフトプレビュー描画
 	renderHataSchedulePreview();
@@ -889,23 +867,27 @@ function renderHataExemptList() {
 	const households = extractHouseholdsFromStudents(currentDistrict.students || []);
 	const exemptSet = new Set(currentDistrict.hata?.exemptHouseholds || []);
 
-	if (households.length === 0) {
-		container.innerHTML = '<span class="help-text">児童名簿に世帯情報がありません。</span>';
+	const members = currentDistrict.hata?.members;
+	const names = [...new Set(typeof members === 'string' ? members.split('\n').map(name => name.trim()).filter(Boolean) : households.map(hh => hh.displayName))];
+	if (names.length === 0) {
+		container.innerHTML = '<span class="help-text">当番名簿に担当者がいません。名簿を入力するか、児童名簿を反映してください。</span>';
 		return;
 	}
 
-	container.innerHTML = households.map(hh => {
-		const checked = exemptSet.has(hh.key) || exemptSet.has(hh.displayName) ? 'checked' : '';
+	container.innerHTML = names.map(name => {
+		const hh = households.find(household => household.displayName === name);
+		const key = hh ? hh.key : name;
+		const checked = exemptSet.has(key) || exemptSet.has(name) || exemptSet.has(name.replace(/\s+/g, '_')) ? 'checked' : '';
 		return `
 			<label style="display:inline-flex; align-items:center; gap:4px; margin-right:12px; margin-bottom:6px; font-size:0.85rem; cursor:pointer;">
-				<input type="checkbox" ${checked} data-household-key="${esc(hh.key)}" data-change="toggleHataExempt">
-				<span>${esc(hh.displayName)} (${hh.children.length}名)</span>
+				<input type="checkbox" ${checked} data-household-key="${esc(key)}" data-member-name="${esc(name)}" data-change="toggleHataExempt">
+				<span>${esc(name)}${hh ? ` (${hh.children.length}名)` : ''}</span>
 			</label>
 		`;
 	}).join('');
 }
 
-function toggleHataExempt(householdKey, isExempt) {
+function toggleHataExempt(householdKey, isExempt, memberName = householdKey) {
 	if (!currentDistrict.hata) return;
 	if (!currentDistrict.hata.exemptHouseholds) currentDistrict.hata.exemptHouseholds = [];
 	const set = new Set(currentDistrict.hata.exemptHouseholds);
@@ -913,6 +895,8 @@ function toggleHataExempt(householdKey, isExempt) {
 		set.add(householdKey);
 	} else {
 		set.delete(householdKey);
+		set.delete(memberName);
+		set.delete(memberName.replace(/\s+/g, '_'));
 	}
 	currentDistrict.hata.exemptHouseholds = Array.from(set);
 	markHataDirty();
@@ -940,11 +924,14 @@ function applyHataPeriodPreset(presetKey) {
  * 児童名簿から世帯メンバーリストを同期します
  */
 function syncHataMembersFromStudents() {
-	const households = extractHouseholdsFromStudents(currentDistrict.students || []);
-	const membersText = households.map(h => h.displayName).join('\n');
 	if (!currentDistrict.hata) currentDistrict.hata = {};
-	if (currentDistrict.hata.members && currentDistrict.hata.members !== membersText && !confirm('編集した旗振り名簿を児童名簿の世帯一覧で置き換えますか？')) return currentDistrict.hata.members;
-	currentDistrict.hata.members = membersText;
+	let membersText;
+	try {
+		membersText = buildHataMembersText(currentDistrict.students, currentDistrict.hata.inputDrafts?.format ?? currentDistrict.hata.format ?? '{住所数字} {苗字}', currentDistrict.hata.dedup ?? true);
+	} catch (error) { alert('当番名簿の反映に失敗しました：' + error.message); return currentDistrict.hata.members; }
+	if (currentDistrict.hata.members && currentDistrict.hata.members !== membersText && !confirm('編集した当番名簿を、指定書式の児童名簿で置き換えますか？')) return currentDistrict.hata.members;
+	collectHataScheduleInputs(currentDistrict.hata, { members: membersText });
+	renderHataExemptList();
 	const memEl = document.getElementById('hata-members');
 	if (memEl) memEl.value = membersText;
 	checkHataMemberDuplicates();
@@ -957,7 +944,7 @@ function syncHataMembersFromStudents() {
  * シフトを自動生成しプレビューを更新します
  */
 function runAutoHataGeneration() {
-	if (!currentDistrict.hata) return;
+	if (!currentDistrict.hata || !ensureHataInputsReady()) return;
 	const members = currentDistrict.hata.members ?? extractHouseholdsFromStudents(currentDistrict.students || []).map(household => household.displayName).join('\n');
 	const schedule = generateHataSchedule({ ...currentDistrict.hata, members });
 	currentDistrict.hata.members = members;
@@ -982,6 +969,7 @@ function checkHataMemberDuplicates() {
 }
 
 function buildHataLineText(schedule, config) {
+	validateHataScheduleOutput(schedule || []);
 	const c = config || {};
 	let text = `【${c.title ?? ''}】\n地区: ${c.district ?? currentDistrict.district ?? ''}\n場所: ${c.location ?? ''}\n時間: ${c.time ?? ''}\n`;
 	if (c.headerMsg) text += `\n${c.headerMsg}\n`;
@@ -997,6 +985,7 @@ function buildHataLineText(schedule, config) {
 }
 
 async function copyHataForLine() {
+	if (!ensureHataInputsReady()) return;
 	renderHataSchedulePreview();
 	if (!hataCurrentSchedule.length) { alert('先に期間と曜日を設定してシフトを作成してください。'); return; }
 	const text = buildHataLineText(hataCurrentSchedule, currentDistrict.hata);
@@ -1030,6 +1019,22 @@ function getHataFilenameDate(config) {
 	return parts && parts.length >= 3 ? parts[0] + parts[1].padStart(2, '0') + parts[2].padStart(2, '0') : new Date().toISOString().slice(0, 10).replace(/-/g, '');
 }
 
+function renderHataInputStatus() {
+	const pending = !!currentDistrict.hata?.inputDrafts;
+	const el = document.getElementById('hata-input-status');
+	if (el) {
+		el.hidden = !pending;
+		el.textContent = pending ? '当番名簿・書式・期間・休日・特別枠に未完成、不正または上限を超える入力があります。日付・順序・文字数と期間上限（3660日）を確認してください。途中入力は下書きとして保存されます。' : '';
+	}
+	return !pending;
+}
+function ensureHataInputsReady() {
+	if (renderHataInputStatus()) return true;
+	renderHataSchedulePreview();
+	alert('当番名簿・書式・期間・休日・特別枠の未完成、不正または上限超過の入力を修正してください。');
+	return false;
+}
+
 let hataCurrentSchedule = [];
 
 /**
@@ -1039,8 +1044,15 @@ function renderHataSchedulePreview(explicitSchedule) {
 	const previewContainer = document.getElementById('hata-schedule-preview');
 	if (!previewContainer) return;
 
+	if (!renderHataInputStatus()) {
+		hataCurrentSchedule = [];
+		previewContainer.textContent = '期間・休日・特別枠を修正するとシフトを表示します。';
+		const summary = document.getElementById('hata-summary-container');
+		if (summary) summary.textContent = '';
+		return;
+	}
 	if (explicitSchedule) {
-		assertHataExpansionSize(explicitSchedule.length);
+		validateHataScheduleOutput(explicitSchedule);
 		hataCurrentSchedule = explicitSchedule;
 	} else if (currentDistrict.hata && currentDistrict.hata.startDate && currentDistrict.hata.endDate) {
 		const members = currentDistrict.hata.members ?? extractHouseholdsFromStudents(currentDistrict.students || []).map(household => household.displayName).join('\n');
@@ -1069,6 +1081,7 @@ function renderHataSchedulePreview(explicitSchedule) {
  * ハタフロット印刷を実行します
  */
 function printHataSchedule() {
+	if (!ensureHataInputsReady()) return;
 	renderHataSchedulePreview();
 	const printContent = buildHataPrintHtml(hataCurrentSchedule, currentDistrict.hata);
 
@@ -1104,8 +1117,7 @@ function printHataSchedule() {
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		checkHataMemberDuplicates, buildHataLineText, copyHataForLine, markHataDirty, markHataSaved, getHataFilenameDate,
-		updateHataPreview,
-		copyHataList,
+		buildHataMembersText, renderHataInputStatus, ensureHataInputsReady,
 		extractHouseholdsFromStudents,
 		generateJapaneseHolidays,
 		normalizeDateStr,

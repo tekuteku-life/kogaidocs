@@ -951,7 +951,7 @@ test('rep: loadTransferFileIntoRep and loadPastedTransferTextIntoRep', async () 
 	transferPayload.children[0].lastName = '高橋';
 	const encText2 = await cryptoLib.encryptPayload(JSON.stringify(transferPayload), pass);
 	await rep.loadPastedTransferTextIntoRep(encText2);
-	assert.strictEqual(dist.students.length, 2);
+	assert.strictEqual(state.repState.districts.find(d => d.district === '中央地区').students.length, 2);
 });
 
 test('rep: exportSingleDistrictFromRep extracts single district with deep clone, PoLP security, and password flexibility (Action Item A-1)', async () => {
