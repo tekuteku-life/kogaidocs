@@ -557,6 +557,7 @@ for (const lastName of ["O'Neil", "');window.__injected=1;//", '<img src=x onerr
 		await ui.district();
 		const surname = window.__surname;
 		ui.field('#students-tbody tr:first-child', 'lastName', surname);
+		await ui.click('[data-click="syncHataMembersFromStudents"]');
 		await ui.waitFor(() => document.querySelector('#hata-exempt-list label')?.textContent.includes(surname), 'Exemption choices follow student editing');
 		const expectedKey = extractHouseholdsFromStudents(currentDistrict.students)[0].key;
 		await ui.click('#hata-exempt-list label:first-child');
@@ -577,8 +578,8 @@ browserTest('UI hata: generation, exemption, stats, import-only controls, print 
 	ui.fill('#hata-end-date', '2026-10-23');
 	ui.fill('#hata-holidays', '2026-10-20,休校');
 	ui.fill('#hata-specials', '2026-10-21,固定担当,行事');
-	assert.ok(ui.element('#hata-exempt-list').textContent.includes('佐藤'), 'Exemption choices follow student additions');
 	await ui.click('button[data-click="syncHataMembersFromStudents"]');
+	assert.ok(ui.element('#hata-exempt-list').textContent.includes('佐藤'), 'Exemption choices follow explicitly reflected members');
 	await ui.click('#hata-exempt-list label:first-child');
 	await ui.click('button[data-click="runAutoHataGeneration"]');
 	assert.ok(ui.element('#hata-schedule-preview').textContent.includes('固定担当'), 'Special day rendered');

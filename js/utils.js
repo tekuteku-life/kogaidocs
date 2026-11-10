@@ -508,6 +508,23 @@ function validateHataExpansionBudget(config) {
 	return total;
 }
 
+// 未完成の手入力を有効設定とは別に保持し、日付展開へ渡さない。
+const HATA_SCHEDULE_INPUTS = ['startDate', 'endDate', 'holidays', 'specials'];
+function collectHataScheduleInputs(config, inputs) {
+	const drafts = { ...config.inputDrafts, ...inputs };
+	const candidate = { ...config, ...drafts };
+	try {
+		validateDateExpansion(candidate.startDate, candidate.endDate);
+		validateHataExpansionBudget(candidate);
+	} catch (_) {
+		config.inputDrafts = drafts;
+		return false;
+	}
+	for (const field of HATA_SCHEDULE_INPUTS) if (Object.hasOwn(drafts, field)) config[field] = drafts[field];
+	delete config.inputDrafts;
+	return true;
+}
+
 async function readImportFile(file) {
 	requireImportShape(!!file);
 	if (Number.isFinite(file.size) && file.size > MAX_IMPORT_FILE_BYTES) throw new Error('ファイルサイズが8MiBの上限を超えています。');
@@ -530,6 +547,10 @@ function validateHataConfig(config) {
 	requireImportShape(isImportObject(config));
 	const strings = ['scheduleTitle', 'title', 'metaCreatedDate', 'createdDate', 'scheduleCreatedDate', 'district', 'metaLocation', 'location', 'metaTime', 'time', 'metaHeaderMsg', 'headerMsg', 'metaFooterMsg', 'footerMsg', 'metaContactMsg', 'contactMsg', 'startDate', 'endDate', 'specials', 'format'];
 	strings.forEach(key => requireImportShape(config[key] === undefined || typeof config[key] === 'string'));
+	if (config.inputDrafts !== undefined) {
+		requireImportShape(isImportObject(config.inputDrafts));
+		for (const [field, value] of Object.entries(config.inputDrafts)) requireImportShape(HATA_SCHEDULE_INPUTS.includes(field) && typeof value === 'string');
+	}
 	requireImportShape(config.dedup === undefined || typeof config.dedup === 'boolean');
 	if (config.weekdays !== undefined) requireImportShape(Array.isArray(config.weekdays) && config.weekdays.every(day => Number.isInteger(day) && day >= 0 && day <= 6));
 	if (config.exemptHouseholds !== undefined) requireImportShape(Array.isArray(config.exemptHouseholds) && config.exemptHouseholds.every(key => typeof key === 'string'));
@@ -691,6 +712,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		isImportObject,
 		validateImportData,
 		validateHataConfig,
+		collectHataScheduleInputs,
 		validateImportStructure,
 		validateStoredData,
 		validateDateExpansion,

@@ -1213,11 +1213,11 @@ table.edit-table th { background: #f8fafc; font-weight: bold; white-space: nowra
 }
 
 @media (max-width: 600px) {
-	.hata-text-copy-row {
+	.hata-member-format-row {
 		flex-direction: column !important;
 		align-items: stretch !important;
 	}
-	.hata-text-copy-row input[type="text"] {
+	.hata-member-format-row input[type="text"] {
 		width: 100% !important;
 	}
 	.hata-toolbar {
@@ -1252,7 +1252,7 @@ table.edit-table th { background: #f8fafc; font-weight: bold; white-space: nowra
 .hata-weekdays label { display: inline-flex; align-items: center; gap: 6px; margin: 0; min-height: 44px; padding: 0 8px; cursor: pointer; }
 .hata-weekdays input { width: auto; }
 #hata-duplicate-alert { color: #9a3412; overflow-wrap: anywhere; }
-#hata-preview, #hata-line-text, #hata-members { width: 100%; box-sizing: border-box; }
+#hata-line-text, #hata-members { width: 100%; box-sizing: border-box; }
 #hata-line-text[hidden], #hata-duplicate-alert[hidden] { display: none; }
 #pwa-ios-help { max-width: min(480px, calc(100% - 48px)); border: 0; border-radius: 12px; padding: 24px; }
 #pwa-ios-help::backdrop { background: rgb(15 23 42 / 55%); }

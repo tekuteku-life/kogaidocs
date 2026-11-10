@@ -155,9 +155,7 @@ function saveDistrictLocal() {
 		currentDistrict.hata = currentDistrict.hata || {};
 		for (const [field, id] of [
 			['title', 'hata-title'], ['location', 'hata-location'], ['time', 'hata-time'],
-			['startDate', 'hata-start-date'], ['endDate', 'hata-end-date'],
 			['orientation', 'hata-orientation'], ['layoutColumns', 'hata-columns'],
-			['holidays', 'hata-holidays'], ['specials', 'hata-specials'],
 			['headerMsg', 'hata-header-msg'], ['footerMsg', 'hata-footer-msg'], ['contactMsg', 'hata-contact-msg'],
 			['members', 'hata-members'], ['createdDate', 'hata-created-date'], ['district', 'hata-district'], ['format', 'hata-format']
 		]) {
@@ -167,6 +165,12 @@ function saveDistrictLocal() {
 			if (field === 'layoutColumns' && !/^[1-6]$/.test(el.value)) continue;
 			currentDistrict.hata[field] = el.value;
 		}
+		const inputs = {};
+		for (const [field, id] of [['startDate', 'hata-start-date'], ['endDate', 'hata-end-date'], ['holidays', 'hata-holidays'], ['specials', 'hata-specials']]) {
+			const el = document.getElementById(id);
+			if (el) inputs[field] = el.value;
+		}
+		collectHataScheduleInputs(currentDistrict.hata, inputs);
 		const days = document.querySelectorAll('[name="hata-weekday"]');
 		if (days.length) currentDistrict.hata.weekdays = Array.from(days).filter(el => el.checked).map(el => Number(el.value));
 		const dedup = document.getElementById('hata-dedup');

@@ -44,7 +44,6 @@ const uiEventHandlers = new Map([
 	['addStudentRow', () => addStudentRow()],
 	['printSingleDistrictSelected', () => printSingleDistrictSelected()],
 	['printSingleDistrictSeparately', () => printSingleDistrictSeparately()],
-	['copyHataList', () => copyHataList()],
 	['copyHataForLine', () => copyHataForLine()],
 	['syncHataMembersFromStudents', () => syncHataMembersFromStudents()],
 	['runAutoHataGeneration', () => runAutoHataGeneration()],
@@ -90,11 +89,10 @@ const uiEventHandlers = new Map([
 	['saveRepLocal', () => saveRepLocal()],
 	['saveNeighborLocal', () => saveNeighborLocal()],
 	['resizeSeatGrid', () => resizeSeatGrid()],
-	['updateHataPreview', () => {
+	['updateHataFormat', () => {
 		if (!currentDistrict.hata) return;
 		currentDistrict.hata.format = document.getElementById('hata-format').value;
 		currentDistrict.hata.dedup = document.getElementById('hata-dedup').checked;
-		updateHataPreview();
 		markHataDirty();
 		saveDistrictLocal();
 	}],
@@ -146,8 +144,12 @@ const uiEventHandlers = new Map([
 	}],
 	['updateHataConfig', element => {
 		if (!UI_HATA_FIELDS.includes(element.dataset.field)) return;
-		if (currentDistrict.hata) currentDistrict.hata[element.dataset.field] = element.value;
-		if (element.dataset.field === 'members') checkHataMemberDuplicates();
+		if (currentDistrict.hata) {
+			if (['startDate', 'endDate', 'holidays', 'specials'].includes(element.dataset.field)) collectHataScheduleInputs(currentDistrict.hata, { [element.dataset.field]: element.value });
+			else currentDistrict.hata[element.dataset.field] = element.value;
+		}
+		if (element.dataset.field === 'members') { checkHataMemberDuplicates(); renderHataExemptList(); }
+		if (!renderHataInputStatus()) renderHataSchedulePreview();
 		markHataDirty();
 		saveDistrictLocal();
 	}],
@@ -174,7 +176,7 @@ const uiEventHandlers = new Map([
 	['updateSeatCell', element => {
 		if (/^(?:[0-9]|1[0-3])_[0-9]$/.test(element.dataset.target) && ['refKey', 'customText'].includes(element.dataset.field)) updateSeatCell(element.dataset.target, element.dataset.field, element.value);
 	}],
-	['toggleHataExempt', element => toggleHataExempt(element.dataset.householdKey, element.checked)]
+	['toggleHataExempt', element => toggleHataExempt(element.dataset.householdKey, element.checked, element.dataset.memberName)]
 ]);
 
 // この表だけが編集先フィールドと呼出先を決める。data属性から関数名を解決しない。

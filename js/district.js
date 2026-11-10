@@ -29,7 +29,7 @@ function renderDistrictForm() {
 	renderNeighborhoodTable();
 	renderStudentsTable();
 	if (typeof renderHataCard === 'function') renderHataCard();
-	updateHataPreview();
+	renderHataExemptList();
 }
 
 function onHanListInput(val) {
@@ -41,7 +41,7 @@ function onHanListInput(val) {
 	saveDistrictLocal();
 	renderOfficersList();
 	renderStudentsTable();
-	updateHataPreview();
+	renderHataExemptList();
 }
 
 function renderOfficersList() {
@@ -284,7 +284,7 @@ function updateS(idx, key, val) {
 	currentDistrict.students[idx].name = getFullName(currentDistrict.students[idx]);
 	saveDistrictLocal();
 	updateStudentSummaryText();
-	updateHataPreview();
+	renderHataExemptList();
 }
 
 function removeS(idx) {
@@ -297,7 +297,7 @@ function removeS(idx) {
 	currentDistrict.students.splice(idx, 1);
 	renderStudentsTable();
 	saveDistrictLocal();
-	updateHataPreview();
+	renderHataExemptList();
 }
 
 function addStudentRow() {
@@ -328,14 +328,14 @@ function addStudentRow() {
 	});
 	renderStudentsTable();
 	saveDistrictLocal();
-	updateHataPreview();
+	renderHataExemptList();
 }
 
 function sortStudentsDesc() {
 	currentDistrict.students.sort(compareStudents);
 	renderStudentsTable();
 	saveDistrictLocal();
-	updateHataPreview();
+	renderHataExemptList();
 }
 
 function updateStudentSummaryText() {

@@ -2,21 +2,13 @@
    ハタフロット（旗振り当番シフト管理）ネイティブ統合エンジン
 ========================================================================= */
 
-/**
- * 児童データと設定フォーマットに基づいてハタフロット変換プレビューを更新します（後方互換）
- */
-function updateHataPreview() {
-	const fmtEl = document.getElementById('hata-format');
-	const dedupEl = document.getElementById('hata-dedup');
-	const previewEl = document.getElementById('hata-preview');
-	if (!fmtEl || !dedupEl || !previewEl) return;
-
-	const fmt = fmtEl.value;
-	const dedup = dedupEl.checked;
+/** 児童名簿を指定書式で当番名簿へ変換する。元の児童データは変更しない。 */
+function buildHataMembersText(students, fmt, dedup, source = currentDistrict) {
 	const seen = new Set();
 	const lines = [];
 
-	(currentDistrict.students || []).forEach(s => {
+	(students || []).forEach(student => {
+		const s = { ...student };
 		if (!s.lastName && !s.firstName && !s.name && !s.address) return;
 		normalizeNameFields(s);
 
@@ -33,10 +25,10 @@ function updateHataPreview() {
 		const numMatches = normalizedAddr.match(/\d+/g);
 		const numAddr = numMatches ? numMatches.join('-') : rawAddr;
 
-		const defaultHan = (currentDistrict.han || "").trim();
+		const defaultHan = (source.han || "").trim();
 		const sHan = (s.han || "").trim();
 		const han = sHan || defaultHan;
-		const district = (currentDistrict.district || "").trim();
+		const district = (source.district || "").trim();
 
 		const line = fmt
 			.replace(/\{住所\}/g, () => rawAddr)
@@ -61,27 +53,7 @@ function updateHataPreview() {
 		if (line) lines.push(line);
 	});
 
-	previewEl.value = lines.join('\n');
-	renderHataExemptList();
-}
-
-/**
- * プレビューに表示されたハタフロット用リストをクリップボードにコピーします（後方互換）
- */
-async function copyHataList() {
-	const previewEl = document.getElementById('hata-preview');
-	const text = previewEl ? previewEl.value : "";
-	if (navigator.clipboard && navigator.clipboard.writeText) {
-		try {
-			await navigator.clipboard.writeText(text);
-			alert("ハタフロット用リストをクリップボードにコピーしました。");
-			return;
-		} catch (e) {}
-	}
-	if (previewEl) {
-		if (typeof previewEl.select === 'function') previewEl.select();
-		alert("ハタフロット用リストを選択しました。コピー（Ctrl+C）してご活用ください。");
-	}
+	return lines.join('\n');
 }
 
 /**
@@ -529,6 +501,7 @@ function importHataOfficialJson(jsonStr) {
 		holidays: parsed.holidays ?? '', specials: parsed.specials ?? '',
 		exemptHouseholds: parsed.exemptHouseholds ?? [], manualOverrides: parsed.manualOverrides ?? {},
 		members: parsed.members ?? '', format: parsed.format ?? '{住所数字} {苗字}', dedup: parsed.dedup ?? true,
+		...(parsed.inputDrafts === undefined ? {} : { inputDrafts: parsed.inputDrafts }),
 		...(parsed.schedule === undefined ? {} : { schedule: parsed.schedule })
 	};
 }
@@ -840,7 +813,6 @@ function renderHataCard() {
 	const dedupEl = document.getElementById('hata-dedup');
 	if (dedupEl) dedupEl.checked = h.dedup ?? true;
 	checkHataMemberDuplicates();
-	updateHataPreview();
 	const titleEl = document.getElementById('hata-title');
 	if (titleEl) titleEl.value = h.title || '';
 	const locEl = document.getElementById('hata-location');
@@ -848,9 +820,9 @@ function renderHataCard() {
 	const timeEl = document.getElementById('hata-time');
 	if (timeEl) timeEl.value = h.time || '';
 	const startEl = document.getElementById('hata-start-date');
-	if (startEl) startEl.value = h.startDate || '';
+	if (startEl) startEl.value = h.inputDrafts?.startDate ?? h.startDate ?? '';
 	const endEl = document.getElementById('hata-end-date');
-	if (endEl) endEl.value = h.endDate || '';
+	if (endEl) endEl.value = h.inputDrafts?.endDate ?? h.endDate ?? '';
 	const orientEl = document.getElementById('hata-orientation');
 	if (orientEl) orientEl.value = h.orientation || 'portrait';
 	const colEl = document.getElementById('hata-columns');
@@ -862,7 +834,7 @@ function renderHataCard() {
 	const contactEl = document.getElementById('hata-contact-msg');
 	if (contactEl) contactEl.value = h.contactMsg || '';
 	const specEl = document.getElementById('hata-specials');
-	if (specEl) specEl.value = h.specials || '';
+	if (specEl) specEl.value = h.inputDrafts?.specials ?? h.specials ?? '';
 
 	// 名簿からの世帯抽出と免除チェックリストの描画
 	renderHataExemptList();
@@ -874,7 +846,7 @@ function renderHataCard() {
 		h.holidays = holis.map(x => `${x.date},${x.name}`).join('\n');
 	}
 	const holiEl = document.getElementById('hata-holidays');
-	if (holiEl) holiEl.value = h.holidays;
+	if (holiEl) holiEl.value = h.inputDrafts?.holidays ?? h.holidays;
 
 	// シフトプレビュー描画
 	renderHataSchedulePreview();
@@ -889,23 +861,27 @@ function renderHataExemptList() {
 	const households = extractHouseholdsFromStudents(currentDistrict.students || []);
 	const exemptSet = new Set(currentDistrict.hata?.exemptHouseholds || []);
 
-	if (households.length === 0) {
-		container.innerHTML = '<span class="help-text">児童名簿に世帯情報がありません。</span>';
+	const members = currentDistrict.hata?.members;
+	const names = [...new Set(typeof members === 'string' ? members.split('\n').map(name => name.trim()).filter(Boolean) : households.map(hh => hh.displayName))];
+	if (names.length === 0) {
+		container.innerHTML = '<span class="help-text">当番名簿に担当者がいません。名簿を入力するか、児童名簿を反映してください。</span>';
 		return;
 	}
 
-	container.innerHTML = households.map(hh => {
-		const checked = exemptSet.has(hh.key) || exemptSet.has(hh.displayName) ? 'checked' : '';
+	container.innerHTML = names.map(name => {
+		const hh = households.find(household => household.displayName === name);
+		const key = hh ? hh.key : name;
+		const checked = exemptSet.has(key) || exemptSet.has(name) || exemptSet.has(name.replace(/\s+/g, '_')) ? 'checked' : '';
 		return `
 			<label style="display:inline-flex; align-items:center; gap:4px; margin-right:12px; margin-bottom:6px; font-size:0.85rem; cursor:pointer;">
-				<input type="checkbox" ${checked} data-household-key="${esc(hh.key)}" data-change="toggleHataExempt">
-				<span>${esc(hh.displayName)} (${hh.children.length}名)</span>
+				<input type="checkbox" ${checked} data-household-key="${esc(key)}" data-member-name="${esc(name)}" data-change="toggleHataExempt">
+				<span>${esc(name)}${hh ? ` (${hh.children.length}名)` : ''}</span>
 			</label>
 		`;
 	}).join('');
 }
 
-function toggleHataExempt(householdKey, isExempt) {
+function toggleHataExempt(householdKey, isExempt, memberName = householdKey) {
 	if (!currentDistrict.hata) return;
 	if (!currentDistrict.hata.exemptHouseholds) currentDistrict.hata.exemptHouseholds = [];
 	const set = new Set(currentDistrict.hata.exemptHouseholds);
@@ -913,6 +889,8 @@ function toggleHataExempt(householdKey, isExempt) {
 		set.add(householdKey);
 	} else {
 		set.delete(householdKey);
+		set.delete(memberName);
+		set.delete(memberName.replace(/\s+/g, '_'));
 	}
 	currentDistrict.hata.exemptHouseholds = Array.from(set);
 	markHataDirty();
@@ -940,11 +918,11 @@ function applyHataPeriodPreset(presetKey) {
  * 児童名簿から世帯メンバーリストを同期します
  */
 function syncHataMembersFromStudents() {
-	const households = extractHouseholdsFromStudents(currentDistrict.students || []);
-	const membersText = households.map(h => h.displayName).join('\n');
 	if (!currentDistrict.hata) currentDistrict.hata = {};
-	if (currentDistrict.hata.members && currentDistrict.hata.members !== membersText && !confirm('編集した旗振り名簿を児童名簿の世帯一覧で置き換えますか？')) return currentDistrict.hata.members;
+	const membersText = buildHataMembersText(currentDistrict.students, currentDistrict.hata.format ?? '{住所数字} {苗字}', currentDistrict.hata.dedup ?? true);
+	if (currentDistrict.hata.members && currentDistrict.hata.members !== membersText && !confirm('編集した当番名簿を、指定書式の児童名簿で置き換えますか？')) return currentDistrict.hata.members;
 	currentDistrict.hata.members = membersText;
+	renderHataExemptList();
 	const memEl = document.getElementById('hata-members');
 	if (memEl) memEl.value = membersText;
 	checkHataMemberDuplicates();
@@ -957,7 +935,7 @@ function syncHataMembersFromStudents() {
  * シフトを自動生成しプレビューを更新します
  */
 function runAutoHataGeneration() {
-	if (!currentDistrict.hata) return;
+	if (!currentDistrict.hata || !ensureHataInputsReady()) return;
 	const members = currentDistrict.hata.members ?? extractHouseholdsFromStudents(currentDistrict.students || []).map(household => household.displayName).join('\n');
 	const schedule = generateHataSchedule({ ...currentDistrict.hata, members });
 	currentDistrict.hata.members = members;
@@ -997,6 +975,7 @@ function buildHataLineText(schedule, config) {
 }
 
 async function copyHataForLine() {
+	if (!ensureHataInputsReady()) return;
 	renderHataSchedulePreview();
 	if (!hataCurrentSchedule.length) { alert('先に期間と曜日を設定してシフトを作成してください。'); return; }
 	const text = buildHataLineText(hataCurrentSchedule, currentDistrict.hata);
@@ -1030,6 +1009,22 @@ function getHataFilenameDate(config) {
 	return parts && parts.length >= 3 ? parts[0] + parts[1].padStart(2, '0') + parts[2].padStart(2, '0') : new Date().toISOString().slice(0, 10).replace(/-/g, '');
 }
 
+function renderHataInputStatus() {
+	const pending = !!currentDistrict.hata?.inputDrafts;
+	const el = document.getElementById('hata-input-status');
+	if (el) {
+		el.hidden = !pending;
+		el.textContent = pending ? '期間・休日・特別枠に未完成または不正な入力があります。日付・順序と期間上限（3660日）を確認してください。途中入力は下書きとして保存されます。' : '';
+	}
+	return !pending;
+}
+function ensureHataInputsReady() {
+	if (renderHataInputStatus()) return true;
+	renderHataSchedulePreview();
+	alert('期間・休日・特別枠の未完成または不正な入力を修正してください。');
+	return false;
+}
+
 let hataCurrentSchedule = [];
 
 /**
@@ -1039,6 +1034,13 @@ function renderHataSchedulePreview(explicitSchedule) {
 	const previewContainer = document.getElementById('hata-schedule-preview');
 	if (!previewContainer) return;
 
+	if (!renderHataInputStatus()) {
+		hataCurrentSchedule = [];
+		previewContainer.textContent = '期間・休日・特別枠を修正するとシフトを表示します。';
+		const summary = document.getElementById('hata-summary-container');
+		if (summary) summary.textContent = '';
+		return;
+	}
 	if (explicitSchedule) {
 		assertHataExpansionSize(explicitSchedule.length);
 		hataCurrentSchedule = explicitSchedule;
@@ -1069,6 +1071,7 @@ function renderHataSchedulePreview(explicitSchedule) {
  * ハタフロット印刷を実行します
  */
 function printHataSchedule() {
+	if (!ensureHataInputsReady()) return;
 	renderHataSchedulePreview();
 	const printContent = buildHataPrintHtml(hataCurrentSchedule, currentDistrict.hata);
 
@@ -1104,8 +1107,7 @@ function printHataSchedule() {
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		checkHataMemberDuplicates, buildHataLineText, copyHataForLine, markHataDirty, markHataSaved, getHataFilenameDate,
-		updateHataPreview,
-		copyHataList,
+		buildHataMembersText, renderHataInputStatus, ensureHataInputsReady,
 		extractHouseholdsFromStudents,
 		generateJapaneseHolidays,
 		normalizeDateStr,

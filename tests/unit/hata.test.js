@@ -8,12 +8,7 @@ const cryptoLib = require('../../js/crypto.js');
 const state = require('../../js/state.js');
 const hata = require('../../js/hata.js');
 
-test('hata: updateHataPreview safely exits if elements missing', () => {
-	document.elements['hata-format'] = null;
-	hata.updateHataPreview(); // Should not throw
-});
-
-test('hata: updateHataPreview generates formatted list with all variables and full-width numbers', () => {
+test('hata: buildHataMembersText generates formatted list with all variables and full-width numbers', () => {
 	setupDomEnvironment();
 	state.currentDistrict = {
 		district: "さくらが丘",
@@ -63,14 +58,13 @@ test('hata: updateHataPreview generates formatted list with all variables and fu
 
 	const fmtEl = document.getElementById('hata-format');
 	const dedupEl = document.getElementById('hata-dedup');
-	const previewEl = document.getElementById('hata-preview');
 
 	// 1. With dedup enabled
 	fmtEl.value = "{住所数字} {苗字}（{学年} / {班} / {班名} / {地区} / {名前} / {氏名} / {ふりがな} / {苗字ふりがな} / {名前ふりがな} / {住所}）";
 	dedupEl.checked = true;
-	hata.updateHataPreview();
-
-	const linesDedup = previewEl.value.split('\n');
+	const originalStudents = JSON.stringify(state.currentDistrict.students);
+	const linesDedup = hata.buildHataMembersText(state.currentDistrict.students, fmtEl.value, true).split('\n');
+	assert.strictEqual(JSON.stringify(state.currentDistrict.students), originalStudents, 'Formatting leaves source students unchanged');
 	assert.strictEqual(linesDedup.length, 3, "Should have 3 lines with duplicate Yamada merged");
 	assert(linesDedup[0].startsWith("1-2-3-101 山田"));
 	assert(linesDedup[0].includes("6年 / 1班 / 1班 / さくらが丘 / 太郎 / 山田 太郎 / やまだ たろう / やまだ / たろう / １丁目２番３号 １０１号室"));
@@ -81,76 +75,15 @@ test('hata: updateHataPreview generates formatted list with all variables and fu
 
 	// 2. With dedup disabled
 	dedupEl.checked = false;
-	hata.updateHataPreview();
-	const linesNoDedup = previewEl.value.split('\n');
+	const linesNoDedup = hata.buildHataMembersText(state.currentDistrict.students, fmtEl.value, false).split('\n');
 	assert.strictEqual(linesNoDedup.length, 4, "Should have 4 lines without dedup");
 });
 
-test('hata: copyHataList copies text to clipboard and alerts', async () => {
-	setupDomEnvironment();
-	const previewEl = document.getElementById('hata-preview');
-	previewEl.value = "1-2-3 山田\n4-5-6 佐藤";
-
-	let alertMsg = "";
-	window.alert = (msg) => { alertMsg = msg; };
-
-	await hata.copyHataList();
-
-	assert.strictEqual(await navigator.clipboard.readText(), "1-2-3 山田\n4-5-6 佐藤");
-	assert(alertMsg.includes("クリップボードにコピーしました"));
-
-	// Fallback when clipboard rejects
-	let selectCalled = false;
-	previewEl.select = () => { selectCalled = true; };
-	navigator.clipboard = {
-		writeText: async () => { throw new Error("Permission denied"); }
-	};
-	await hata.copyHataList();
-	assert.strictEqual(selectCalled, true);
-	assert(alertMsg.includes("ハタフロット用リストを選択しました"));
-
-	// Fallback when navigator.clipboard is undefined
-	const origClipboard = navigator.clipboard;
-	delete navigator.clipboard;
-	selectCalled = false;
-	await hata.copyHataList();
-	assert.strictEqual(selectCalled, true);
-
-	// When previewEl is null
-	document.elements['hata-preview'] = null;
-	await hata.copyHataList();
-
-	// When previewEl.select is not a function
-	document.elements['hata-preview'] = previewEl;
-	previewEl.select = null;
-	await hata.copyHataList();
-	navigator.clipboard = origClipboard;
-
-	// Missing elements branches
-	document.elements['hata-dedup'] = null;
-	hata.updateHataPreview();
-	document.elements['hata-dedup'] = {};
-	document.elements['hata-preview'] = null;
-	hata.updateHataPreview();
-
-	// Student with only name, empty district, empty han
-	setupDomEnvironment();
-	state.currentDistrict = {
-		district: "",
-		han: "",
-		students: [
-			{ name: "単一氏名", grade: "" }
-		]
-	};
-	document.getElementById('hata-format').value = "{氏名}";
-	document.getElementById('hata-dedup').checked = true;
-	hata.updateHataPreview();
-	assert.strictEqual(document.getElementById('hata-preview').value, "単一氏名");
-
-	// Student producing empty line
-	document.getElementById('hata-format').value = "";
-	hata.updateHataPreview();
-	assert.strictEqual(document.getElementById('hata-preview').value, "");
+test('hata: member formatting handles legacy names, empty fields and blank formats', () => {
+	state.currentDistrict = { students: null };
+	assert.strictEqual(hata.buildHataMembersText(null, '{氏名}', true), '');
+	assert.strictEqual(hata.buildHataMembersText([{ name: '単一氏名' }], '{氏名}', true), '単一氏名');
+	assert.strictEqual(hata.buildHataMembersText([{ name: '単一氏名' }], '', false), '');
 });
 
 test('hata: extractHouseholdsFromStudents extracts normalized households and deduplicates siblings (A-1)', () => {
@@ -393,6 +326,8 @@ test('hata: renderHataCard, renderHataExemptList, toggleHataExempt lifecycle and
 	assert.strictEqual(state.currentDistrict.hata.title, '登校見守り活動シフト表');
 	assert.strictEqual(state.currentDistrict.hata.time, '7:45〜8:15');
 
+	// 未反映の空名簿を自動置換せず、明示反映後の候補を検査する。
+	hata.syncHataMembersFromStudents();
 	// 免除チェックリストの描画確認
 	const exemptContainer = document.getElementById('hata-exempt-list');
 	assert.ok(exemptContainer);
@@ -406,8 +341,9 @@ test('hata: renderHataCard, renderHataExemptList, toggleHataExempt lifecycle and
 
 	// 児童名簿が空の場合の免除リスト
 	state.currentDistrict.students = [];
+	state.currentDistrict.hata.members = '';
 	hata.renderHataExemptList();
-	assert.ok(exemptContainer.innerHTML.includes('世帯情報がありません'));
+	assert.ok(exemptContainer.innerHTML.includes('担当者がいません'));
 
 	// ガード分岐: currentDistrict.hata が null
 	state.currentDistrict.hata = null;
@@ -424,6 +360,7 @@ test('hata: applyHataPeriodPreset and syncHataMembersFromStudents', () => {
 		hata: {}
 	};
 
+	document.getElementById('hata-format').value = '{住所数字} {苗字}';
 	// プリセット適用
 	hata.applyHataPeriodPreset('zenki');
 	assert.ok(state.currentDistrict.hata.startDate.includes('-04-06'));
@@ -509,18 +446,7 @@ test('hata: branch coverage boosters for generateHataSchedule and edge cases', a
 	assert.strictEqual(schedule[2].date, '2026-07-03');
 	assert.strictEqual(schedule[2].person, '');
 
-	// 3. copyHataList で clipboard 例外スロー時の textarea.select フォールバック
-	setupDomEnvironment();
-	const origClip = navigator.clipboard;
-	navigator.clipboard = {
-		writeText: async () => { throw new Error('Clipboard rejected'); }
-	};
-	let selectCalled = false;
-	const previewBox = document.getElementById('hata-preview');
-	previewBox.select = () => { selectCalled = true; };
-	await hata.copyHataList();
-	assert.strictEqual(selectCalled, true);
-	navigator.clipboard = origClip;
+
 });
 
 test('hata: exhaustive branch booster for all conditional paths', () => {
@@ -622,11 +548,11 @@ test('hata: exhaustive branch booster for all conditional paths', () => {
 test('hata: ultimate branch coverage booster', () => {
 	setupDomEnvironment();
 
-	// 1. updateHataPreview: currentDistrict.students が undefined/null, lastName なし
+	// 1. buildHataMembersText: currentDistrict.students が undefined/null, lastName なし
 	state.currentDistrict = {
 		students: null
 	};
-	hata.updateHataPreview();
+	hata.buildHataMembersText(state.currentDistrict.students, '{苗字} {名前} {学年} {班}', true);
 
 	state.currentDistrict = {
 		district: 'テスト地区',
@@ -637,8 +563,8 @@ test('hata: ultimate branch coverage booster', () => {
 	};
 	document.getElementById('hata-format').value = '{苗字} {名前} {学年} {班}';
 	document.getElementById('hata-dedup').checked = true;
-	hata.updateHataPreview();
-	assert.ok(document.getElementById('hata-preview').value.includes('1班'));
+	hata.buildHataMembersText(state.currentDistrict.students, '{苗字} {名前} {学年} {班}', true);
+	assert.ok(hata.buildHataMembersText(state.currentDistrict.students, '{苗字} {名前} {学年} {班}', true).includes('1班'));
 
 	// 2. generateHataSchedule: 祝日・特別枠の parts[1] 空、members が数値
 	const edgeConfig = {

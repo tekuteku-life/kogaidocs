@@ -56,10 +56,13 @@ function specificationTest(name, scenario, options = {}) {
 }
 
 for (const width of [375, 768, 1280]) {
-	specificationTest(`UI specification flag settings: ${width}px copy controls and four metadata groups follow their responsive layout`, async () => {
+	specificationTest(`UI specification flag settings: ${width}px member format controls and four metadata groups follow their responsive layout`, async () => {
 		await ui.expand('district');
 		await ui.click('#card-d-hata summary');
-		const copyRow = ui.element('.hata-text-copy-row');
+		const copyRow = ui.element('.hata-member-format-row');
+		assert.ok(ui.element('.hata-members-panel').contains(copyRow), 'Format belongs to the editable members section');
+		assert.strictEqual(document.querySelector('#hata-preview'), null, 'Redundant member preview is removed');
+		assert.strictEqual(document.querySelector('[data-click="copyHataList"]'), null, 'Legacy copy action is removed');
 		const groups = [...ui.element('.hata-details-grid').children];
 		assert.strictEqual(groups.length, 4, 'Four distinct flag metadata groups exist');
 		const expected = ['hata-holidays', 'hata-specials', 'hata-header-msg', 'hata-footer-msg'];
@@ -71,10 +74,9 @@ for (const width of [375, 768, 1280]) {
 			assert.strictEqual(getComputedStyle(copyRow).display, 'flex', 'Mobile copy row uses flex layout');
 			assert.strictEqual(getComputedStyle(copyRow).flexDirection, 'column', 'Mobile copy controls stack vertically');
 			const controls = [...copyRow.children];
-			assert.strictEqual(controls.length, 3, 'Format, deduplication and copy controls remain available');
+			assert.strictEqual(controls.length, 2, 'Format and deduplication controls remain available');
 			assert.strictEqual(controls[0].id, 'hata-format', 'Format input is first');
 			assert.ok(controls[1].contains(ui.element('#hata-dedup')), 'Deduplication is second');
-			assert.strictEqual(controls[2].dataset.click, 'copyHataList', 'Copy action is last');
 			const rectangles = controls.map(control => control.getBoundingClientRect());
 			assert.ok(rectangles.every(rectangle => rectangle.width > 0 && rectangle.height > 0), 'All mobile copy controls have visible layout boxes');
 			for (let index = 1; index < rectangles.length; index++) {

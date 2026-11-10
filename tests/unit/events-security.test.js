@@ -11,7 +11,7 @@ const simpleButtons = [
 	'openNeighborImportPanel', 'loadPastedNeighborTextIntoDistrict', 'addNeighborhoodRow',
 	'toggleTransferImportPanel', 'loadPastedTransferTextIntoDistrict', 'sortStudentsDesc',
 	'addStudentRow', 'printSingleDistrictSelected', 'printSingleDistrictSeparately',
-	'copyHataList', 'copyHataForLine', 'syncHataMembersFromStudents', 'runAutoHataGeneration', 'printHataSchedule', 'toggleHataSummary',
+	'copyHataForLine', 'syncHataMembersFromStudents', 'runAutoHataGeneration', 'printHataSchedule', 'toggleHataSummary',
 	'exportDistrictTxt', 'loadPastedTextToDistrict', 'runDistrictYearUpdate', 'addNewRepDistrict',
 	'clearAllRepDistricts', 'addSzExternalRow', 'swapSeatWindowCorridor', 'executeRepSelectedPrint',
 	'loadPastedTextToRep', 'addCurrentDistrictToRep', 'loadPastedTransferTextIntoRep',
@@ -37,7 +37,7 @@ function fresh() {
 		'switchTab', 'setAllCardsCollapse', 'toggleCard', 'shareAppUrl', 'shareDistrictData',
 		'quickSetupEncryptionFromCard', 'togglePasswordVisibility', 'sanitizePasswordInput',
 		'validateDistrictPasswords', 'validateRepPasswords', 'validateNeighborPasswords',
-		'validateModalPasswords', 'updateHataPreview', 'renderHataSchedulePreview', 'applyHataPeriodPreset',
+		'validateModalPasswords', 'renderHataInputStatus', 'renderHataExemptList', 'renderHataSchedulePreview', 'applyHataPeriodPreset',
 		'handleWebAuthnUnlock', 'checkAppVersion', 'onHanListInput', 'confirmAddRepDistrict',
 		'updateN', 'updateS', 'updateNeighborItem', 'updateTransferChild', 'updateModalOfficer',
 		'updateModalStudent', 'updateModalNeighbor', 'updateSzEx', 'renderSeatEditor', 'updateSeatCell',
@@ -48,6 +48,7 @@ function fresh() {
 		'deleteRepDistrict', 'deleteSzExternalRow', 'loadNeighborFileIntoDistrict',
 		'loadTransferFileIntoDistrict', 'loadHataOfficialFile', 'loadDistrictTxt', 'loadMultipleDistrictFiles',
 		'loadTransferFileIntoRep', 'loadRepMasterTxt', 'loadNeighborTxt', 'downloadTextFile']) spy(name);
+	global.collectHataScheduleInputs = require('../../js/utils').collectHataScheduleInputs;
 	global.getHataFilenameDate = () => '20261110';
 }
 function element(type, action, params = {}, parent = null) {
@@ -86,8 +87,8 @@ test('events: all plain UI buttons call only their explicitly assigned operation
 		assert.deepEqual(calls, [{ name: action, args: [] }], action);
 	}
 	fire('change', 'resizeSeatGrid');
-	fire('change', 'updateHataPreview');
-	assert.deepEqual(calls.slice(-4), [{ name: 'resizeSeatGrid', args: [] }, { name: 'updateHataPreview', args: [] }, { name: 'markHataDirty', args: [] }, { name: 'saveDistrictLocal', args: [] }]);
+	fire('change', 'updateHataFormat');
+	assert.deepEqual(calls.slice(-3), [{ name: 'resizeSeatGrid', args: [] }, { name: 'markHataDirty', args: [] }, { name: 'saveDistrictLocal', args: [] }]);
 });
 
 test('events: tab, card, print, sharing and password actions preserve typed arguments', () => {
@@ -209,7 +210,7 @@ test('events: row removal, selection, reordering, exemptions and seats preserve 
 		assert.deepEqual(calls.at(-1), { name: 'updateSeatCell', args: ['1_2', field, '席の値'] });
 	}
 	fire('change', 'toggleHataExempt', { 'household-key': "1-2_氏名'\"<>&" }, '', true);
-	assert.deepEqual(calls.at(-1), { name: 'toggleHataExempt', args: ["1-2_氏名'\"<>&", true] });
+	assert.deepEqual(calls.at(-1), { name: 'toggleHataExempt', args: ["1-2_氏名'\"<>&", true, undefined] });
 });
 
 test('events: fixed settings operations preserve updates and do not interpret values as code', () => {
@@ -219,7 +220,7 @@ test('events: fixed settings operations preserve updates and do not interpret va
 		'specials', 'headerMsg', 'footerMsg', 'contactMsg', 'createdDate', 'district', 'members']) {
 		const value = { startDate: '2026-04-01', endDate: '2026-09-30', orientation: 'portrait' }[field] || payload;
 		fire('input', 'updateHataConfig', { field }, value);
-		assert.equal(currentDistrict.hata[field], value, field);
+		assert.equal(['holidays', 'specials'].includes(field) ? currentDistrict.hata.inputDrafts[field] : currentDistrict.hata[field], value, field);
 		assert.equal(calls.at(-1).name, 'saveDistrictLocal');
 	}
 	fire('change', 'updateHataColumns', {}, '3');
