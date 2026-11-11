@@ -62,15 +62,17 @@ describe('transfer unit tests', () => {
 		transfer.updateTransferChild(0, 'firstNameKana', 'ハナコ');
 		transfer.updateTransferChild(0, 'grade', '3');
 		transfer.updateTransferChild(0, 'className', '2');
-		transfer.updateTransferChild(0, 'address', '光が丘1-2-3');
-		transfer.updateTransferChild(0, 'tel', '090-1234-5678');
+		transfer.updateTransferHousehold('address', '光が丘1-2-3');
+		transfer.updateTransferHousehold('tel', '090-1234-5678');
 
 		assert.equal(transfer.transferState.children[0].lastName, '新緑');
 		assert.equal(transfer.transferState.children[0].firstName, '花子');
 		assert.equal(transfer.transferState.children[0].grade, '3');
 		assert.equal(transfer.transferState.children[0].className, '2');
-		assert.equal(transfer.transferState.children[0].address, '光が丘1-2-3');
-		assert.equal(transfer.transferState.children[0].tel, '090-1234-5678');
+		assert.equal(transfer.transferState.address, '光が丘1-2-3');
+		assert.equal(transfer.transferState.tel, '090-1234-5678');
+		assert.equal(transfer.transferState.children[0].lastNameKana, undefined);
+		assert.equal(transfer.transferState.children[0].firstNameKana, undefined);
 	});
 
 	test('validateTransferPasswords validates length and confirmation match', () => {
@@ -104,8 +106,8 @@ describe('transfer unit tests', () => {
 		transfer.updateTransferChild(0, 'firstName', '太郎');
 		transfer.updateTransferChild(0, 'grade', '2');
 		transfer.updateTransferChild(0, 'className', '1');
-		transfer.updateTransferChild(0, 'address', '桜丘5-6-7');
-		transfer.updateTransferChild(0, 'tel', '080-9999-8888');
+		transfer.updateTransferHousehold('address', '桜丘5-6-7');
+		transfer.updateTransferHousehold('tel', '080-9999-8888');
 
 		const passInput = document.getElementById('transfer-export-pass');
 		const confirmInput = document.getElementById('transfer-export-pass-confirm');
@@ -123,8 +125,7 @@ describe('transfer unit tests', () => {
 		// エクスポート実行
 		const success = await transfer.exportTransferTxt();
 		assert.ok(success, 'export should succeed');
-		assert.ok(downloadedFileName.includes('転入児童データ_'), 'filename should match format');
-		assert.ok(downloadedFileName.includes('転入'), 'filename should contain family name');
+		assert.equal(downloadedFileName, '家庭情報データ.txt');
 
 		// 復号検証
 		const payload = await crypto.parseTxtContent(downloadedText, 'TransferPass123!');
@@ -253,23 +254,30 @@ describe('transfer unit tests', () => {
 		assert.equal(await transfer.exportTransferTxt(), false);
 		assert.equal(await transfer.copyTransferEncryptedText(), false);
 
-		// 5b. exportTransferTxt with child missing address or tel
+		transfer.transferState.address = '';
+		transfer.transferState.tel = '090-1234-5678';
+
+		// 5b. Missing household address or tel
 		transfer.transferState.children = [
 			{ id: 'c1', lastName: '山田', firstName: '太郎', grade: '1', className: '1', address: '', tel: '090-1234-5678' }
 		];
 		assert.equal(await transfer.exportTransferTxt(), false);
 		assert.equal(await transfer.copyTransferEncryptedText(), false);
 
+		transfer.transferState.address = '東京都新宿区1-1-1';
+		transfer.transferState.tel = '';
 		transfer.transferState.children = [
 			{ id: 'c1', lastName: '山田', firstName: '太郎', grade: '1', className: '1', address: '東京都新宿区1-1-1', tel: '' }
 		];
 		assert.equal(await transfer.exportTransferTxt(), false);
 		assert.equal(await transfer.copyTransferEncryptedText(), false);
 
-		// 6. exportTransferTxt and copyTransferEncryptedText with fallback class logic
+		transfer.transferState.address = '東京都新宿区1-1-1';
+		transfer.transferState.tel = '090-1234-5678';
+		// 6. exportTransferTxt and copyTransferEncryptedText with valid classes
 		transfer.transferState.children = [
-			{ id: 'c1', lastName: '山田', firstName: '太郎', grade: '1', className: '', class: '2組', address: '東京都新宿区1-1-1', tel: '090-1234-5678' },
-			{ id: 'c2', lastName: '山田', firstName: '次郎', grade: '3', className: '', class: '', address: '東京都新宿区1-1-1', tel: '090-1234-5678' }
+			{ id: 'c1', lastName: '山田', firstName: '太郎', grade: '1', className: '2組', class: '2組', address: '東京都新宿区1-1-1', tel: '090-1234-5678' },
+			{ id: 'c2', lastName: '山田', firstName: '次郎', grade: '3', className: '未定', class: '未定', address: '東京都新宿区1-1-1', tel: '090-1234-5678' }
 		];
 		let dlCount = 0;
 		utils.downloadTextFile = () => { dlCount++; };
@@ -384,22 +392,10 @@ describe('transfer unit tests', () => {
 		}
 	});
 
-	test('shareTransferAppUrl triggers shareAppUrl with transfer mode', async () => {
-		setupDomEnvironment();
-		let sharedMode = null;
-		global.shareAppUrl = async (mode) => {
-			sharedMode = mode;
-			return Promise.resolve();
-		};
-
-		if (typeof transfer.shareTransferAppUrl === 'function') {
-			await transfer.shareTransferAppUrl();
-			assert.strictEqual(sharedMode, 'transfer');
-		} else {
-			// app.shareAppUrl('transfer') を直接呼ぶ場合
-			await global.shareAppUrl('transfer');
-			assert.strictEqual(sharedMode, 'transfer');
-		}
+	test('dedicated transfer URL button is removed in favor of header sharing', () => {
+		const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../index.html'), 'utf8');
+		assert.ok(!html.includes('id="btn-share-transfer-url"'));
+		assert.ok(html.includes('id="btn-share-app"'));
 	});
 
 	test('removeTransferChildRow prompts confirmation when row has data and deletes only on OK (GAP-TEST-1)', () => {
@@ -459,16 +455,16 @@ describe('transfer unit tests', () => {
 		assert.ok(alertMsg.includes('住所') && alertMsg.includes('電話番号'));
 
 		// ホワイトスペースのみの場合も失敗する (GAP-DESIGN-4)
-		transfer.transferState.children[0].address = '   ';
-		transfer.transferState.children[0].tel = '　';
+		transfer.transferState.address = '   ';
+		transfer.transferState.tel = '　';
 		alertMsg = '';
 		const res3 = await transfer.exportTransferTxt();
 		assert.strictEqual(res3, false);
 		assert.ok(alertMsg.includes('住所') && alertMsg.includes('電話番号'));
 
 		// 正常入力時は成功する
-		transfer.transferState.children[0].address = '1丁目2-3';
-		transfer.transferState.children[0].tel = '090-0000-0000';
+		transfer.transferState.address = '1丁目2-3';
+		transfer.transferState.tel = '090-0000-0000';
 		utils.downloadTextFile = () => {};
 		const res4 = await transfer.exportTransferTxt();
 		assert.strictEqual(res4, true);

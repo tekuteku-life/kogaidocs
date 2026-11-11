@@ -26,7 +26,9 @@ function prepareWorkflows() {
 	};
 	ui.transfer = async () => {
 		await ui.mode('transfer');
-		for (const [field, value] of Object.entries({ lastName: '転入', firstName: '未来', address: '中央町101', tel: '090-3333-4444', grade: '6', className: '2' })) {
+		ui.fill('#transfer-address', '中央町101');
+		ui.fill('#transfer-tel', '090-3333-4444');
+		for (const [field, value] of Object.entries({ lastName: '転入', firstName: '未来', grade: '6', className: '2' })) {
 			ui.field('.transfer-child-row:nth-child(1)', field, value);
 		}
 		ui.password('transfer-export-pass');
@@ -233,11 +235,12 @@ for (const mode of ['district', 'rep', 'neighbor', 'transfer']) {
 	}, { queryMode: mode });
 }
 
-for (const field of ['lastName', 'firstName', 'address', 'tel']) {
+for (const field of ['lastName', 'firstName', 'address', 'tel', 'className']) {
 	browserTest(`UI transfer validation: blank ${field} blocks both file and clipboard`, async () => {
 		await ui.transfer();
 		const field = window.__requiredField;
-		ui.field('.transfer-child-row:first-child', field, '   ');
+		if (['address', 'tel'].includes(field)) ui.fill(`[data-input="updateTransferHousehold"][data-field="${field}"]`, '   ');
+		else ui.field('.transfer-child-row:first-child', field, '   ');
 		ui.captureDownloads();
 		ui.clipboard();
 		await ui.click('#btn-export-transfer-txt');
@@ -252,7 +255,7 @@ browserTest('UI transfer: sibling inheritance, encryption download/copy, cancel/
 	await ui.transfer();
 	await ui.click('#btn-add-transfer-child');
 	assert.strictEqual(ui.element('.transfer-child-row:nth-child(2) input[placeholder="例: 山田"]').value, '転入', 'Sibling inherits surname');
-	assert.strictEqual(transferState.children[1].address, '中央町101', 'Sibling inherits address');
+	assert.strictEqual(transferState.address, '中央町101', 'Household address is shared');
 	ui.field('.transfer-child-row:nth-child(2)', 'firstName', '希望');
 	ui.captureDownloads();
 	ui.clipboard();
@@ -735,20 +738,20 @@ browserTest('UI app share: native share, cancellation, clipboard and prompt fall
 	let shared;
 	Object.defineProperty(navigator, 'share', { configurable: true, value: async data => { shared = data; } });
 	await ui.mode('transfer');
-	await ui.click('#btn-share-transfer-url');
+	await ui.click('#btn-share-app');
 	await ui.waitFor(() => shared, 'Share API call');
 	assert.ok(shared.url.includes('mode=transfer'), 'Shared link targets transfer mode');
 	ui.clipboard();
 	Object.defineProperty(navigator, 'share', { configurable: true, value: async () => { throw new DOMException('Cancelled', 'AbortError'); } });
-	await ui.click('#btn-share-transfer-url');
+	await ui.click('#btn-share-app');
 	await new Promise(resolve => setTimeout(resolve, 20));
 	assert.strictEqual(window.__copiedText, undefined, 'User cancellation has no clipboard side effect');
 	Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
-	await ui.click('#btn-share-transfer-url');
+	await ui.click('#btn-share-app');
 	await ui.waitFor(() => window.__copiedText, 'Clipboard fallback');
 	assert.ok(__copiedText.includes('mode=transfer'), 'Clipboard link preserves target');
 	ui.clipboard(true);
-	await ui.click('#btn-share-transfer-url');
+	await ui.click('#btn-share-app');
 	await ui.waitFor(() => __dialogs.some(d => d.type === 'prompt'), 'Prompt fallback when clipboard denied');
 	assert.ok(__dialogs.some(d => d.message.includes('URL')), 'Manual copy guidance');
 });

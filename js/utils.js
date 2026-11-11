@@ -726,6 +726,11 @@ function validateImportData(data, kind) {
 		requireValid(clean.isTransferData === true);
 		const children = list(clean.children || clean.students, false);
 		requireValid(children.length > 0);
+		if (clean.version === 2) {
+			for (const field of ['address', 'tel']) requireValid(typeof clean[field] === 'string' && clean[field].trim() !== '');
+			children.forEach(child => requireValid(/^[1-6]$/.test(child.grade) && typeof child.className === 'string' && child.className.trim() !== ''));
+		}
+
 		children.forEach(child => {
 			for (const key of ['lastName', 'firstName', 'address', 'tel']) requireValid(typeof child[key] === 'string' && child[key].trim() !== '');
 		});
@@ -757,6 +762,7 @@ function validateStoredData(data, storageKey) {
 		requireImportShape(isImportObject(data) && Array.isArray(data.children));
 		requireImportShape(data.memo === undefined || typeof data.memo === 'string');
 		const clean = JSON.parse(JSON.stringify(data));
+		for (const field of ['address', 'tel']) requireImportShape(clean[field] === undefined || (typeof clean[field] === 'string' && clean[field].length <= 4096));
 		const fields = ['id', 'lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'grade', 'class', 'className', 'address', 'tel'];
 		clean.children.forEach(child => {
 			requireImportShape(isImportObject(child));

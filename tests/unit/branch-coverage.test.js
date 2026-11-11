@@ -2627,7 +2627,7 @@ test('branch-booster: final push for app, district, and rep >= 95% branch covera
 	if (bText) assert(bText.textContent.includes('自治会'));
 
 	app.switchTab('transfer');
-	if (bText) assert(bText.textContent.includes('転入者'));
+	if (bText) assert(bText.textContent.includes('家庭情報入力'));
 
 	app.handleImmediateLock();
 

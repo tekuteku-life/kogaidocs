@@ -39,7 +39,7 @@ function fresh() {
 		'validateDistrictPasswords', 'validateRepPasswords', 'validateNeighborPasswords',
 		'validateModalPasswords', 'renderHataInputStatus', 'renderHataExemptList', 'renderHataSchedulePreview', 'applyHataPeriodPreset',
 		'handleWebAuthnUnlock', 'checkAppVersion', 'onHanListInput', 'confirmAddRepDistrict',
-		'updateN', 'updateS', 'updateNeighborItem', 'updateTransferChild', 'updateModalOfficer',
+		'updateN', 'updateS', 'updateNeighborItem', 'updateTransferHousehold', 'updateTransferChild', 'updateModalOfficer',
 		'updateModalStudent', 'updateModalNeighbor', 'updateSzEx', 'renderSeatEditor', 'updateSeatCell',
 		'markHataDirty', 'markHataSaved', 'checkHataMemberDuplicates', 'toggleHataExempt', 'setDistrictPrintSelection', 'toggleSzNeighbor', 'moveNeighborRow',
 		'toggleAllDistrictChecks', 'setRepPrintChecks', 'removeN', 'removeS', 'removeOfficer',
@@ -164,7 +164,7 @@ test('events: editing actions target the intended row and allow only the fields 
 		updateN: ['role', 'lastNameKana', 'firstNameKana', 'lastName', 'firstName', 'address', 'tel'],
 		updateS: ['grade', 'class', 'han', 'lastNameKana', 'firstNameKana', 'lastName', 'firstName', 'address', 'tel', 'leader'],
 		updateNeighborItem: ['role', 'lastNameKana', 'firstNameKana', 'lastName', 'firstName', 'address', 'tel', 'email', 'note'],
-		updateTransferChild: ['grade', 'className', 'lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'address', 'tel'],
+		updateTransferChild: ['grade', 'className', 'lastName', 'firstName'],
 		updateModalOfficer: ['role', 'lastName', 'firstName', 'han', 'tel', 'email', 'childGrade', 'childClass', 'childLastName', 'childFirstName'],
 		updateModalStudent: ['grade', 'class', 'han', 'lastName', 'firstName', 'address', 'tel'],
 		updateModalNeighbor: ['role', 'lastName', 'firstName', 'tel'],
@@ -353,4 +353,19 @@ test('events: one listener set handles elements added after binding and repeated
 	newRow.value = '再描画後'; root.dispatchEvent(eventFor('input', newRow));
 	assert.deepEqual(calls, [{ name: 'updateS', args: [0, 'lastName', '旧行'] }, { name: 'updateS', args: [1, 'lastName', '再描画後'] }]);
 	bindUiEvents();
+});
+
+
+test('events: household inputs update shared contacts and reject unrelated fields', () => {
+	fresh();
+	for (const field of ['address', 'tel']) {
+		calls.length = 0;
+		fire('input', 'updateTransferHousehold', { field }, '家庭の連絡先');
+		assert.deepEqual(calls, [{ name: 'updateTransferHousehold', args: [field, '家庭の連絡先'] }]);
+	}
+	for (const field of ['__proto__', 'children', 'guardianName', 'lastName']) {
+		calls.length = 0;
+		fire('input', 'updateTransferHousehold', { field }, '不正な値');
+		assert.deepEqual(calls, []);
+	}
 });

@@ -497,7 +497,7 @@ test('app: shareAppUrl handles Web Share API, clipboard fallback, prompt, and er
 	await app.shareAppUrl();
 	assert.notStrictEqual(shareCalledWith, null);
 	assert(shareCalledWith.title.includes('校外委員会'));
-	assert.strictEqual(shareCalledWith.url, window.location.href);
+	assert.strictEqual(shareCalledWith.url, `${window.location.origin}${window.location.pathname}?mode=district`);
 
 	// Case 2: navigator.share throws AbortError (user cancelled) -> silent catch
 	navigator.share = async () => {
@@ -516,7 +516,7 @@ test('app: shareAppUrl handles Web Share API, clipboard fallback, prompt, and er
 		throw new Error('Share failed');
 	};
 	await app.shareAppUrl();
-	assert.strictEqual(clipText, window.location.href);
+	assert.strictEqual(clipText, `${window.location.origin}${window.location.pathname}?mode=district`);
 	assert(alertMsg.includes('URLをクリップボードにコピーしました'));
 
 	// Case 4: navigator.share not supported -> direct clipboard copy
@@ -524,7 +524,7 @@ test('app: shareAppUrl handles Web Share API, clipboard fallback, prompt, and er
 	clipText = '';
 	alertMsg = '';
 	await app.shareAppUrl();
-	assert.strictEqual(clipText, window.location.href);
+	assert.strictEqual(clipText, `${window.location.origin}${window.location.pathname}?mode=district`);
 	assert(alertMsg.includes('URLをクリップボードにコピーしました'));
 
 	// Case 5: navigator.clipboard fails -> prompt fallback
@@ -532,7 +532,7 @@ test('app: shareAppUrl handles Web Share API, clipboard fallback, prompt, and er
 	let promptDefault = '';
 	global.prompt = (msg, def) => { promptDefault = def; return def; };
 	await app.shareAppUrl();
-	assert.strictEqual(promptDefault, window.location.href);
+	assert.strictEqual(promptDefault, `${window.location.origin}${window.location.pathname}?mode=district`);
 });
 
 test('app: checkAppVersion handles offline, same version, new version, user cancel, user confirm, and network error', async () => {
@@ -845,7 +845,7 @@ test('app: 4-tab switching, persistence in kogai_active_mode, and badge label sy
 	// 1. Switch to transfer mode
 	app.switchTab('transfer');
 	assert.strictEqual(localStorage.getItem('kogai_active_mode'), 'transfer');
-	if (badge) assert(badge.textContent.includes('転入者'));
+	if (badge) assert(badge.textContent.includes('家庭情報入力'));
 
 	// 2. Switch to neighbor mode
 	app.switchTab('neighbor');

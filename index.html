@@ -46,7 +46,7 @@
 		<button class="tab-btn active" data-click="switchTab" data-mode="district">① 各地区役員モード（地区入力・ハタフロット・地区印刷）</button>
 		<button class="tab-btn" data-click="switchTab" data-mode="rep">② 校外代表モード（全地区集約・スクゾ協議会・選択印刷）</button>
 		<button class="tab-btn" data-click="switchTab" data-mode="neighbor">③ 自治会役員モード（自治会役員名簿の作成・提出）</button>
-		<button class="tab-btn" data-click="switchTab" data-mode="transfer">④ 転入者モード（転入家庭の児童情報入力・提出）</button>
+		<button class="tab-btn" data-click="switchTab" data-mode="transfer">④ 家庭情報入力モード（新入生・転入生）</button>
 	</div>
 	<div class="mode-active-bar">
 		<button type="button" id="mode-active-badge" class="mode-active-badge" style="display:none;" data-click="toggleModeSelector">
@@ -181,7 +181,7 @@
 						</div>
 					</div>
 					<div id="d-transfer-paste-panel" style="display: none; margin-top: 8px; border-top: 1px dashed #bbf7d0; padding-top: 8px;">
-						<textarea id="d-transfer-paste-box" rows="2" placeholder="転入者から受け取った暗号化テキストを貼り付けてください" style="width: 100%; font-size: 0.85rem; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box;"></textarea>
+						<textarea id="d-transfer-paste-box" rows="2" placeholder="ご家庭から受け取った暗号化テキストを貼り付けてください" style="width: 100%; font-size: 0.85rem; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box;"></textarea>
 						<button type="button" class="btn btn-sm" style="margin-top: 4px;" data-click="loadPastedTransferTextIntoDistrict">📥 貼り付けて統合を実行</button>
 					</div>
 				</div>
@@ -734,7 +734,7 @@
 							</div>
 						</div>
 						<div id="rep-transfer-paste-panel" style="display: none; margin-top: 8px; border-top: 1px dashed #e2e8f0; padding-top: 8px;">
-							<textarea id="rep-transfer-paste-box" rows="2" placeholder="転入者から受け取った暗号化テキストを貼り付けてください" style="width: 100%; font-size: 0.85rem; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box;"></textarea>
+							<textarea id="rep-transfer-paste-box" rows="2" placeholder="ご家庭から受け取った暗号化テキストを貼り付けてください" style="width: 100%; font-size: 0.85rem; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box;"></textarea>
 							<button type="button" class="btn btn-sm" style="margin-top: 4px;" data-click="loadPastedTransferTextIntoRep">📥 貼り付けて統合を実行</button>
 						</div>
 					</div>
@@ -921,27 +921,37 @@
 
 	</div>
 
-	<!-- ==================== タブ④: 転入者モード ==================== -->
+	<!-- ==================== タブ④: 家庭情報入力モード ==================== -->
 	<div id="tab-transfer" style="display:none;">
 
 		<!-- 案内カード -->
 		<div class="card" id="card-t-guide">
-			<h2>🎒 転入児童・家庭情報入力（校外委員会 提出用）</h2>
+			<h2>🎒 家庭情報入力（新入生・転入生／校外委員会 提出用）</h2>
 			<div class="help-text" style="line-height: 1.6;">
-				新しく学校や地区へ転入されたご家庭用の入力画面です。<br>
-				お子様の学年・組・氏名・住所・連絡先を入力し、暗号化してファイルまたはテキストで指定された提出先へご提出ください。<br>
-				<span style="color: var(--primary); font-weight: bold;">※入力された個人情報は外部サーバーに送信されることは一切ありません。端末内および提出ファイルは高度に暗号化されます。</span>
+				新入生・転入生のご家庭用の入力画面です。<br>
+				住所・電話番号と、お子様の氏名・学年・組を入力し、暗号化してファイルまたはテキストで指定された提出先へご提出ください。<br>
+				<span style="color: var(--primary); font-weight: bold;">※入力内容は端末内で処理し、提出ファイルは暗号化されます。端末内の保存データは、暗号化設定を有効にすると保護されます。</span>
 			</div>
-			<div style="margin-top: 10px;">
-				<button type="button" class="btn btn-outline btn-sm" id="btn-share-transfer-url" data-click="shareAppUrl" data-mode="transfer">🔗 転入者用入力URLを共有（LINE・メール案内用）</button>
+
+		</div>
+
+		<div class="card" id="card-t-household">
+			<h2>🏠 1. 家庭情報（住所・電話番号）</h2>
+			<div class="form-group">
+				<label for="transfer-address">住所 <span style="color:var(--danger)">*</span></label>
+				<input type="text" id="transfer-address" maxlength="4096" autocomplete="street-address" placeholder="例: ○○町1-2-3" data-input="updateTransferHousehold" data-field="address">
+			</div>
+			<div class="form-group">
+				<label for="transfer-tel">電話番号 <span style="color:var(--danger)">*</span></label>
+				<input type="tel" id="transfer-tel" maxlength="4096" autocomplete="tel" placeholder="例: 090-1234-5678" data-input="updateTransferHousehold" data-field="tel">
 			</div>
 		</div>
 
-		<!-- 1. 児童情報入力カード -->
+		<!-- 2. 児童情報入力カード -->
 		<div class="card" id="card-t-children">
-			<h2>👦 1. 児童情報入力</h2>
+			<h2>👦 2. 児童情報入力</h2>
 			<div class="help-text" style="margin-bottom: 12px;">
-				転入されるお子様の情報を入力してください。ご兄弟・ご姉妹がいらっしゃる場合は「＋ 児童を追加」で複数名入力できます。
+				お子様の氏名・学年・組を入力してください。組が未定の場合は「未定」と入力してください。ご兄弟・ご姉妹がいらっしゃる場合は「＋ 児童を追加」で複数名入力できます。
 			</div>
 			<div id="transfer-children-container">
 				<!-- 動的描画 -->
@@ -951,12 +961,13 @@
 			</div>
 		</div>
 
-		<!-- 2. 暗号化・提出カード -->
+		<!-- 3. 暗号化・提出カード -->
 		<div class="card" id="card-t-export">
-			<h2>🔒 2. 暗号化と提出</h2>
+			<h2>🔒 3. 暗号化と提出</h2>
 			<div class="help-text" style="margin-bottom: 12px;">
-				提出用ファイルを安全に保護するため、12文字以上の暗号化パスワードを設定してください。<br>
-				設定したパスワードは、提出先の方へ別途（口頭、電話、別メッセージ等で）お伝えください。
+				提出先からパスワードを指定されている場合は、そのパスワードを使用してください。<br>
+				指定がない場合は、自分で12文字以上のパスワードを設定し、提出先の方へ別途（口頭、電話、別メッセージ等で）お伝えください。<br>
+				パスワードは半角英数記号12文字以上で入力してください。
 			</div>
 			<form data-submit="preventSubmit" autocomplete="on">
 				<div class="form-group" style="margin-bottom: 12px;">
@@ -1179,7 +1190,7 @@
 </dialog>
 <dialog id="browser-handoff-dialog" aria-labelledby="handoff-title">
 	<h2 id="handoff-title">ブラウザ間の途中入力引き継ぎ</h2>
-	<p>地区・旗振り・代表・自治会・転入者の途中入力と、未確定の名簿編集を暗号化して移します。パスワード・端末の暗号化設定・未読込ファイルは移動先で再入力・再設定してください。</p>
+	<p>地区・旗振り・代表・自治会・家庭情報の途中入力と、未確定の名簿編集を暗号化して移します。パスワード・端末の暗号化設定・未読込ファイルは移動先で再入力・再設定してください。</p>
 	<section>
 		<h3>① このブラウザで引き継ぎデータを作成</h3>
 		<label for="handoff-create-pass">引き継ぎパスワード（半角英数記号12文字以上）</label>

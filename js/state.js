@@ -72,17 +72,15 @@ let neighborState = {
 };
 
 let transferState = {
+	address: "",
+	tel: "",
 	children: [
 		{
 			id: 'c_' + Date.now(),
 			lastName: "",
 			firstName: "",
-			lastNameKana: "",
-			firstNameKana: "",
 			grade: "1",
-			className: "1",
-			address: "",
-			tel: ""
+			className: "1"
 		}
 	],
 	memo: ""

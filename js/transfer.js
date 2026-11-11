@@ -1,29 +1,38 @@
 // =========================================================================
-// タブ4：転入者モード（家庭側: 児童情報入力・暗号化提出・APPI消去）
+// タブ4：家庭情報入力モード（新入生・転入生）
 // =========================================================================
 
-// 転入者フォームを描画します
+function createTransferChild(lastName = '') {
+	return { id: 'c_' + Date.now() + Math.random().toString(36).slice(2, 6), lastName, firstName: '', grade: '1', className: '1' };
+}
+
+// 旧下書きの連絡先を家庭欄へ移す。空欄へ戻した値は旧児童値で補完しない。
+function normalizeTransferHousehold() {
+	for (const field of ['address', 'tel']) {
+		if (transferState[field] === undefined) transferState[field] = transferState.children?.[0]?.[field] || '';
+	}
+}
+
+function updateTransferHousehold(field, value) {
+	if (!['address', 'tel'].includes(field)) return;
+	transferState[field] = value;
+	saveTransferLocal();
+}
+
+// 家庭情報と児童情報を描画します
 function renderTransferForm() {
 	const container = document.getElementById('transfer-children-container');
 	if (!container) return;
 
-	if (!transferState.children || transferState.children.length === 0) {
-		transferState.children = [
-			{
-				id: 'c_' + Date.now(),
-				lastName: "",
-				firstName: "",
-				lastNameKana: "",
-				firstNameKana: "",
-				grade: "1",
-				className: "1",
-				address: "",
-				tel: ""
-			}
-		];
+	normalizeTransferHousehold();
+	for (const [field, id] of [['address', 'transfer-address'], ['tel', 'transfer-tel']]) {
+		const input = document.getElementById(id);
+		if (input) input.value = transferState[field];
 	}
+	if (!transferState.children || transferState.children.length === 0) transferState.children = [createTransferChild()];
 
 	container.innerHTML = transferState.children.map((child, index) => {
+		if (child.className === undefined || (child.className === '' && child.class)) child.className = child.class || '1';
 		const canRemove = transferState.children.length > 1;
 		return `
 			<div class="transfer-child-row card" style="margin-bottom: 1rem; padding: 1rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff;">
@@ -35,6 +44,7 @@ function renderTransferForm() {
 					<div>
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">学年 <span style="color: #ef4444;">*</span></label>
 						<select class="form-control" data-change="updateTransferChild" data-index="${index}" data-field="grade" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+							<option value="" ${!/^[1-6]$/.test(child.grade) ? 'selected' : ''}>学年を選択</option>
 							${[1, 2, 3, 4, 5, 6].map(g => `<option value="${g}" ${String(child.grade) === String(g) ? 'selected' : ''}>${g}年生</option>`).join('')}
 						</select>
 					</div>
@@ -52,24 +62,6 @@ function renderTransferForm() {
 						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">氏名（名） <span style="color: #ef4444;">*</span></label>
 						<input type="text" maxlength="4096" class="form-control" value="${esc(child.firstName || '')}" placeholder="例: 太郎" data-input="updateTransferChild" data-index="${index}" data-field="firstName" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
 					</div>
-					<div>
-						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">ふりがな（せい）</label>
-						<input type="text" maxlength="4096" class="form-control" value="${esc(child.lastNameKana || '')}" placeholder="例: やまだ" data-input="updateTransferChild" data-index="${index}" data-field="lastNameKana" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
-					</div>
-					<div>
-						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">ふりがな（めい）</label>
-						<input type="text" maxlength="4096" class="form-control" value="${esc(child.firstNameKana || '')}" placeholder="例: たろう" data-input="updateTransferChild" data-index="${index}" data-field="firstNameKana" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
-					</div>
-				</div>
-				<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
-					<div>
-						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">住所 <span style="color: #ef4444;">*</span></label>
-						<input type="text" maxlength="4096" class="form-control" value="${esc(child.address || '')}" placeholder="例: ○○町1-2-3 ○○マンション101" data-input="updateTransferChild" data-index="${index}" data-field="address" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
-					</div>
-					<div>
-						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">電話番号 <span style="color: #ef4444;">*</span></label>
-						<input type="tel" class="form-control" value="${esc(child.tel || '')}" placeholder="例: 090-1234-5678" data-input="updateTransferChild" data-index="${index}" data-field="tel" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
-					</div>
 				</div>
 			</div>
 		`;
@@ -79,17 +71,7 @@ function renderTransferForm() {
 // 児童行を追加します（兄弟姉妹）
 function addTransferChildRow() {
 	const lastChild = transferState.children[transferState.children.length - 1];
-	transferState.children.push({
-		id: 'c_' + Date.now() + Math.random().toString(36).slice(2, 6),
-		lastName: lastChild ? lastChild.lastName : "",
-		firstName: "",
-		lastNameKana: lastChild ? lastChild.lastNameKana : "",
-		firstNameKana: "",
-		grade: "1",
-		className: "1",
-		address: lastChild ? lastChild.address : "",
-		tel: lastChild ? lastChild.tel : ""
-	});
+	transferState.children.push(createTransferChild(lastChild ? lastChild.lastName : ''));
 	renderTransferForm();
 	saveTransferLocal();
 }
@@ -99,25 +81,13 @@ function removeTransferChildRow(index) {
 	if (!transferState.children || !transferState.children[index]) return;
 	const child = transferState.children[index];
 	const name = ((child.lastName || '') + ' ' + (child.firstName || '')).trim();
-	const hasData = name.length > 0 || (child.address && child.address.trim().length > 0) || (child.tel && child.tel.trim().length > 0);
-	if (hasData) {
-		const targetLabel = name ? '児童「' + name + '」' : 'この児童';
-		if (!confirm(targetLabel + 'の入力情報を削除しますか？')) {
+	if (name) {
+		if (!confirm('児童「' + name + '」の入力情報を削除しますか？')) {
 			return;
 		}
 	}
 	if (transferState.children.length <= 1) {
-		transferState.children[0] = {
-			id: 'c_' + Date.now(),
-			lastName: "",
-			firstName: "",
-			lastNameKana: "",
-			firstNameKana: "",
-			grade: "1",
-			className: "1",
-			address: "",
-			tel: ""
-		};
+		transferState.children[0] = createTransferChild();
 	} else {
 		transferState.children.splice(index, 1);
 	}
@@ -127,7 +97,7 @@ function removeTransferChildRow(index) {
 
 // 児童の各項目を更新します
 function updateTransferChild(index, field, value) {
-	if (!transferState.children[index]) return;
+	if (!transferState.children[index] || !['grade', 'className', 'lastName', 'firstName'].includes(field)) return;
 	transferState.children[index][field] = value;
 	if (field === 'className') {
 		transferState.children[index].class = value;
@@ -153,45 +123,44 @@ function validateTransferPasswords() {
 	return true;
 }
 
+// ファイルとコピーに同一の必須検証・出力契約を適用する。
+function buildTransferPayload() {
+	normalizeTransferHousehold();
+	if (!transferState.children?.length) {
+		alert('児童情報が入力されていません。');
+		return null;
+	}
+	const requiredText = value => typeof value === 'string' && value.trim() !== '' && value.length <= 4096;
+	if (!['address', 'tel'].every(field => requiredText(transferState[field])) ||
+		transferState.children.some(child => !['lastName', 'firstName', 'className'].every(field => requiredText(child[field])) || !/^[1-6]$/.test(child.grade))) {
+		alert('住所、電話番号と、すべての児童の氏名（姓・名）、学年、組を入力してください。組が未定の場合は「未定」と入力してください。');
+		return null;
+	}
+	const { address, tel } = transferState;
+	const children = transferState.children.map(child => ({
+		id: child.id, lastName: child.lastName, firstName: child.firstName,
+		grade: child.grade, className: child.className, class: child.className,
+		address, tel
+	}));
+	return { isTransferData: true, version: 2, exportedAt: new Date().toISOString(), address, tel, children, students: children };
+}
+
 // 転入児童データを暗号化してファイル保存します
 async function exportTransferTxt() {
 	if (!validateTransferPasswords()) {
 		alert("暗号化パスワードは12文字以上（英大文字・小文字・数字・記号）で、確認用と一致させて入力してください。");
 		return false;
 	}
-	if (!transferState.children || transferState.children.length === 0) {
-		alert("児童情報が入力されていません。");
-		return false;
-	}
-
-	const hasEmptyRequired = transferState.children.some(c =>
-		!c.lastName?.trim() || !c.firstName?.trim() || !c.address?.trim() || !c.tel?.trim()
-	);
-	if (hasEmptyRequired) {
-		alert("すべての児童の氏名（姓・名）、住所、および電話番号を入力してください。");
-		return false;
-	}
-
+	const payload = buildTransferPayload();
+	if (!payload) return false;
 	const password = document.getElementById('transfer-export-pass').value;
-	const firstLastName = transferState.children[0].lastName;
-
-	const payload = {
-		isTransferData: true,
-		version: 1,
-		exportedAt: new Date().toISOString(),
-		children: transferState.children,
-		students: transferState.children.map(c => ({
-			...c,
-			class: c.className || c.class || '1'
-		}))
-	};
 
 	try {
 		const encrypted = await encryptPayload(JSON.stringify(payload), password);
 		const outputContent = `BEGIN_DATA:\n${encrypted}\n:END_DATA`;
-		const filename = `転入児童データ_${firstLastName}.txt`;
+		const filename = '家庭情報データ.txt';
 		downloadTextFile(outputContent, filename);
-		alert(`転入児童データを暗号化してファイル出力しました（${filename}）。\nこのファイルを校外委員会の地区役員または代表役員へお渡しください。`);
+		alert(`家庭情報データを暗号化してファイル出力しました（${filename}）。\nこのファイルを指定された提出先へお渡しください。`);
 		return true;
 	} catch (e) {
 		alert("暗号化ファイル出力に失敗しました: " + e.message);
@@ -205,36 +174,15 @@ async function copyTransferEncryptedText() {
 		alert("暗号化パスワードは12文字以上で確認用と一致させて入力してください。");
 		return false;
 	}
-	if (!transferState.children || transferState.children.length === 0) {
-		alert("児童情報が入力されていません。");
-		return false;
-	}
-
-	const hasEmptyRequired = transferState.children.some(c =>
-		!c.lastName?.trim() || !c.firstName?.trim() || !c.address?.trim() || !c.tel?.trim()
-	);
-	if (hasEmptyRequired) {
-		alert("すべての児童の氏名（姓・名）、住所、および電話番号を入力してください。");
-		return false;
-	}
-
+	const payload = buildTransferPayload();
+	if (!payload) return false;
 	const password = document.getElementById('transfer-export-pass').value;
-	const payload = {
-		isTransferData: true,
-		version: 1,
-		exportedAt: new Date().toISOString(),
-		children: transferState.children,
-		students: transferState.children.map(c => ({
-			...c,
-			class: c.className || c.class || '1'
-		}))
-	};
 
 	try {
 		const encrypted = await encryptPayload(JSON.stringify(payload), password);
 		const fullText = `BEGIN_DATA:\n${encrypted}\n:END_DATA`;
 		await navigator.clipboard.writeText(fullText);
-		alert("暗号化された転入児童データをクリップボードにコピーしました。\nLINEやメール等で役員へ送信してください。");
+		alert("暗号化された家庭情報データをクリップボードにコピーしました。\nLINEやメール等で指定された提出先へ送信してください。");
 		return true;
 	} catch (e) {
 		alert("クリップボードへのコピーに失敗しました: " + e.message);
@@ -244,22 +192,12 @@ async function copyTransferEncryptedText() {
 
 // 提出後のワンタップリセット（個人情報保護・APPI第22条対応）
 async function resetTransferForm() {
-	if (!confirm("入力された転入児童情報をすべて消去しますか？\n（提出完了後のプライバシー保護のため、端末からの消去を推奨します）")) {
+	if (!confirm("入力された家庭・児童情報をすべて消去しますか？\n（提出完了後のプライバシー保護のため、端末からの消去を推奨します）")) {
 		return false;
 	}
-	transferState.children = [
-		{
-			id: 'c_' + Date.now(),
-			lastName: "",
-			firstName: "",
-			lastNameKana: "",
-			firstNameKana: "",
-			grade: "1",
-			className: "1",
-			address: "",
-			tel: ""
-		}
-	];
+	transferState.children = [createTransferChild()];
+	transferState.address = '';
+	transferState.tel = '';
 	transferState.memo = "";
 
 	const p1 = document.getElementById('transfer-export-pass');
@@ -274,19 +212,9 @@ async function resetTransferForm() {
 
 // 画面ロック時のメモリ・DOM完全消去
 function clearTransferForm() {
-	transferState.children = [
-		{
-			id: 'c_' + Date.now(),
-			lastName: "",
-			firstName: "",
-			lastNameKana: "",
-			firstNameKana: "",
-			grade: "1",
-			className: "1",
-			address: "",
-			tel: ""
-		}
-	];
+	transferState.children = [createTransferChild()];
+	transferState.address = '';
+	transferState.tel = '';
 	transferState.memo = "";
 	const p1 = document.getElementById('transfer-export-pass');
 	const p2 = document.getElementById('transfer-export-pass-confirm');
@@ -313,18 +241,12 @@ async function loadTransferLocal() {
 			assertStorageSession(generation);
 			transferState.children = clean.children;
 			transferState.memo = clean.memo;
+			for (const field of ['address', 'tel']) transferState[field] = clean[field];
 		}
 	} catch (e) {
 		console.warn("Failed to load transfer local state", e);
 	}
 	renderTransferForm();
-}
-
-// 転入者画面用URLを共有します
-async function shareTransferAppUrl() {
-	if (typeof shareAppUrl === 'function') {
-		return shareAppUrl('transfer');
-	}
 }
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -340,7 +262,7 @@ if (typeof module !== 'undefined' && module.exports) {
 	global.clearTransferForm = clearTransferForm;
 	global.saveTransferLocal = saveTransferLocal;
 	global.loadTransferLocal = loadTransferLocal;
-	global.shareTransferAppUrl = shareTransferAppUrl;
+	global.updateTransferHousehold = updateTransferHousehold;
 
 	module.exports = {
 		get transferState() { return (typeof transferState !== 'undefined' && transferState) ? transferState : (global.transferState || (typeof state !== 'undefined' ? state.transferState : null)); },
@@ -356,6 +278,6 @@ if (typeof module !== 'undefined' && module.exports) {
 		clearTransferForm,
 		saveTransferLocal,
 		loadTransferLocal,
-		shareTransferAppUrl
+		updateTransferHousehold
 	};
 }

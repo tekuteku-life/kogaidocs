@@ -2,7 +2,7 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
-const CURRENT_APP_VERSION = "2.9.2";
+const CURRENT_APP_VERSION = "2.10.0";
 let deferredInstallPrompt = null;
 let pwaInstallationCompleted = false;
 
@@ -71,7 +71,7 @@ function switchTab(mode) {
 		} else if (mode === 'neighbor') {
 			badgeText.textContent = '③ 自治会役員名簿モード ▼ [モード切替]';
 		} else if (mode === 'transfer') {
-			badgeText.textContent = '④ 転入者モード ▼ [モード切替]';
+			badgeText.textContent = '④ 家庭情報入力モード ▼ [モード切替]';
 		}
 	}
 }
@@ -131,17 +131,15 @@ function toggleModeSelector() {
 async function shareAppUrl(specificMode) {
 	const origin = (typeof window !== 'undefined' && window.location.origin) ? window.location.origin : '';
 	const pathname = (typeof window !== 'undefined' && window.location.pathname) ? window.location.pathname : '';
-	let shareUrl = (typeof window !== 'undefined' && window.location.href) ? window.location.href : (origin + pathname);
-	if (specificMode) {
-		shareUrl = origin ? `${origin}${pathname}?mode=${specificMode}` : `?mode=${specificMode}`;
-	}
+	const requestedMode = specificMode || (typeof localStorage !== 'undefined' ? localStorage.getItem('kogai_active_mode') : null);
+	const mode = ['district', 'rep', 'neighbor', 'transfer'].includes(requestedMode) ? requestedMode : 'district';
+	const shareUrl = origin ? `${origin}${pathname}?mode=${mode}` : `?mode=${mode}`;
 
-	const mode = specificMode || (typeof localStorage !== 'undefined' ? localStorage.getItem('kogai_active_mode') : null) || 'district';
 	let title = "校外委員会 名簿・帳票作成システム";
 	let text = "校外委員会および自治会の名簿・帳票作成ツールです。";
 	if (specificMode === 'transfer' || (!specificMode && mode === 'transfer')) {
-		title = "校外委員会 転入児童・家庭情報入力";
-		text = "新しく転入されたご家庭用の児童情報入力画面です。安全に暗号化して提出できます。";
+		title = "校外委員会 家庭情報入力（新入生・転入生）";
+		text = "新入生・転入生のご家庭用の情報入力画面です。安全に暗号化して提出できます。";
 	}
 
 	const shareData = {
