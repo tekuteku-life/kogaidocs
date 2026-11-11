@@ -607,7 +607,7 @@ test('system [アプリ共有]: PWA URL sharing across Web Share API and clipboa
 	await app.shareAppUrl();
 	assert(sharedPayload !== null);
 	assert(sharedPayload.title.includes('校外委員会'));
-	assert.strictEqual(sharedPayload.url, window.location.href);
+	assert.strictEqual(sharedPayload.url, `${window.location.origin}${window.location.pathname}?mode=district`);
 
 	// 2. Web Share cancelled by user (AbortError)
 	navigator.share = async () => {
@@ -626,7 +626,7 @@ test('system [アプリ共有]: PWA URL sharing across Web Share API and clipboa
 		writeText: async (txt) => { clipboardText = txt; }
 	};
 	await app.shareAppUrl();
-	assert.strictEqual(clipboardText, window.location.href);
+	assert.strictEqual(clipboardText, `${window.location.origin}${window.location.pathname}?mode=district`);
 	assert(alertMessage.includes('URLをクリップボードにコピーしました'));
 });
 
@@ -877,8 +877,8 @@ test('system [機能18]: 転入者モード E2E ライフサイクル', async ()
 	transfer.updateTransferChild(0, 'firstName', '未来');
 	transfer.updateTransferChild(0, 'grade', '3');
 	transfer.updateTransferChild(0, 'className', '1');
-	transfer.updateTransferChild(0, 'address', '希望が丘7-8-9');
-	transfer.updateTransferChild(0, 'tel', '090-5555-4444');
+	transfer.updateTransferHousehold('address', '希望が丘7-8-9');
+	transfer.updateTransferHousehold('tel', '090-5555-4444');
 
 	// パスワード設定
 	const passInput = document.getElementById('transfer-export-pass');

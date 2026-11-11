@@ -185,7 +185,9 @@ securityTest('Security neighbor: encrypted hostile names survive file import, re
 
 securityTest('Security transfer: native form to real encrypted submission, district import, reload and print', async () => {
 	await ui.mode('transfer');
-	for (const [field, value] of Object.entries({ lastName: security.attack, firstName: '通常転入児童', address: security.attack, tel: '090-1234-5678' })) {
+	ui.fill('#transfer-address', security.attack);
+	ui.fill('#transfer-tel', '090-1234-5678');
+	for (const [field, value] of Object.entries({ lastName: security.attack, firstName: '通常転入児童' })) {
 		ui.fill(`.transfer-child-row [data-field="${field}"]`, value);
 	}
 	security.passwordFields('transfer-export-pass');

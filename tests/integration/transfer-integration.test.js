@@ -10,6 +10,7 @@ const state = require('../../js/state.js');
 const districtLib = require('../../js/district.js');
 const rep = require('../../js/rep.js');
 const seat = require('../../js/seat.js');
+require('../../js/hata.js');
 const transfer = require('../../js/transfer.js');
 
 test('integration: Pattern B - Transfer Export -> District Integration -> District Export -> Rep Import', async () => {
@@ -54,7 +55,7 @@ test('integration: Pattern B - Transfer Export -> District Integration -> Distri
 
 	await transfer.exportTransferTxt();
 	assert.ok(exportedTransferFile, 'Transfer file must be exported');
-	assert.ok(exportedTransferFile.filename.includes('転入児童データ_星野'));
+	assert.equal(exportedTransferFile.filename, '家庭情報データ.txt');
 
 	// 2. District Mode: 既存地区データへ統合
 	state.currentDistrict = createMockDistrict({

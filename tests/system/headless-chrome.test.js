@@ -270,13 +270,13 @@ test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 			// 4. Fill required fields (Normal case)
 			updateTransferChild(0, 'lastName', '高橋');
 			updateTransferChild(0, 'firstName', '健太');
-			updateTransferChild(0, 'address', '中央町1-2-3');
-			updateTransferChild(0, 'tel', '090-1234-5678');
+			updateTransferHousehold('address', '中央町1-2-3');
+			updateTransferHousehold('tel', '090-1234-5678');
 
 			updateTransferChild(1, 'lastName', '高橋');
 			updateTransferChild(1, 'firstName', '美咲');
-			updateTransferChild(1, 'address', '中央町1-2-3');
-			updateTransferChild(1, 'tel', '090-1234-5678');
+			updateTransferHousehold('address', '中央町1-2-3');
+			updateTransferHousehold('tel', '090-1234-5678');
 
 			const validExport = await exportTransferTxt();
 			assert.strictEqual(validExport, true, 'Export succeeded when all mandatory fields are filled');

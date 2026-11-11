@@ -24,6 +24,9 @@ function uiBooleanFlag(element) {
 }
 
 const uiEventHandlers = new Map([
+	['updateTransferHousehold', element => {
+		if (['address', 'tel'].includes(element.dataset.field)) updateTransferHousehold(element.dataset.field, element.value);
+	}],
 	['openBrowserHandoff', () => openBrowserHandoff()],
 	['clearBrowserHandoff', () => clearBrowserHandoff()],
 	['createBrowserHandoff', () => createBrowserHandoff()],
@@ -185,7 +188,7 @@ for (const [action, fields, update] of [
 	['updateN', ['role', 'lastNameKana', 'firstNameKana', 'lastName', 'firstName', 'address', 'tel'], (index, field, value) => updateN(index, field, value)],
 	['updateS', ['grade', 'class', 'han', 'lastNameKana', 'firstNameKana', 'lastName', 'firstName', 'address', 'tel', 'leader', 'isOutOfDistrict'], (index, field, value) => updateS(index, field, value)],
 	['updateNeighborItem', ['role', 'lastNameKana', 'firstNameKana', 'lastName', 'firstName', 'address', 'tel', 'email', 'note'], (index, field, value) => updateNeighborItem(index, field, value)],
-	['updateTransferChild', ['grade', 'className', 'lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'address', 'tel'], (index, field, value) => updateTransferChild(index, field, value)],
+	['updateTransferChild', ['grade', 'className', 'lastName', 'firstName'], (index, field, value) => updateTransferChild(index, field, value)],
 	['updateModalOfficer', ['role', 'lastName', 'firstName', 'han', 'tel', 'email', 'childGrade', 'childClass', 'childLastName', 'childFirstName'], (index, field, value) => updateModalOfficer(index, field, value)],
 	['updateModalStudent', ['grade', 'class', 'han', 'lastName', 'firstName', 'address', 'tel'], (index, field, value) => updateModalStudent(index, field, value)],
 	['updateModalNeighbor', ['role', 'lastName', 'firstName', 'tel'], (index, field, value) => updateModalNeighbor(index, field, value)],

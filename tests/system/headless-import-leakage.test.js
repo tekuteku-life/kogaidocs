@@ -75,12 +75,12 @@ function prepareLeakage() {
 			await ui.click('#btn-share-app');
 			await ui.waitFor(() => __leakageShares.length === 1, 'Application URL passed to native share');
 			await ui.mode('transfer');
-			await ui.click('#btn-share-transfer-url');
+			await ui.click('#btn-share-app');
 			await ui.waitFor(() => __leakageShares.length === 2, 'Transfer URL passed to native share');
 			assert.ok(__leakageShares[1].url.includes('?mode=transfer'), 'Transfer share retains the fixed mode parameter');
 			ui.clipboard();
 			Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
-			await ui.click('#btn-share-transfer-url');
+			await ui.click('#btn-share-app');
 			await ui.waitFor(() => window.__copiedText, 'Transfer URL clipboard fallback completes');
 			const shared = JSON.stringify([...__leakageShares, __copiedText]);
 			for (const secret of [roster, password, phone, attack, 'BEGIN_DATA:']) {

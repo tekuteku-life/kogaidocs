@@ -1,7 +1,7 @@
 # 要件・外部仕様・内部仕様とテストのトレーサビリティ
 
 **作成日**: 2026年10月24日<br>
-**対象**: kogaidocs 2.8.4<br>
+**対象**: kogaidocs 2.10.0（過去の検証結果は各記録の対象版による）<br>
 **対応文書**: [要件定義書](requirements.md)、[外部仕様書](external_design.md)、[内部仕様書](internal_design.md)
 
 ## 1. 判定方法と適用範囲
@@ -54,7 +54,7 @@
 | R-04 / E-04 / I-02・I-04 | 読込パスワードの分離 | [neighbor.test.js:366](../tests/unit/neighbor.test.js#L366) `neighbor: loadNeighborTxt and loadPastedTextToNeighbor prioritize #neighbor-import-pass and ignore #neighbor-pass` | ファイル/貼付の復号に読込専用パスワードを渡し、保存用入力が復号パスワードに混入しないことを確認する。 |
 | R-04 / E-04 / I-04 | 自治会年度更新 | [neighbor.test.js:297](../tests/unit/neighbor.test.js#L297) `neighbor: runNeighborYearUpdate resets personal info and keeps roles` | 役職は残し氏名/連絡先等を消去する。実UIの取消/確定は上記498行の試験でも確認する。 |
 | R-05 / E-05 / I-03 | 転入の提出必須項目 | [transfer.test.js:437](../tests/unit/transfer.test.js#L437) `exportTransferTxt and copyTransferEncryptedText require address and tel (mandatory fields)` | 住所/電話の欠落時はファイルとコピーを拒否し、全必須値がある場合に出力する。氏名・0件は [transfer.test.js:196](../tests/unit/transfer.test.js#L196) `exportTransferTxt and copyTransferEncryptedText validate empty children and invalid password` と対応する。 |
-| R-05 / E-05 / I-04 | 兄弟姉妹・暗号出力・リセット | [headless-workflows.test.js:251](../tests/system/headless-workflows.test.js#L251) `UI transfer: sibling inheritance, encryption download/copy, cancel/delete and reset` | 兄弟行の住所等継承、実暗号文の復号内容、コピー、削除取消、リセットを確認する。 |
+| R-05 / E-05 / I-04 | 兄弟姉妹・暗号出力・リセット | [headless-workflows.test.js:251](../tests/system/headless-workflows.test.js#L251) `UI transfer: sibling inheritance, encryption download/copy, cancel/delete and reset` | 家庭連絡先の共有、実暗号文の復号内容、コピー、削除取消、リセットを確認する。 |
 | R-05 / E-05 / I-03 | 未入力下書き保存 | [security-state.test.js:55](../tests/unit/security-state.test.js#L55) `security: an empty transfer draft is valid local data despite submission requirements` | `{children: [], memo: '下書き'}` を復元できることを検査し、提出要件と保存要件の誤混同を防止する。 |
 
 ## 3. 統合・旗振り・座席の追跡
@@ -235,7 +235,7 @@ SEC-18/19先行Redの記録は64件中7件合格・57件失敗であり、本番
 | E-04-03 | 第4節「自治会名簿と名札の項目意味」、第8節名札組版 | 実OS印刷と折り精度は未検証である。 |
 | E-04-04 | 第2節「読込パスワードの分離」「自治会年度更新」、第9節SEC-18、第11節保存カード構造 | モック上の存在検査を実DOMの一意性/包含/配置順/最下部配置で補完した。 |
 | E-05-01 | 第2節「転入の提出必須項目」「兄弟姉妹・暗号出力・リセット」 | [headless-workflows:237](../tests/system/headless-workflows.test.js#L237) `UI transfer validation: blank ${field} blocks both file and clipboard` が空白必須値を検査する。 |
-| E-05-02 | 第5節提出暗号・[transfer:101](../tests/unit/transfer.test.js#L101) `exportTransferTxt and copyTransferEncryptedText generate valid transfer payload` | ファイル名の姓、`isTransferData` と児童値の復号を検査する。 |
+| E-05-02 | 第5節提出暗号・[transfer:101](../tests/unit/transfer.test.js#L101) `exportTransferTxt and copyTransferEncryptedText generate valid transfer payload` | 個人名を含まない固定ファイル名、`isTransferData` と児童値の復号を検査する。 |
 | E-05-03 | 第2節「兄弟姉妹・暗号出力・リセット」、上記転入101行 | コピーした暗号文を実復号し種別を検査する。 |
 | E-05-04 | 第2節「URL共有と利用者取消」、第9節アプリURL非漏洩 | `mode=transfer` を確認する。OS共有先の実配送は未検証である。 |
 | E-05-05 | 第2節「兄弟姉妹・暗号出力・リセット」・[headless-workflows:251](../tests/system/headless-workflows.test.js#L251) | 確認付きリセットと保存済み入力の消去を検査する。 |
@@ -316,3 +316,7 @@ SEC-18/19先行Redの記録は64件中7件合格・57件失敗であり、本番
 | R-03〜R-06・R-08・R-12 / SEC-21 | 同UI試験は地区/代表/自治会/公式JSON/地区への自治会統合/代表への地区・自治会統合/地区・代表への転入統合の9経路について、平文と暗号化先それぞれで実保存APIの失敗、旧4モデル・全保存値の保持、保存失敗通知、同名ファイルの正常再試行を確認する。保存完了後の継続を止め、実ロックしても旧個人情報が画面へ戻らないことも確認する。 | 実Chromium、実保存Promise、Storage APIの容量例外を制御する。 |
 
 既存の4モードCRUD・年度更新・座席同定・全12帳票・PWA案内・認証/ロック・CSP/改ざん/予約キーのアサーションも全体/UI一式で再実行する。詳細な再現、試験側の待機/モデル参照の是正、最終測定値と未検証境界は [review66](reviews/review66_saved_data_security_audit.md) に記録する。
+
+## 家庭情報入力の改修（2026年11月11日）
+
+R-05 / E-05 / I-03・I-04 の追加観点は `tests/unit/household-transfer.test.js` と `tests/system/headless-household.test.js` に対応する。家庭欄の型・必須検査、旧下書き移行、兄弟追加、復元・消去、暗号文の復号内容、固定ファイル名、地区・代表への住所・電話番号の保持、共有ボタン集約、パスワード案内を検査する。実行結果および未実施工程は [review67](reviews/review67_household_information_verification.md) へ記載する。実機のLINE配送・本番更新は検証対象外である。
