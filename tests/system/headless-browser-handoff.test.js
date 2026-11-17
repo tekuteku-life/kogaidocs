@@ -45,6 +45,7 @@ scenario('UI handoff: LINE warning, encrypted file, unfinished transfer and unsa
 	await clearStorageSecurity();
 	clearMemoryAndDomForLock();
 	assert.strictEqual(localStorage.getItem('kogai_district_v2'), null, 'Destination starts with no shared source storage');
+	await ui.ensureSecure();
 	await ui.click('header [data-click="openBrowserHandoff"]');
 	await ui.file('#handoff-file', encrypted, 'handoff.txt');
 	ui.fill('#handoff-restore-pass', 'HandoffTest123!');

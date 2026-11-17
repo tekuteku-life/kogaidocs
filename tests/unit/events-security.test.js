@@ -19,7 +19,7 @@ const simpleButtons = [
 	'printNeighborTentCards', 'exportNeighborTxt', 'copyNeighborEncryptedText',
 	'loadPastedTextToNeighbor', 'runNeighborYearUpdate', 'addTransferChildRow',
 	'exportTransferTxt', 'copyTransferEncryptedText', 'resetTransferForm', 'handlePasswordUnlock',
-	'handleResetStorageConfirm', 'closeStorageSettingsModal', 'closeAddDistrictModal',
+	'handleResetStorageConfirm', 'closeStorageAccessModal', 'closeStorageSettingsModal', 'closeAddDistrictModal',
 	'closeRepDistrictDetailModalWithoutSaving', 'addModalOfficerRow', 'addModalStudentRow',
 	'addModalNeighborRow', 'saveAndCloseRepDistrictDetailModal', 'handleEnableEncryptionSubmit',
 	'handleAddOrUpdateBiometric', 'handleImmediateLock'
@@ -368,4 +368,29 @@ test('events: household inputs update shared contacts and reject unrelated field
 		fire('input', 'updateTransferHousehold', { field }, '不正な値');
 		assert.deepEqual(calls, []);
 	}
+});
+
+
+test('events: protected officer events are rejected and selection is allowed only inside the focused form', () => {
+	fresh();
+	document.body.classList.add('officer-storage-required');
+	const button = element('click', 'addOfficer');
+	button.closest = () => document.getElementById('tab-district');
+	const event = eventFor('click', button);
+	dispatchUiEvent(event);
+	assert.equal(event.defaultPrevented, true);
+	assert.equal(calls.length, 0);
+	const { guardPrivateSelection } = require('../../js/events');
+	const input = new MockElement('input');
+	input.closest = selector => selector === 'input, textarea' ? input : null;
+	document.activeElement = input;
+	for (const type of ['copy', 'cut', 'selectstart']) {
+		const inside = eventFor(type, input); guardPrivateSelection(inside);
+		assert.equal(inside.defaultPrevented, false, type);
+	}
+	document.activeElement = null;
+	const inactive = eventFor('copy', input); guardPrivateSelection(inactive);
+	assert.equal(inactive.defaultPrevented, true);
+	const outside = eventFor('copy', null); guardPrivateSelection(outside);
+	assert.equal(outside.defaultPrevented, true);
 });

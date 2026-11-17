@@ -139,6 +139,7 @@ function validateNeighborPasswords() {
 }
 
 async function exportNeighborTxt() {
+	const outputIsCurrent = captureStorageOutputGuard();
 	saveNeighborLocal();
 	const distName = (neighborState.district || "").trim();
 	if (!distName) {
@@ -167,6 +168,7 @@ async function exportNeighborTxt() {
 	};
 
 	const encoded = await encryptPayload(JSON.stringify(payload), pass);
+	if (!outputIsCurrent()) return false;
 	const dateStr = new Date().toISOString().slice(0, 10);
 	const content = [
 		`--- 校外委員会 自治会役員データ (${distName} / 出力日:${dateStr}) ---`,
@@ -179,6 +181,7 @@ async function exportNeighborTxt() {
 }
 
 async function copyNeighborEncryptedText() {
+	const outputIsCurrent = captureStorageOutputGuard();
 	saveNeighborLocal();
 	const distName = (neighborState.district || "").trim();
 	if (!distName) {
@@ -202,6 +205,7 @@ async function copyNeighborEncryptedText() {
 		neighborhood: neighborState.neighborhood || []
 	};
 	const encoded = await encryptPayload(JSON.stringify(payload), pass);
+	if (!outputIsCurrent()) return false;
 	const text = `BEGIN_DATA:\n${encoded}\n:END_DATA`;
 
 	if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -212,6 +216,7 @@ async function copyNeighborEncryptedText() {
 		} catch (e) {}
 	}
 	// フォールバック
+	if (!outputIsCurrent()) return false;
 	const box = document.getElementById('neighbor-paste-box');
 	if (box) {
 		box.value = text;

@@ -1,3 +1,10 @@
+// 初期化時に有効化し、旧平文の読込移行と役員データの新規平文保存を分離する。
+const officerStorageEncryptionRequired = new WeakSet();
+function requireOfficerStorageEncryption() { officerStorageEncryptionRequired.add(localStorage); }
+function officerPlaintextWriteDenied(storageKey) {
+	return officerStorageEncryptionRequired.has(localStorage) && ['kogai_district_v2', 'kogai_rep_v2'].includes(storageKey) && !isStorageEncrypted();
+}
+
 /* =========================================================================
    暗号化・復号（AES-GCM + PBKDF2 + WebAuthn PRF + Base64）
 ========================================================================= */
@@ -144,6 +151,17 @@ function assertStorageSession(generation) {
 	}
 }
 
+function captureStorageOutputGuard() {
+	const generation = getStorageSessionGeneration();
+	let authSnapshot;
+	try { authSnapshot = localStorage.getItem(STORAGE_AUTH_KEY); }
+	catch (_) { return () => false; }
+	return () => {
+		try { return generation === getStorageSessionGeneration() && localStorage.getItem(STORAGE_AUTH_KEY) === authSnapshot; }
+		catch (_) { return false; }
+	};
+}
+
 function storageAdditionalData(storageKey) {
 	return new TextEncoder().encode(STORAGE_AAD_PREFIX + storageKey);
 }
@@ -247,8 +265,13 @@ function activeStorageSessionIsCurrent() {
  * ストレージが暗号化設定されているか判定します
  */
 function isStorageEncrypted() {
-	const raw = localStorage.getItem(STORAGE_AUTH_KEY);
-	return raw !== null || hasStorageCiphertext() || activeStorageAuthSnapshot !== null || storageSecurityInvalidated;
+	try {
+		const raw = localStorage.getItem(STORAGE_AUTH_KEY);
+		return raw !== null || hasStorageCiphertext() || activeStorageAuthSnapshot !== null || storageSecurityInvalidated;
+	} catch (_) {
+		invalidateStorageSession();
+		return true;
+	}
 }
 
 /**
@@ -256,7 +279,8 @@ function isStorageEncrypted() {
  */
 function isStorageUnlocked() {
 	if (!isStorageEncrypted()) return true;
-	return activeStorageSessionIsCurrent();
+	try { return activeStorageSessionIsCurrent(); }
+	catch (_) { invalidateStorageSession(); return false; }
 }
 
 /**
@@ -513,7 +537,8 @@ function writeStorageTransaction(entries) {
 	}
 }
 
-async function activateStorageKey(masterKey, meta, authSnapshot, generation, password) {
+async function activateStorageKey(masterKey, meta, authSnapshot, generation, password, guard = () => {}) {
+	guard();
 	assertStorageContext(generation, authSnapshot);
 	const values = [];
 	for (const key of STORAGE_DATA_KEYS) {
@@ -541,6 +566,7 @@ async function activateStorageKey(masterKey, meta, authSnapshot, generation, pas
 		}
 		assertStorageContext(generation, authSnapshot);
 	}
+	guard();
 	let committedAuth = authSnapshot;
 	if (encoded.length || upgradedPassword) {
 		const migratedMeta = {
@@ -567,7 +593,8 @@ async function activateStorageKey(masterKey, meta, authSnapshot, generation, pas
 /**
  * ストレージ暗号化を初期化・設定します（パスワード必須、生体認証は任意）
  */
-async function setupStorageEncryptionUnlocked(password, enableBiometric = false) {
+async function setupStorageEncryptionUnlocked(password, enableBiometric = false, guard = () => {}) {
+	guard();
 	const generation = getStorageSessionGeneration();
 	const authSnapshot = localStorage.getItem(STORAGE_AUTH_KEY);
 	if (isStorageEncrypted() && !activeStorageSessionIsCurrent()) throw new Error('STORAGE_LOCKED');
@@ -611,6 +638,7 @@ async function setupStorageEncryptionUnlocked(password, enableBiometric = false)
 	const encoded = [];
 	for (let i = 0; i < data.length; i++) encoded.push(await encryptStorageValue(JSON.stringify(data[i]), masterKey, STORAGE_DATA_KEYS[i]));
 	assertStorageContext(generation, authSnapshot);
+	guard();
 	const metaRaw = JSON.stringify(meta);
 	writeStorageTransaction([...STORAGE_DATA_KEYS.map((key, index) => [key, encoded[index]]), [STORAGE_AUTH_KEY, metaRaw]]);
 	storageSessionGeneration++;
@@ -620,8 +648,8 @@ async function setupStorageEncryptionUnlocked(password, enableBiometric = false)
 	return { success: true, biometric: biometricSuccess };
 }
 
-async function setupStorageEncryption(password, enableBiometric = false) {
-	return withStorageLock('exclusive', () => setupStorageEncryptionUnlocked(password, enableBiometric), true);
+async function setupStorageEncryption(password, enableBiometric = false, guard) {
+	return withStorageLock('exclusive', () => setupStorageEncryptionUnlocked(password, enableBiometric, guard), true);
 }
 
 /**
@@ -661,24 +689,26 @@ async function registerWebAuthnForActiveKey() {
 /**
  * パスワードを入力してストレージの暗号化を解除します
  */
-async function unlockStorageWithPasswordUnlocked(password) {
+async function unlockStorageWithPasswordUnlocked(password, guard = () => {}) {
+	guard();
 	const generation = getStorageSessionGeneration();
 	const authSnapshot = localStorage.getItem(STORAGE_AUTH_KEY);
 	if (authSnapshot === null && !hasStorageCiphertext() && !storageSecurityInvalidated) return true;
 	const meta = requireStorageAuthMeta(authSnapshot);
 	const masterKey = await unwrapKeyWithPassword(meta.password, password);
-	await activateStorageKey(masterKey, meta, authSnapshot, generation, password);
+	await activateStorageKey(masterKey, meta, authSnapshot, generation, password, guard);
 	return true;
 }
 
-async function unlockStorageWithPassword(password) {
-	return withStorageLock('exclusive', () => unlockStorageWithPasswordUnlocked(password), true);
+async function unlockStorageWithPassword(password, guard) {
+	return withStorageLock('exclusive', () => unlockStorageWithPasswordUnlocked(password, guard), true);
 }
 
 /**
  * 生体認証（WebAuthn）でストレージの暗号化を解除します
  */
-async function unlockStorageWithWebAuthnUnlocked() {
+async function unlockStorageWithWebAuthnUnlocked(guard = () => {}) {
+	guard();
 	const generation = getStorageSessionGeneration();
 	const authSnapshot = localStorage.getItem(STORAGE_AUTH_KEY);
 	if (authSnapshot === null && !hasStorageCiphertext() && !storageSecurityInvalidated) return true;
@@ -687,12 +717,12 @@ async function unlockStorageWithWebAuthnUnlocked() {
 		throw new Error("生体認証は登録されていません。パスワードで解除してください。");
 	}
 	const masterKey = await unwrapKeyWithWebAuthn(meta.webauthn);
-	await activateStorageKey(masterKey, meta, authSnapshot, generation);
+	await activateStorageKey(masterKey, meta, authSnapshot, generation, undefined, guard);
 	return true;
 }
 
-async function unlockStorageWithWebAuthn() {
-	return withStorageLock('exclusive', unlockStorageWithWebAuthnUnlocked, true);
+async function unlockStorageWithWebAuthn(guard) {
+	return withStorageLock('exclusive', () => unlockStorageWithWebAuthnUnlocked(guard), true);
 }
 
 /**
@@ -723,6 +753,7 @@ async function clearStorageSecurity() {
  */
 async function saveStorageDataUnlocked(storageKey, serialized) {
 	if (!isStorageEncrypted()) {
+		if (officerPlaintextWriteDenied(storageKey)) return false;
 		localStorage.setItem(storageKey, serialized);
 		return true;
 	}
@@ -790,6 +821,7 @@ async function replaceStoredAppData(models, guard = () => {}) {
 		guard();
 		const authSnapshot = localStorage.getItem(STORAGE_AUTH_KEY);
 		const encrypted = isStorageEncrypted();
+		if (officerPlaintextWriteDenied('kogai_district_v2')) throw new Error('STORAGE_ENCRYPTION_REQUIRED');
 		const key = activeStorageKey;
 		const entries = [];
 		for (let index = 0; index < STORAGE_DATA_KEYS.length; index++) {
@@ -834,6 +866,7 @@ async function loadStorageDecrypted(storageKey) {
 
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
+		captureStorageOutputGuard,
 		getStorageSessionGeneration,
 		commitImportedModel, adoptImportedModel,
 		assertStorageSession,
@@ -841,6 +874,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		STORAGE_AUTH_KEY,
 		WEBAUTHN_USER_ID,
 		deriveKey,
+		requireOfficerStorageEncryption, officerPlaintextWriteDenied,
 		encryptPayload,
 		decryptPayload,
 		uint8ToBase64,

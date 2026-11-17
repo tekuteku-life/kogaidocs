@@ -1087,7 +1087,9 @@ table.edit-table th { background: #f8fafc; font-weight: bold; white-space: nowra
 }
 
 .hata-accordion-content.open {
-	max-height: 400px;
+	max-height: min(400px, 60vh);
+	overflow-y: auto;
+	overscroll-behavior: contain;
 	opacity: 1;
 	margin-bottom: 12px;
 }
@@ -1100,6 +1102,8 @@ table.edit-table th { background: #f8fafc; font-weight: bold; white-space: nowra
 }
 
 .summary-item {
+	min-width: 0;
+	overflow-wrap: anywhere;
 	background: #fff;
 	border: 1px solid #cbd5e1;
 	border-radius: 4px;
@@ -1268,3 +1272,13 @@ table.edit-table th { background: #f8fafc; font-weight: bold; white-space: nowra
 #browser-handoff-dialog button { margin: 4px 0; }
 #handoff-status { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media print { #browser-handoff-dialog, .line-browser-notice { display: none; } }
+
+/* 初期描画・必須設定・ロック中にも役員データを露出しない。 */
+body.officer-storage-required #tab-district,
+body.officer-storage-required #tab-rep,
+[hidden] { display: none !important; }
+body { -webkit-user-select: none; user-select: none; }
+input, textarea { -webkit-user-select: text; user-select: text; }
+.access-mode-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.modal-card { max-height: calc(100dvh - 32px); }
+.modal-body { min-height: 0; overflow-y: auto; }

@@ -35,6 +35,7 @@ function prepareAudit() {
 			assert.ok(results.every(result => result !== false), 'Fixture autosaves finish before the rejection snapshot');
 		},
 		async encrypt() {
+			if (isStorageEncrypted()) { await setupStorageEncryption('AuditDestination123!'); sessionStorage.setItem('__uiDatabasePassword', 'AuditDestination123!'); return; }
 			await ui.click('#storage-security-badge');
 			ui.fill('#modal-set-pass', 'AuditDestination123!');
 			ui.fill('#modal-set-pass-confirm', 'AuditDestination123!');
@@ -93,7 +94,8 @@ auditTest('UI audit handoff: encrypted destination preserves its key and restore
 	assert.strictEqual(neighborState.district, '移動元自治会', 'Neighbor restored');
 	assert.strictEqual(transferState.children[0].lastName, '移動元の途中', 'Incomplete transfer restored');
 	assert.strictEqual(ui.element('#d-pass').value, '', 'Old submission password is cleared');
-}, { allowFileAccess: true, afterReload: async () => {
+}, { autoUnlock: false, allowFileAccess: true, afterReload: async () => {
+	await ui.mode('district');
 	await ui.waitFor(() => ui.visible('#storage-lock-modal'), 'Destination restart begins locked');
 	ui.fill('#modal-unlock-pass', 'AuditDestination123!');
 	await ui.click('[data-click="handlePasswordUnlock"]');
@@ -105,7 +107,7 @@ auditTest('UI audit handoff: encrypted destination preserves its key and restore
 } });
 
 for (const encrypted of [false, true]) {
-	auditTest(`UI audit handoff: ${encrypted ? 'encrypted' : 'plain'} quota failure preserves all stored values, models and DOM`, async () => {
+	auditTest(`UI audit handoff: ${encrypted ? 're-keyed encryption' : 'required encryption'} quota failure preserves all stored values, models and DOM`, async () => {
 		await ui.expand('district'); ui.fill('#d-name', '復元データ');
 		const text = await audit.create();
 		await ui.click('[data-click="clearBrowserHandoff"]');

@@ -236,6 +236,7 @@ function validateRepPasswords() {
 }
 
 async function exportRepMasterTxt() {
+	const outputIsCurrent = captureStorageOutputGuard();
 	saveRepLocal();
 	const pass = document.getElementById('rep-pass').value;
 	const confirmEl = document.getElementById('rep-pass-confirm');
@@ -253,6 +254,7 @@ async function exportRepMasterTxt() {
 	}
 
 	const encoded = await encryptPayload(JSON.stringify(repState), pass);
+	if (!outputIsCurrent()) return false;
 	const dateStr = new Date().toISOString().slice(0,10);
 	const content = [
 		`--- 校外委員会 代表統合マスターデータ (出力日:${dateStr}) ---`,
@@ -1042,6 +1044,7 @@ async function loadPastedTransferTextIntoRep(text) {
 }
 
 async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = 'download') {
+	const outputIsCurrent = captureStorageOutputGuard();
 	if (typeof index !== 'number' || index < 0 || !repState.districts || index >= repState.districts.length) {
 		return false;
 	}
@@ -1090,6 +1093,7 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 
 	try {
 		const encoded = await encryptPayload(JSON.stringify(singleDistrict), pass);
+		if (!outputIsCurrent()) return false;
 		const dateStr = new Date().toISOString().slice(0, 10);
 		const hanPart = singleDistrict.han ? `_${singleDistrict.han}` : "";
 		const fileName = `校外地区データ_${singleDistrict.district}${hanPart}_${dateStr}.txt`;
@@ -1134,6 +1138,7 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 		downloadTextFile(content, fileName);
 		return true;
 	} catch (err) {
+		if (!outputIsCurrent()) return false;
 		alert("切り出し出力に失敗しました: " + (err ? err.message : ""));
 		return false;
 	}
