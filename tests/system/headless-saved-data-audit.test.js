@@ -23,6 +23,7 @@ function prepareSavedAudit() {
 			await img.decode(); assert.ok(img.naturalWidth > 0, 'Network positive control loads');
 		},
 		async encrypt() {
+			if (isStorageEncrypted()) { await setupStorageEncryption(this.password); sessionStorage.setItem('__uiDatabasePassword', this.password); return; }
 			await ui.click('#storage-security-badge');
 			ui.fill('#modal-set-pass', this.password); ui.fill('#modal-set-pass-confirm', this.password);
 			await ui.click('#modal-btn-enable-enc');
@@ -83,7 +84,7 @@ savedTest('Saved-data UI: oversized roster strings, format and repetitive rows a
 });
 
 for (const encrypted of [false, true]) {
-	savedTest(`Saved-data UI: ${encrypted ? 'encrypted' : 'plain'} over-limit stored data is rejected before replacing live models`, async () => {
+	savedTest(`Saved-data UI: ${encrypted ? 're-keyed encryption' : 'required encryption'} over-limit stored data is rejected before replacing live models`, async () => {
 		await ui.expand('district'); ui.fill('#d-name', '保持する地区');
 		await savedAudit.flush();
 		if (window.__savedEncrypted) await savedAudit.encrypt();
@@ -91,7 +92,7 @@ for (const encrypted of [false, true]) {
 		const bad = JSON.parse(JSON.stringify(currentDistrict)); bad.hata.members = Array.from({ length: 10001 }, (_, i) => `担当${i}`).join('\n');
 		if (isStorageEncrypted()) {
 			const meta = getStorageAuthMeta();
-			const key = await unwrapKeyWithPassword(meta.password, savedAudit.password);
+			const key = await unwrapKeyWithPassword(meta.password, sessionStorage.getItem('__uiDatabasePassword') || savedAudit.password);
 			localStorage.setItem('kogai_district_v2', await encryptStorageValue(bad, key, 'kogai_district_v2'));
 		} else localStorage.setItem('kogai_district_v2', JSON.stringify(bad));
 		const stored = savedAudit.stored();
@@ -127,7 +128,7 @@ savedTest('Saved-data UI: hostile format, exemption attributes and unfinished in
 	savedAudit.noAttack();
 	await savedAudit.encrypt();
 	await savedAudit.flush();
-}, { observeNetwork: true, allowFileAccess: true, afterReload: async () => {
+}, { autoUnlock: false, observeNetwork: true, allowFileAccess: true, afterReload: async () => {
 	await ui.waitFor(() => ui.visible('#storage-lock-modal'), 'Encrypted restart is locked');
 	ui.fill('#modal-unlock-pass', savedAudit.password);
 	await ui.click('[data-click="handlePasswordUnlock"]'); await savedAudit.pending.handlePasswordUnlock;
@@ -171,7 +172,7 @@ savedTest('Saved-data UI: over-limit live roster and format stay drafts and repa
 } });
 
 for (const [route, encrypted] of ['district', 'rep', 'neighbor', 'official', 'districtNeighbor', 'repDistrict', 'repNeighbor', 'districtTransfer', 'repTransfer'].flatMap(route => [false, true].map(encrypted => [route, encrypted]))) {
-	savedTest(`Saved-data UI: ${encrypted ? 'encrypted' : 'plain'} ${route} file save failure preserves original models and storage and allows retry`, async () => {
+	savedTest(`Saved-data UI: ${encrypted ? 're-keyed encryption' : 'required encryption'} ${route} file save failure preserves original models and storage and allows retry`, async () => {
 		const route = window.__quotaRoute;
 		await ui.expand('district'); ui.fill('#d-name', '保持する地区');
 		ui.fill('#hata-members', '保持する担当');

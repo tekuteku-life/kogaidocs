@@ -28,7 +28,7 @@
 <script src="js/app.js"></script>
 <script src="js/events.js"></script>
 </head>
-<body>
+<body class="officer-storage-required">
 
 <header class="no-print">
 	<div class="header-main">
@@ -70,6 +70,14 @@
 	<!-- =========================================================================
 	       タブ1：各地区役員モード
 	========================================================================== -->
+	<div id="officer-access-gate" class="card" hidden>
+		<p>地区・代表モードの利用には、この端末のデータベースの暗号化設定・ロック解除が必要です。上部のモード切替から自治会・家庭情報入力モードへ移動できます。</p>
+		<button type="button" class="btn" data-click="openStorageSettingsModal">暗号化設定・ロック解除</button>
+	</div>
+	<div id="guest-storage-notice" class="card" role="status" hidden>
+		保存済みデータはロック中です。ここでの新規入力はこの画面限りであり、再読込すると消えます。提出用ファイルの出力・コピーは利用できます。データベースを解除すると入力は保存済みデータに置き換わるため、先に提出用ファイルへ出力してください。
+	</div>
+
 	<div id="tab-district">
 
 		<div class="collapse-all-bar">
@@ -1012,7 +1020,7 @@
 		<div class="modal-body">
 			<p class="modal-desc">
 				個人情報保護のため、端末内に保存されたデータは暗号化されています。<br>
-				生体認証またはパスワードでロックを解除してください。
+				生体認証または端末データベース用パスワードでロックを解除してください。出力・提出用パスワードとは別のものです。
 			</p>
 			<div id="webauthn-unlock-section" style="display:none; margin-bottom:16px; text-align:center;">
 				<button type="button" class="btn btn-success btn-lg" style="width:100%; justify-content:center;" data-click="handleWebAuthnUnlock">
@@ -1022,13 +1030,18 @@
 			</div>
 			<form data-submit="preventSubmit" autocomplete="on">
 				<div class="form-group">
-					<label>保存用パスワード</label>
+					<label>端末データベース用パスワード</label>
 					<div class="pass-input-group">
 						<input type="password" id="modal-unlock-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" data-input="sanitizePasswordInput" data-keydown="unlockOnEnter">
 						<button type="button" class="btn-toggle-pass" data-click="togglePasswordVisibility" data-password-target="modal-unlock-pass" title="表示/非表示">👁️</button>
 					</div>
 				</div>
 			</form>
+			<div class="access-mode-actions">
+				<button type="button" class="btn btn-outline" data-click="closeStorageAccessModal">閉じてモードを選ぶ</button>
+				<button type="button" class="btn btn-outline" data-click="switchTab" data-mode="neighbor">自治会モードへ</button>
+				<button type="button" class="btn btn-outline" data-click="switchTab" data-mode="transfer">家庭情報入力モードへ</button>
+			</div>
 			<div id="modal-unlock-error" class="pass-feedback-msg" style="color:var(--danger); margin-top:8px;"></div>
 			<div class="flex-row" style="margin-top:16px; justify-content:space-between; flex-wrap:wrap; gap:8px;">
 				<button type="button" class="btn btn-danger btn-sm" data-click="handleResetStorageConfirm">🗑️ 保存データを消去・初期化</button>

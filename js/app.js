@@ -2,11 +2,64 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
-const CURRENT_APP_VERSION = "2.10.0";
+const CURRENT_APP_VERSION = "2.11.0";
 let deferredInstallPrompt = null;
 let pwaInstallationCompleted = false;
+let activeAppMode = null;
+let appAccessInitialized = false;
+let storageAccessEpoch = 0;
+let storageAccessBusy = false;
+
+function cancelStorageAccess() {
+	storageAccessEpoch++;
+	if (storageAccessBusy) {
+		const clear = isStorageEncrypted() && isStorageUnlocked();
+		lockStorage();
+		if (clear) clearMemoryAndDomForLock();
+	}
+	storageAccessBusy = false;
+}
+
+function beginStorageAccess() {
+	cancelStorageAccess();
+	storageAccessBusy = true;
+	const epoch = storageAccessEpoch;
+	return {
+		current: () => epoch === storageAccessEpoch,
+		guard: () => { if (epoch !== storageAccessEpoch) throw new Error('STORAGE_ACCESS_CANCELLED'); }
+	};
+}
+
+function updateOfficerAccess(prompt = false) {
+	const blocked = !isStorageEncrypted() || !isStorageUnlocked();
+	const officerMode = activeAppMode === 'district' || activeAppMode === 'rep';
+	document.body.classList.toggle('officer-storage-required', blocked);
+	for (const mode of ['district', 'rep']) {
+		const tab = document.getElementById(`tab-${mode}`);
+		if (tab) tab.inert = blocked;
+	}
+	const gate = document.getElementById('officer-access-gate');
+	if (gate) gate.hidden = !(blocked && officerMode);
+	const notice = document.getElementById('guest-storage-notice');
+	if (notice) notice.hidden = !(isStorageEncrypted() && !isStorageUnlocked() && !officerMode);
+	if (prompt && blocked && officerMode) {
+		if (isStorageEncrypted()) showStorageUnlockModal();
+		else openStorageSettingsModal();
+	}
+}
+
+function closeStorageAccessModal() {
+	hideStorageUnlockModal();
+}
+
 
 function switchTab(mode) {
+	if (!['district', 'rep', 'neighbor', 'transfer'].includes(mode)) return;
+	activeAppMode = mode;
+	if (appAccessInitialized) {
+		hideStorageUnlockModal();
+		closeStorageSettingsModal();
+	}
 	const tabD = document.getElementById('tab-district');
 	const tabR = document.getElementById('tab-rep');
 	const tabN = document.getElementById('tab-neighbor');
@@ -74,6 +127,7 @@ function switchTab(mode) {
 			badgeText.textContent = '④ 家庭情報入力モード ▼ [モード切替]';
 		}
 	}
+	if (appAccessInitialized) updateOfficerAccess(true);
 }
 
 /**
@@ -227,8 +281,8 @@ function updateSecurityBadge(status) {
 		badge.title = "端末内保存データはAES-256-GCMで暗号化されています。クリックでセキュリティ設定を開きます。";
 	} else {
 		badge.classList.add('is-plain');
-		badge.innerHTML = '🔓 ストレージ未暗号化 <span class="badge-hint">（安全のため設定推奨）</span>';
-		badge.title = "端末内に平文で保存されています。クリックしてパスワード・生体認証による暗号化を設定できます。";
+		badge.innerHTML = '🔓 ストレージ未暗号化 <span class="badge-hint">（地区・代表モードでは設定必須）</span>';
+		badge.title = "地区・代表モードの利用には端末データベースの暗号化設定が必要です。";
 	}
 }
 
@@ -238,6 +292,7 @@ function updateSecurityBadge(status) {
 function showStorageUnlockModal() {
 	const modal = document.getElementById('storage-lock-modal');
 	if (!modal) return;
+	cancelStorageAccess();
 	modal.style.display = 'flex';
 
 	const meta = getStorageAuthMeta();
@@ -264,8 +319,11 @@ function showStorageUnlockModal() {
  * ロック解除モーダルを閉じます
  */
 function hideStorageUnlockModal() {
+	cancelStorageAccess();
 	const modal = document.getElementById('storage-lock-modal');
 	if (modal) modal.style.display = 'none';
+	const pass = document.getElementById('modal-unlock-pass');
+	if (pass) { pass.value = ''; pass.type = 'password'; }
 }
 
 /**
@@ -276,17 +334,21 @@ async function handleWebAuthnUnlock(silent = false) {
 	const errEl = document.getElementById('modal-unlock-error');
 	if (errEl) errEl.textContent = "";
 
+	const access = beginStorageAccess();
 	try {
-		await unlockStorageWithWebAuthn();
+		await unlockStorageWithWebAuthn(access.guard);
 		const generation = getStorageSessionGeneration();
-		await loadAppDataFromStorage();
+		await loadAppDataFromStorage(access.guard);
+		access.guard();
 		assertStorageSession(generation);
 		renderDistrictForm();
 		renderRepAll();
 		if (typeof renderNeighborForm === 'function') renderNeighborForm();
 		if (typeof renderTransferForm === 'function') renderTransferForm();
+		storageAccessBusy = false;
 		hideStorageUnlockModal();
 		updateSecurityBadge('unlocked');
+		if (appAccessInitialized) updateOfficerAccess();
 		const pass = document.getElementById('modal-unlock-pass');
 		if (pass) pass.value = '';
 		setAllCardsCollapse(true, 'tab-district');
@@ -295,10 +357,13 @@ async function handleWebAuthnUnlock(silent = false) {
 		setAllCardsCollapse(true, 'tab-transfer');
 		resetAutoLockTimer();
 	} catch (err) {
+		if (!access.current()) return;
+		storageAccessBusy = false;
 		console.warn("WebAuthn unlock failed:", err);
 		lockStorage();
 		clearMemoryAndDomForLock();
 		updateSecurityBadge('locked');
+		if (appAccessInitialized) updateOfficerAccess();
 		showStorageUnlockModal();
 		if (!silent && errEl) {
 			errEl.textContent = err.message || "生体認証に失敗しました。パスワードで解除してください。";
@@ -320,17 +385,21 @@ async function handlePasswordUnlock() {
 		return;
 	}
 
+	const access = beginStorageAccess();
 	try {
-		await unlockStorageWithPassword(password);
+		await unlockStorageWithPassword(password, access.guard);
 		const generation = getStorageSessionGeneration();
-		await loadAppDataFromStorage();
+		await loadAppDataFromStorage(access.guard);
+		access.guard();
 		assertStorageSession(generation);
 		renderDistrictForm();
 		renderRepAll();
 		if (typeof renderNeighborForm === 'function') renderNeighborForm();
 		if (typeof renderTransferForm === 'function') renderTransferForm();
+		storageAccessBusy = false;
 		hideStorageUnlockModal();
 		updateSecurityBadge('unlocked');
+		if (appAccessInitialized) updateOfficerAccess();
 		if (passInput) passInput.value = '';
 		setAllCardsCollapse(true, 'tab-district');
 		setAllCardsCollapse(true, 'tab-rep');
@@ -338,10 +407,13 @@ async function handlePasswordUnlock() {
 		setAllCardsCollapse(true, 'tab-transfer');
 		resetAutoLockTimer();
 	} catch (err) {
+		if (!access.current()) return;
+		storageAccessBusy = false;
 		console.warn("Password unlock failed:", err);
 		lockStorage();
 		clearMemoryAndDomForLock();
 		updateSecurityBadge('locked');
+		if (appAccessInitialized) updateOfficerAccess();
 		showStorageUnlockModal();
 		if (errEl) {
 			errEl.textContent = err && err.message === 'STORAGE_LOCKS_UNAVAILABLE'
@@ -369,6 +441,8 @@ function openStorageSettingsModal() {
 	const modal = document.getElementById('storage-settings-modal');
 	const bodyEl = document.getElementById('settings-modal-body');
 	if (!modal || !bodyEl) return;
+	cancelStorageAccess();
+	if (isStorageEncrypted() && !isStorageUnlocked()) { showStorageUnlockModal(); return; }
 
 	const meta = getStorageAuthMeta();
 	const isEnc = isStorageEncrypted();
@@ -397,11 +471,12 @@ function openStorageSettingsModal() {
 	if (!isEnc) {
 		html = `
 			<p class="modal-desc">
-				現在、ブラウザのローカルストレージに個人情報が平文で保存されています。<br>
-				パスワードおよび生体認証（Touch ID / Windows Hello / 指紋認証等）を設定して、<strong>AES-256-GCM暗号化</strong>を有効化することをお勧めします。
+				地区・代表モードの利用には、<strong>このデバイス上のデータベースを暗号化するパスワード</strong>の設定が必要です。<br>
+				これは<strong>出力・提出用パスワードではありません</strong>。端末内の全モードの保存データを保護し、次回起動時のロック解除に使います。<br>
+				既存の保存データもAES-256-GCMで暗号化します。パスワードを忘れると復元できないため、大切に保管してください。
 			</p>
 			<div class="form-group" style="margin-bottom:12px;">
-				<label>暗号化パスワード（半角英数大文字・小文字・記号12文字以上）</label>
+				<label>端末データベース用パスワード（半角英数記号12文字以上）</label>
 				<div class="pass-input-group">
 					<input type="password" id="modal-set-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" data-input="modalPasswordInput">
 					<button type="button" class="btn-toggle-pass" data-click="togglePasswordVisibility" data-password-target="modal-set-pass" title="表示/非表示">👁️</button>
@@ -426,9 +501,14 @@ function openStorageSettingsModal() {
 				</div>
 			`}
 			<div class="flex-row" style="justify-content:flex-end; gap:8px;">
-				<button type="button" class="btn btn-outline" data-click="closeStorageSettingsModal">キャンセル</button>
+				<button type="button" class="btn btn-outline" data-click="closeStorageSettingsModal">閉じてモードを選ぶ</button>
 				<button type="button" class="btn" id="modal-btn-enable-enc" data-click="handleEnableEncryptionSubmit">🔒 暗号化を有効化</button>
 			</div>
+			<div class="access-mode-actions">
+				<button type="button" class="btn btn-outline" data-click="switchTab" data-mode="neighbor">自治会モードへ</button>
+				<button type="button" class="btn btn-outline" data-click="switchTab" data-mode="transfer">家庭情報入力モードへ</button>
+			</div>
+			<p class="help-text">個人情報のスクリーンショット・画面収録は禁止です。ただし、Webアプリから技術的に阻止することはできません。入力フォームでコピーした情報にも有効期限は設定できません。端末のクリップボード履歴や共有先にもご注意ください。</p>
 			${versionHtml}
 		`;
 	} else {
@@ -453,6 +533,11 @@ function openStorageSettingsModal() {
 					🗑️ 保存データを全消去して初期化
 				</button>
 			</div>
+			<div class="access-mode-actions">
+				<button type="button" class="btn btn-outline" data-click="switchTab" data-mode="neighbor">自治会モードへ</button>
+				<button type="button" class="btn btn-outline" data-click="switchTab" data-mode="transfer">家庭情報入力モードへ</button>
+			</div>
+			<p class="help-text">個人情報のスクリーンショット・画面収録は禁止です。ただし、Webアプリから技術的に阻止することはできません。入力フォームでコピーした情報にも有効期限は設定できません。端末のクリップボード履歴や共有先にもご注意ください。</p>
 			${versionHtml}
 			<div class="flex-row" style="justify-content:flex-end; margin-top:16px;">
 				<button type="button" class="btn btn-outline" data-click="closeStorageSettingsModal">閉じる</button>
@@ -468,8 +553,11 @@ function openStorageSettingsModal() {
  * セキュリティ設定モーダルを閉じます
  */
 function closeStorageSettingsModal() {
+	cancelStorageAccess();
 	const modal = document.getElementById('storage-settings-modal');
 	if (modal) modal.style.display = 'none';
+	const body = document.getElementById('settings-modal-body');
+	if (body) body.innerHTML = '';
 }
 
 /**
@@ -527,13 +615,19 @@ async function handleEnableEncryptionSubmit() {
 		return;
 	}
 
+	const access = beginStorageAccess();
 	try {
-		const result = await setupStorageEncryption(p1, enableBio);
+		const result = await setupStorageEncryption(p1, enableBio, access.guard);
+		access.guard();
+		storageAccessBusy = false;
 		alert(`端末内保存（LocalStorage）の暗号化を有効化しました！\n${result.biometric ? '生体認証（WebAuthn）も登録完了しました。次回から生体認証でワンタッチ解除可能です。' : ''}`);
 		closeStorageSettingsModal();
 		updateSecurityBadge('unlocked');
+		if (appAccessInitialized) updateOfficerAccess();
 		resetAutoLockTimer();
 	} catch (err) {
+		if (!access.current()) return;
+		storageAccessBusy = false;
 		alert("暗号化の有効化に失敗しました: " + err.message);
 	}
 }
@@ -682,7 +776,8 @@ function handleImmediateLock() {
 	clearMemoryAndDomForLock();
 	closeStorageSettingsModal();
 	updateSecurityBadge('locked');
-	showStorageUnlockModal();
+	if (appAccessInitialized) updateOfficerAccess(true);
+	else showStorageUnlockModal();
 }
 
 /**
@@ -727,6 +822,7 @@ async function quickSetupEncryptionFromCard(inputId) {
 		await saveDistrictLocal();
 		alert(`このパスワードで端末内保存（LocalStorage）の暗号化を有効化しました！\n${result.biometric ? '生体認証の登録も完了しました。' : ''}`);
 		updateSecurityBadge('unlocked');
+		if (appAccessInitialized) updateOfficerAccess();
 		resetAutoLockTimer();
 	} catch (err) {
 		alert("暗号化設定に失敗しました: " + err.message);
@@ -736,7 +832,7 @@ async function quickSetupEncryptionFromCard(inputId) {
 /**
  * ストレージから復号してアプリデータをロード・正規化します
  */
-async function loadAppDataFromStorage() {
+async function loadAppDataFromStorage(guard = () => {}) {
 	const generation = getStorageSessionGeneration();
 	const keys = ['kogai_district_v2', 'kogai_rep_v2', 'kogai_neighbor_v2', 'kogai_transfer_v2'];
 	const current = [currentDistrict, repState, neighborState, transferState];
@@ -792,6 +888,7 @@ async function loadAppDataFromStorage() {
 	}
 	neighbor.neighborhood.forEach(normalizeNameFields);
 	assertStorageSession(generation);
+	guard();
 	currentDistrict = district;
 	repState = representative;
 	neighborState = neighbor;
@@ -870,12 +967,22 @@ async function checkAppVersion(isManual = false) {
 		if (statusEl) statusEl.textContent = '最新バージョンを確認しています...';
 	}
 
+	const controller = new AbortController();
+	let versionTimer;
 	try {
-		const res = await fetch('./version.json?_t=' + Date.now(), { cache: 'no-store' });
-		if (!res.ok) {
-			throw new Error('HTTP ' + res.status);
-		}
-		const data = await res.json();
+		const data = await Promise.race([
+			(async () => {
+				const res = await fetch('./version.json?_t=' + Date.now(), { cache: 'no-store', signal: controller.signal });
+				if (!res.ok) throw new Error('HTTP ' + res.status);
+				return res.json();
+			})(),
+			new Promise((_, reject) => {
+				versionTimer = setTimeout(() => {
+					controller.abort();
+					reject(new Error('VERSION_CHECK_TIMEOUT'));
+				}, 5000);
+			})
+		]);
 		const remoteVersion = data && data.version ? data.version : null;
 
 		if (remoteVersion && isNewerVersion(remoteVersion, CURRENT_APP_VERSION)) {
@@ -918,6 +1025,7 @@ async function checkAppVersion(isManual = false) {
 			if (statusEl) statusEl.textContent = '更新確認に失敗しました。';
 		}
 	} finally {
+		clearTimeout(versionTimer);
 		if (isManual && updateBtn) {
 			updateBtn.disabled = false;
 			updateBtn.textContent = origBtnText;
@@ -1022,18 +1130,14 @@ window.addEventListener('DOMContentLoaded', async () => {
 	}
 
 	initAutoLockListeners();
+	requireOfficerStorageEncryption();
 
 	// ストレージ暗号化チェック
 	if (isStorageEncrypted()) {
 		updateSecurityBadge('locked');
-		showStorageUnlockModal();
-		// 生体認証が登録されている場合、スムーズな解除を試行
-		const meta = getStorageAuthMeta();
-		if (meta && meta.webauthn && isWebAuthnAvailable()) {
-			setTimeout(() => {
-				handleWebAuthnUnlock(true);
-			}, 300);
-		}
+		if (typeof renderNeighborForm === 'function') renderNeighborForm();
+		if (typeof renderTransferForm === 'function') renderTransferForm();
+
 	} else {
 		updateSecurityBadge('unencrypted');
 		try {
@@ -1054,7 +1158,15 @@ window.addEventListener('DOMContentLoaded', async () => {
 	}
 
 	// 直前選択モードの自動復元（A-3）
+	appAccessInitialized = true;
 	restoreActiveMode();
+	const meta = getStorageAuthMeta();
+	if (meta && meta.webauthn && isWebAuthnAvailable()) {
+		const epoch = storageAccessEpoch;
+		setTimeout(() => {
+			if (epoch === storageAccessEpoch && document.getElementById('storage-lock-modal')?.style.display === 'flex') handleWebAuthnUnlock(true);
+		}, 300);
+	}
 
 	// 起動時オンライン自動バージョンチェック（1秒遅延して初期描画完了後に実行）
 	if (typeof navigator !== 'undefined' && navigator.onLine) {
@@ -1067,6 +1179,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		CURRENT_APP_VERSION,
+		updateOfficerAccess, closeStorageAccessModal,
 		switchTab,
 		restoreActiveMode,
 		toggleModeSelector,

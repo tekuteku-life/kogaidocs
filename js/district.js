@@ -458,6 +458,7 @@ function validateDistrictPasswords() {
 }
 
 async function exportDistrictTxt() {
+	const outputIsCurrent = captureStorageOutputGuard();
 	saveDistrictLocal();
 	if (!currentDistrict.district) { alert("地区名を入力してください。"); return; }
 	const pass = document.getElementById('d-pass').value;
@@ -476,16 +477,19 @@ async function exportDistrictTxt() {
 	}
 
 	const hataSnapshot = JSON.stringify(currentDistrict.hata);
+	const outputDistrict = currentDistrict.district;
+	const outputHan = currentDistrict.han;
 	const encoded = await encryptPayload(JSON.stringify(currentDistrict), pass);
+	if (!outputIsCurrent()) return false;
 	const dateStr = new Date().toISOString().slice(0,10);
-	const hanPart = currentDistrict.han ? `_${currentDistrict.han}` : "";
+	const hanPart = outputHan ? `_${outputHan}` : "";
 	const content = [
-		`--- 校外委員会 地区データ (${currentDistrict.district}${currentDistrict.han ? ' ' + currentDistrict.han : ''} / 出力日:${dateStr}) ---`,
+		`--- 校外委員会 地区データ (${outputDistrict}${outputHan ? ' ' + outputHan : ''} / 出力日:${dateStr}) ---`,
 		`BEGIN_DATA:`,
 		encoded,
 		`:END_DATA`
 	].join('\n');
-	downloadTextFile(content, `校外地区データ_${currentDistrict.district}${hanPart}_${dateStr}.txt`);
+	downloadTextFile(content, `校外地区データ_${outputDistrict}${hanPart}_${dateStr}.txt`);
 	if (typeof markHataSaved === 'function') markHataSaved(hataSnapshot);
 }
 
@@ -494,6 +498,7 @@ async function exportDistrictTxt() {
  * @param {'share' | 'line' | 'email' | 'copy'} channel
  */
 async function shareDistrictData(channel) {
+	const outputIsCurrent = captureStorageOutputGuard();
 	saveDistrictLocal();
 	if (!currentDistrict.district) { alert("地区名を入力してください。"); return; }
 	const pass = document.getElementById('d-pass').value;
@@ -511,12 +516,15 @@ async function shareDistrictData(channel) {
 		return;
 	}
 
+	const outputDistrict = currentDistrict.district;
+	const outputHan = currentDistrict.han;
 	const encoded = await encryptPayload(JSON.stringify(currentDistrict), pass);
+	if (!outputIsCurrent()) return false;
 	const dateStr = new Date().toISOString().slice(0, 10);
-	const hanPart = currentDistrict.han ? `_${currentDistrict.han}` : "";
-	const fileName = `校外地区データ_${currentDistrict.district}${hanPart}_${dateStr}.txt`;
+	const hanPart = outputHan ? `_${outputHan}` : "";
+	const fileName = `校外地区データ_${outputDistrict}${hanPart}_${dateStr}.txt`;
 	const content = [
-		`--- 校外委員会 地区データ (${currentDistrict.district}${currentDistrict.han ? ' ' + currentDistrict.han : ''} / 出力日:${dateStr}) ---`,
+		`--- 校外委員会 地区データ (${outputDistrict}${outputHan ? ' ' + outputHan : ''} / 出力日:${dateStr}) ---`,
 		`BEGIN_DATA:`,
 		encoded,
 		`:END_DATA\n`
@@ -525,7 +533,7 @@ async function shareDistrictData(channel) {
 	if (channel === 'share') {
 		if (navigator.share) {
 			const shareObj = {
-				title: `校外地区データ_${currentDistrict.district}`,
+				title: `校外地区データ_${outputDistrict}`,
 				text: content
 			};
 			try {
@@ -540,6 +548,7 @@ async function shareDistrictData(channel) {
 				await navigator.share(shareObj);
 				return;
 			} catch (err) {
+				if (!outputIsCurrent()) return false;
 				if (err && err.name === 'AbortError') return;
 			}
 		}
@@ -547,9 +556,10 @@ async function shareDistrictData(channel) {
 		if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
 			try {
 				await navigator.clipboard.writeText(content);
+				if (!outputIsCurrent()) return false;
 				alert("暗号化データをクリップボードにコピーしました。\nメールやLINEに貼り付けて提出してください。");
 				return;
-			} catch (e) {}
+			} catch (e) { if (!outputIsCurrent()) return false; }
 		}
 		downloadTextFile(content, fileName);
 		return;
@@ -559,9 +569,10 @@ async function shareDistrictData(channel) {
 		if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
 			try {
 				await navigator.clipboard.writeText(content);
+				if (!outputIsCurrent()) return false;
 				alert("暗号化データをクリップボードにコピーしました。\nメールやLINEに貼り付けて提出してください。");
 				return;
-			} catch (e) {}
+			} catch (e) { if (!outputIsCurrent()) return false; }
 		}
 		alert("暗号化データのコピーに失敗しました。ファイル保存をご利用ください。");
 		return;
@@ -571,7 +582,12 @@ async function shareDistrictData(channel) {
 		// [A-1] 暗号文長が 2,000文字 を超える場合はクリップボードに退避し、定型文のみで起動
 		if (content.length > 2000) {
 			if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-				try { await navigator.clipboard.writeText(content); } catch (e) {}
+				try {
+					await navigator.clipboard.writeText(content);
+					if (!outputIsCurrent()) return false;
+				} catch (e) {
+					if (!outputIsCurrent()) return false;
+				}
 			}
 			const lineGuidance = "校外委員会地区データを送信します。クリップボードにコピーされた暗号化テキストをここに貼り付けてください";
 			window.open('https://line.me/R/msg/text/?' + encodeURIComponent(lineGuidance), '_blank', 'noopener,noreferrer');
@@ -582,11 +598,16 @@ async function shareDistrictData(channel) {
 	}
 
 	if (channel === 'email') {
-		const subject = `【校外委員会】地区データ提出_${currentDistrict.district}${hanPart}`;
+		const subject = `【校外委員会】地区データ提出_${outputDistrict}${hanPart}`;
 		// [A-1] 暗号文長が 2,000文字 を超える場合はクリップボードに退避し、定型文のみで起動
 		if (content.length > 2000) {
 			if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-				try { await navigator.clipboard.writeText(content); } catch (e) {}
+				try {
+					await navigator.clipboard.writeText(content);
+					if (!outputIsCurrent()) return false;
+				} catch (e) {
+					if (!outputIsCurrent()) return false;
+				}
 			}
 			const emailGuidance = "校外委員会地区データを送信します。クリップボードにコピーされた暗号化テキストをここに貼り付けてください";
 			window.open('mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(emailGuidance), '_blank', 'noopener,noreferrer');

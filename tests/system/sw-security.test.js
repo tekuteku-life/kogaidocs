@@ -226,7 +226,6 @@ for (const [name, url, options] of [
 	['outside scope', 'https://example.test/other/js/crypto.js'],
 	['Authorization header', 'js/crypto.js', { headers: { Authorization: 'Bearer private-session' } }],
 	['Cookie header', 'js/crypto.js', { headers: { Cookie: 'session=private-session' } }],
-	['explicit credentials', 'js/crypto.js', { credentials: 'include' }],
 	['non-GET request', 'js/crypto.js', { method: 'POST', body: 'private' }]
 ]) {
 	test(`security SW: ${name} is never persisted`, async () => {
@@ -270,4 +269,40 @@ test('security SW: activate deletes only stale caches belonging to the exact reg
 	assert.equal(sw.claimCount, 1);
 	assert.equal(sw.stores.has(ownOld), false);
 	for (const name of unrelated) assert.equal(sw.stores.has(name), true, `Preserve cache not attributable to this scope: ${name}`);
+});
+
+test('offline navigation: mode URLs use only the canonical anonymous app document; update and other paths bypass', async () => {
+	const listeners = new Map(); let response, refresh;
+	const canonical = scope + 'index.html';
+	const cached = basicResponse('offline application');
+	vm.runInNewContext(source, {
+		self: { registration: { scope }, addEventListener: (name, handler) => listeners.set(name, handler) },
+		URL, Request, Response, Headers, console,
+		caches: { open: async () => ({ match: async request => { assert.equal(request.url, canonical); return cached; } }) },
+		fetch: async (request, options) => { refresh = [request, options]; throw new Error('offline'); }
+	});
+	for (const url of [scope, scope + '?mode=transfer', canonical + '?mode=4&openExternalBrowser=1']) {
+		response = null; const background = [];
+		listeners.get('fetch')({ request: { url, mode: 'navigate', method: 'GET', headers: new Headers() }, respondWith: value => { response = value; }, waitUntil: value => background.push(value) });
+		assert.ok(response, 'Navigation is intercepted for offline use');
+		assert.equal(await (await response).clone().text(), 'offline application');
+		await Promise.all(background);
+		assert.equal(refresh[0].url, canonical);
+		assert.equal(refresh[1].credentials, 'omit');
+	}
+	for (const url of [scope + '?_update=1', scope + '?private=1', scope + 'other.html?mode=transfer', 'https://elsewhere.test/?mode=transfer']) {
+		response = null;
+		const request = new Request(url, { credentials: 'include' }); Object.defineProperty(request, 'mode', { value: 'navigate' });
+		listeners.get('fetch')({ request, respondWith: value => { response = value; } });
+		assert.equal(response, null, 'Non-app navigation is not normalized or cached');
+	}
+});
+
+test('offline static assets: classic script credentials include is normalized to an anonymous fixed public asset', async () => {
+	const sw = worker();
+	await sw.lifecycle('install');
+	const before = sw.requests.length;
+	const response = await sw.fetch('js/crypto.js', { mode: 'no-cors', credentials: 'include' });
+	assert.equal(response.type, 'basic');
+	assert.ok(sw.requests.slice(before).every(request => request.credentials === 'omit'), 'Browser credential mode never sends credentials for public code');
 });

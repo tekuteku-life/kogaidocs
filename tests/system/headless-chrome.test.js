@@ -423,11 +423,12 @@ test('Headless Chrome UI Test Suite', { concurrency: 1 }, async (t) => {
 			closeStorageSettingsModal();
 			assert.strictEqual(modal.style.display, 'none', 'Modal closed on closeStorageSettingsModal()');
 
+			await setupStorageEncryption('SafePassword2026!');
 			// 5. Immediate lock handler clears sensitive data and displays unlock modal
 			handleImmediateLock();
 			const unlockModal = document.getElementById('storage-lock-modal');
 			assert.strictEqual(unlockModal.style.display, 'flex', 'Unlock modal displayed after handleImmediateLock()');
-		});
+		}, { autoSecure: false });
 
 		assert.strictEqual(out.success, true, 'Test executed without fatal error: ' + JSON.stringify(out.fatal || {}));
 		assert.strictEqual(out.errors.length, 0, 'No uncaught errors');

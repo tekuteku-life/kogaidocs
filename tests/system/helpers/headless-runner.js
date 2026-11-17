@@ -62,7 +62,24 @@ function installBrowserHarness() {
 		const details = el.closest('details:not([open])');
 		return (!details || details.querySelector('summary')?.contains(el)) && !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
 	};
+	const ensureSecure = async () => {
+		if (!window.__autoSecure) return;
+		if (!isStorageEncrypted()) {
+			if (!window.ui.visible('#storage-settings-modal')) await window.ui.click('#storage-security-badge');
+			window.ui.fill('#modal-set-pass', 'UiPassword1!');
+			window.ui.fill('#modal-set-pass-confirm', 'UiPassword1!');
+			await window.ui.click('#modal-btn-enable-enc');
+			await window.ui.waitFor(() => isStorageEncrypted() && isStorageUnlocked() && !window.ui.visible('#storage-settings-modal'), 'Required officer encryption');
+			sessionStorage.setItem('__uiDatabasePassword', 'UiPassword1!');
+		} else if (!isStorageUnlocked() && window.__autoUnlock && sessionStorage.getItem('__uiDatabasePassword')) {
+			if (!window.ui.visible('#storage-lock-modal')) showStorageUnlockModal();
+			window.ui.fill('#modal-unlock-pass', sessionStorage.getItem('__uiDatabasePassword'));
+			await window.ui.click('[data-click="handlePasswordUnlock"]');
+			await window.ui.waitFor(() => isStorageUnlocked() && !window.ui.visible('#storage-lock-modal'), 'Test database unlock');
+		}
+	};
 	window.ui = {
+		ensureSecure,
 		element,
 		visible: selector => visible(element(selector)),
 		async waitFor(predicate, message = 'UI condition', timeout = 5000) {
@@ -99,10 +116,14 @@ function installBrowserHarness() {
 			await command('Emulation.setEmulatedMedia', { media: enabled ? 'print' : 'screen' });
 		},
 		async mode(mode) {
+			if (this.visible('#storage-settings-modal')) await this.click('#storage-settings-modal [data-click="closeStorageSettingsModal"]');
+			if (this.visible('#storage-lock-modal')) await this.click('[data-click="closeStorageAccessModal"]');
 			await this.click('#mode-active-badge');
 			await this.click(`.tab-btn[data-click="switchTab"][data-mode="${mode}"]`);
+			if (['district', 'rep'].includes(mode)) await ensureSecure();
 		},
 		async expand(mode) {
+			if (['district', 'rep'].includes(mode)) await ensureSecure();
 			await this.click(`#tab-${mode} button[data-click="setAllCardsCollapse"][data-flag="false"][data-target="tab-${mode}"]`);
 		},
 		async file(selector, content, name = 'fixture.txt') {
@@ -138,6 +159,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 	let browser;
 	let timer;
 	let stderr = '';
+	let phase = 'browser start';
 	const pending = new Map();
 	const results = [];
 	const errors = [];
@@ -214,7 +236,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 			await send('Runtime.addBinding', { name: '__uiCommand' });
 			const [width, height] = options.viewport || [1280, 900];
 			await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
-			await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installBrowserHarness.toString()})();` });
+			await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__autoSecure = ${options.autoSecure !== false}; window.__autoUnlock = ${options.autoUnlock !== false}; (${installBrowserHarness.toString()})();` });
 			if (options.beforeLoad) {
 				await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${options.beforeLoad.toString()})();` });
 			}
@@ -227,21 +249,33 @@ async function runInHeadlessChrome(testFn, options = {}) {
 				await evaluate(async () => {
 					await ui.waitFor(() => document.readyState === 'complete' && document.getElementById('mode-active-badge')?.style.display === 'inline-flex', 'Application initialization');
 					await new Promise(resolve => setTimeout(resolve, 0));
+					if (['district', 'rep'].includes(localStorage.getItem('kogai_active_mode')) || (isStorageEncrypted() && sessionStorage.getItem('__uiDatabasePassword'))) await ui.ensureSecure();
 				});
 			};
+			phase = 'initial navigation';
 			const loaded = waitEvent('Page.loadEventFired');
-			await send('Page.navigate', { url: `file://${rootDir}/index.html${options.queryMode ? '?mode=' + encodeURIComponent(options.queryMode) : ''}` });
+			await send('Page.navigate', { url: `${options.baseUrl || `file://${rootDir}/index.html`}${options.queryMode ? '?mode=' + encodeURIComponent(options.queryMode) : ''}` });
 			await loaded;
+			phase = 'initial ready';
 			await ready();
 			for (const [index, fn] of [testFn, options.afterReload].filter(Boolean).entries()) {
 				if (index) {
+					phase = 'reload navigation';
+					if (options.beforeReload) await options.beforeReload();
+					if (options.offlineReload) {
+						await send('Network.enable');
+						await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+					}
 					const reloaded = waitEvent('Page.loadEventFired');
 					if (options.reloadSelector) await send('Runtime.evaluate', { allowUnsafeEvalBlockedByCSP: false, expression: `document.querySelector(${JSON.stringify(options.reloadSelector)}).click()` });
 					else await send('Page.reload', { ignoreCache: true });
 					await reloaded;
+					phase = 'reload ready';
+					if (options.autoSecureAfterReload === false) await send('Runtime.evaluate', { expression: 'window.__autoSecure = false' });
 					await ready();
 				}
 				if (options.prepare) await evaluate(options.prepare);
+				phase = index ? 'reload scenario' : 'initial scenario';
 				await evaluate(fn);
 				const output = await evaluate(async () => {
 					await new Promise(resolve => setTimeout(resolve, 20));
@@ -262,7 +296,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 				} catch (_) {}
 				return { success: false, results, errors, requests, fatal: { message: err.message } };
 			}),
-			new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`UI test timed out: ${stderr}`)), options.timeoutMs || 20000); })
+			new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`UI test timed out (${phase}): ${stderr}${options.observeNetwork ? JSON.stringify(requests.slice(-5)) : ''}`)), options.timeoutMs || 20000); })
 		]);
 	} finally {
 		clearTimeout(timer);

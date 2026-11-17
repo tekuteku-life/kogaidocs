@@ -392,9 +392,9 @@ test('branch-booster: app.js lifecycle, authentication modals, and storage norma
 	assert(document.getElementById('modal-unlock-error').textContent.includes("パスワードを入力してください"));
 
 	// 6. openStorageSettingsModal and validateModalPasswords
-	cryptoLib.clearStorageSecurity();
+	await cryptoLib.clearStorageSecurity();
 	app.openStorageSettingsModal();
-	assert(document.getElementById('settings-modal-body').innerHTML.includes("AES-256-GCM暗号化"));
+	assert(document.getElementById('settings-modal-body').innerHTML.includes("AES-256-GCM"));
 
 	document.getElementById('modal-set-pass').value = "short";
 	document.getElementById('modal-set-pass-confirm').value = "short";
@@ -419,7 +419,7 @@ test('branch-booster: app.js lifecycle, authentication modals, and storage norma
 	assert.strictEqual(document.getElementById('storage-settings-modal').style.display, 'none');
 
 	// 7. quickSetupEncryptionFromCard
-	cryptoLib.clearStorageSecurity();
+	await cryptoLib.clearStorageSecurity();
 	document.getElementById('d-pass').value = "weak";
 	let alertMsg = "";
 	global.alert = (m) => { alertMsg = m; };
@@ -431,7 +431,7 @@ test('branch-booster: app.js lifecycle, authentication modals, and storage norma
 	assert.strictEqual(cryptoLib.isStorageEncrypted(), true);
 
 	// 8. loadAppDataFromStorage missing structures normalization
-	cryptoLib.clearStorageSecurity();
+	await cryptoLib.clearStorageSecurity();
 	const mockD = {
 		district: "正規化テスト地区",
 		officer: { lastName: "旧役員" }
@@ -849,7 +849,7 @@ test('branch-booster: final push for print.js, app.js, and rep.js to >= 95% bran
 	// 4. isWebAuthnAvailable is false branches in openStorageSettingsModal (lines 204, 228)
 	const origIsWebAuthn = global.isWebAuthnAvailable;
 	global.isWebAuthnAvailable = () => false;
-	cryptoLib.clearStorageSecurity();
+	await cryptoLib.clearStorageSecurity();
 	app.openStorageSettingsModal();
 	assert(document.getElementById('settings-modal-body').innerHTML.includes("※生体認証"));
 

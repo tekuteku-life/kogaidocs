@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2.10.0';
+const CACHE_VERSION = '2.11.0';
 const CACHE_SCOPE = self.registration.scope;
 const CACHE_PREFIX = `kogai-cache-${encodeURIComponent(CACHE_SCOPE)}-`;
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;
@@ -83,6 +83,16 @@ self.addEventListener('message', event => {
 	}
 });
 
+function publicNavigationRequest(request) {
+	const url = new URL(request.url);
+	const home = new URL('./', CACHE_SCOPE);
+	if (request.mode !== 'navigate' || url.origin !== SCOPE_ORIGIN ||
+		![home.pathname, home.pathname + 'index.html'].includes(url.pathname) ||
+		[...url.searchParams.keys()].some(key => !['mode', 'openExternalBrowser'].includes(key)) ||
+		(request.headers.has('authorization') || request.headers.has('cookie'))) return null;
+	return new Request(new URL('index.html', CACHE_SCOPE), { credentials: 'omit', cache: 'no-store' });
+}
+
 self.addEventListener('fetch', event => {
 	if (event.request.method !== 'GET') return;
 
@@ -92,16 +102,17 @@ self.addEventListener('fetch', event => {
 		event.respondWith(fetch(event.request, { cache: 'no-store', credentials: 'omit' }));
 		return;
 	}
-	if (!isPublicAssetRequest(event.request)) return;
+	const assetRequest = publicNavigationRequest(event.request) || new Request(event.request, { credentials: 'omit' });
+	if (!isPublicAssetRequest(assetRequest)) return;
 
 	event.respondWith(
 		caches.open(CACHE_NAME).then(async cache => {
-			const cached = await cache.match(event.request);
+			const cached = await cache.match(assetRequest);
 			if (cached && isPublicAssetResponse(cached)) {
-				event.waitUntil(fetchPublicAsset(event.request, cache).catch(() => {}));
+				event.waitUntil(fetchPublicAsset(assetRequest, cache).catch(() => {}));
 				return cached;
 			}
-			return fetchPublicAsset(event.request, cache);
+			return fetchPublicAsset(assetRequest, cache);
 		})
 	);
 });

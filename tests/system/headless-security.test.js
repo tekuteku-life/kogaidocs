@@ -36,6 +36,7 @@ function prepareSecurity() {
 			};
 		},
 		async encrypt() {
+			if (isStorageEncrypted()) { await setupStorageEncryption(this.password); sessionStorage.setItem('__uiDatabasePassword', this.password); return; }
 			await ui.click('#storage-security-badge');
 			this.passwordFields('modal-set-pass');
 			await ui.click('#modal-btn-enable-enc');
@@ -80,7 +81,7 @@ securityTest('Security stored XSS: plaintext seat dimensions cannot become print
 } });
 
 for (const encrypted of [false, true]) {
-	securityTest(`Security storage schema: ${encrypted ? 'encrypted' : 'plaintext'} malformed columns preserve live state and DOM`, async () => {
+	securityTest(`Security storage schema: ${encrypted ? 're-keyed encryption' : 'required encryption'} malformed columns preserve live state and DOM`, async () => {
 		await ui.mode('district');
 		await ui.expand('district');
 		ui.fill('#d-name', '保持する地区');
@@ -103,7 +104,7 @@ for (const encrypted of [false, true]) {
 }
 
 for (const encrypted of [false, true]) {
-	securityTest(`Security storage schema: ${encrypted ? 'encrypted' : 'plaintext'} non-string saved password preserves live state and DOM`, async () => {
+	securityTest(`Security storage schema: ${encrypted ? 're-keyed encryption' : 'required encryption'} non-string saved password preserves live state and DOM`, async () => {
 		await ui.mode('district');
 		await ui.expand('district');
 		ui.fill('#d-name', '保持する地区');
@@ -129,7 +130,7 @@ securityTest('Security district: encrypted hostile names survive import, save, r
 	await ui.waitFor(() => currentDistrict.district === '安全地区' && ui.element('#d-file-in').value === '', 'Encrypted district imported');
 	assert.strictEqual(ui.element('#officers-container [data-field="lastName"]').value, security.attack, 'Officer text survives actual rendering');
 	assert.strictEqual(ui.element('#students-tbody [data-field="lastName"]').value, security.attack, 'Student text survives actual rendering');
-	assert.ok(localStorage.getItem('kogai_district_v2').includes('通常児童'), 'Accepted data saved');
+	assert.ok(localStorage.getItem('kogai_district_v2').startsWith('STORAGE_ENC:2:') && JSON.stringify(await loadStorageDecrypted('kogai_district_v2')).includes('通常児童'), 'Accepted data saved with mandatory encryption');
 	await security.districtPrint();
 }, { afterReload: async () => {
 	await ui.expand('district');
@@ -263,7 +264,7 @@ for (const mode of ['district', 'rep', 'neighbor', 'transfer']) {
 		const tampered = prefix + uint8ToBase64(bytes);
 		localStorage.setItem(key, tampered);
 		localStorage.setItem('__security_tampered_ciphertext', tampered);
-	}, { allowFileAccess: true, beforeLoad: new Function(`window.__tamperMode = ${JSON.stringify(mode)}; (${seedPrivateStorage.toString()})();`), afterReload: async () => {
+	}, { autoUnlock: false, allowFileAccess: true, beforeLoad: new Function(`window.__tamperMode = ${JSON.stringify(mode)}; (${seedPrivateStorage.toString()})();`), afterReload: async () => {
 		assert.ok(ui.visible('#storage-lock-modal'), 'Encrypted restart begins locked ' + JSON.stringify({ encrypted: isStorageEncrypted(), unlocked: isStorageUnlocked(), display: getComputedStyle(ui.element('#storage-lock-modal')).display, top: ui.element('#storage-lock-modal').getBoundingClientRect().top, ready: document.readyState, authAtSeed: window.__authAtSeed, origin: location.origin, path: location.pathname, tamperSaved: localStorage.getItem('__security_tampered_ciphertext') !== null }));
 		const key = `kogai_${window.__tamperMode}_v2`;
 		const tampered = localStorage.getItem('__security_tampered_ciphertext');

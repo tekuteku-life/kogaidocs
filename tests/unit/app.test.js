@@ -90,7 +90,7 @@ test('app: showStorageUnlockModal and hideStorageUnlockModal manage modal displa
 	assert.strictEqual(webauthnSec.style.display, 'block');
 
 	// Hide
-	app.hideStorageUnlockModal();
+	app.closeStorageAccessModal();
 	assert.strictEqual(modal.style.display, 'none');
 });
 
@@ -188,16 +188,16 @@ test('app: handleResetStorageConfirm prompts warning and resets storage', async 
 	assert.strictEqual(localStorage.getItem('kogai_auth_meta'), null);
 });
 
-test('app: openStorageSettingsModal renders unencrypted vs encrypted settings', () => {
+test('app: openStorageSettingsModal renders unencrypted vs encrypted settings', async () => {
 	setupDomEnvironment();
 	const modal = document.getElementById('storage-settings-modal');
 	const bodyEl = document.getElementById('settings-modal-body');
 
 	// 1. Unencrypted state
-	cryptoLib.clearStorageSecurity();
+	await cryptoLib.clearStorageSecurity();
 	app.openStorageSettingsModal();
 	assert.strictEqual(modal.style.display, 'flex');
-	assert(bodyEl.innerHTML.includes('暗号化パスワード'));
+	assert(bodyEl.innerHTML.includes('端末データベース用パスワード'));
 	assert(bodyEl.innerHTML.includes('確認用パスワード'));
 	assert(bodyEl.innerHTML.includes('生体認証（Touch ID / Face ID / Windows Hello等）も有効にする'));
 
@@ -205,11 +205,17 @@ test('app: openStorageSettingsModal renders unencrypted vs encrypted settings', 
 	app.closeStorageSettingsModal();
 	assert.strictEqual(modal.style.display, 'none');
 
-	// 2. Encrypted state
-	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: true, salt: "s", iv: "i", authTag: "a", encryptedKey: "k" }));
+	// Locked settings redirect to unlock without exposing setup or changing authentication.
+	await cryptoLib.setupStorageEncryption('SettingsDatabase123!');
+	cryptoLib.lockStorage();
+	app.openStorageSettingsModal();
+	assert.strictEqual(document.getElementById('storage-lock-modal').style.display, 'flex');
+	assert.equal(bodyEl.innerHTML, '');
+	await cryptoLib.unlockStorageWithPassword('SettingsDatabase123!');
+	app.hideStorageUnlockModal();
 	app.openStorageSettingsModal();
 	assert(bodyEl.innerHTML.includes('端末内保存データは暗号化されています'));
-	assert(bodyEl.innerHTML.includes('次回のパスワード解除時に600,000回へ移行'));
+	assert(bodyEl.innerHTML.includes('600,000回ストレッチング'));
 	assert(bodyEl.innerHTML.includes('生体認証（Touch ID / Windows Hello等）を追加登録する'));
 	assert(bodyEl.innerHTML.includes('今すぐストレージをロックする'));
 });
@@ -254,7 +260,7 @@ test('app: validateModalPasswords validates rules, confirmation, and match state
 
 test('app: handleEnableEncryptionSubmit validates inputs and sets up encryption', async () => {
 	setupDomEnvironment();
-	cryptoLib.clearStorageSecurity();
+	await cryptoLib.clearStorageSecurity();
 	app.openStorageSettingsModal();
 	const p1 = document.getElementById('modal-set-pass');
 	const p2 = document.getElementById('modal-set-pass-confirm');
@@ -306,7 +312,7 @@ test('app: handleAddOrUpdateBiometric and handleImmediateLock', async () => {
 
 test('app: quickSetupEncryptionFromCard validates input and sets up encryption', async () => {
 	setupDomEnvironment();
-	cryptoLib.clearStorageSecurity();
+	await cryptoLib.clearStorageSecurity();
 	const inputEl = document.getElementById('d-pass');
 
 	let alertMsg = "";
@@ -327,7 +333,7 @@ test('app: quickSetupEncryptionFromCard validates input and sets up encryption',
 
 test('app: loadAppDataFromStorage handles plain and encrypted data and normalizes defaults', async () => {
 	setupDomEnvironment();
-	cryptoLib.clearStorageSecurity();
+	await cryptoLib.clearStorageSecurity();
 
 	// 1. Unsaved empty storage sets fallback defaults
 	state.currentDistrict = { district: '', officers: [], neighborhood: [], students: [] };
@@ -358,7 +364,7 @@ test('app: additional branch coverage tests for non-secure context and error ale
 
 	// 1. openStorageSettingsModal when isWebAuthnAvailable is false
 	window.isSecureContext = false;
-	cryptoLib.clearStorageSecurity();
+	await cryptoLib.clearStorageSecurity();
 	app.openStorageSettingsModal();
 	const bodyEl = document.getElementById('settings-modal-body');
 	assert(bodyEl.innerHTML.includes("HTTPS環境またはlocalhost"));
@@ -430,7 +436,7 @@ test('app: clearMemoryAndDomForLock, resetAutoLockTimer, and initAutoLockListene
 	document.dispatchEvent({ type: 'visibilitychange' });
 	document.hidden = false;
 
-	cryptoLib.clearStorageSecurity();
+	await cryptoLib.clearStorageSecurity();
 });
 
 test('app: toggleModeSelector and switchTab manage mode selector collapse UX', () => {

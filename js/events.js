@@ -76,6 +76,7 @@ const uiEventHandlers = new Map([
 	['exportTransferTxt', () => exportTransferTxt()],
 	['copyTransferEncryptedText', () => copyTransferEncryptedText()],
 	['resetTransferForm', () => resetTransferForm()],
+	['closeStorageAccessModal', () => closeStorageAccessModal()],
 	['handlePasswordUnlock', () => handlePasswordUnlock()],
 	['handleResetStorageConfirm', () => handleResetStorageConfirm()],
 	['closeStorageSettingsModal', () => closeStorageSettingsModal()],
@@ -243,6 +244,10 @@ for (const [action, load] of [
 function dispatchUiEvent(event) {
 	if (!UI_EVENT_TYPES.includes(event.type)) return;
 	let element = event.target;
+	if (element?.closest?.('#tab-district, #tab-rep') && document.body.classList.contains('officer-storage-required')) {
+		event.preventDefault();
+		return;
+	}
 	while (element) {
 		if (typeof element.getAttribute === 'function') {
 			const handler = uiEventHandlers.get(element.getAttribute(`data-${event.type}`));
@@ -260,4 +265,15 @@ function bindUiEvents(root = document) {
 }
 
 if (typeof document !== 'undefined') bindUiEvents(document);
-if (typeof module !== 'undefined' && module.exports) module.exports = { dispatchUiEvent, bindUiEvents };
+if (typeof module !== 'undefined' && module.exports) module.exports = { dispatchUiEvent, bindUiEvents, guardPrivateSelection };
+
+// 通常コピーは選択元のフォームだけを許可する。明示共有ボタンのAPI呼出は妨げない。
+function guardPrivateSelection(event) {
+	const target = event.target;
+	const input = target?.closest?.('input, textarea');
+	if (input && (event.type === 'selectstart' || document.activeElement === input)) return;
+	event.preventDefault();
+}
+if (typeof document !== 'undefined') {
+	for (const type of ['selectstart', 'copy', 'cut']) document.addEventListener(type, guardPrivateSelection);
+}

@@ -131,3 +131,41 @@ test('hata complete: minimal LINE and JSON inputs use safe defaults and retain s
 	assert.deepEqual(hata.importHataOfficialJson({ schedule }).schedule, schedule);
 	assert.equal(hata.importHataOfficialJson({ title: '', scheduleTitle: '旧名' }).title, '', 'Explicit current key has priority over legacy alias');
 });
+
+test('hata normal: holidays, automatic special assignment, exemptions and manual swaps have exact counts and survive regeneration', () => {
+	const config = {
+		startDate: '2026-11-02', endDate: '2026-11-13', weekdays: [1, 2, 3, 4, 5],
+		members: '担当A\n担当B\n免除担当', exemptHouseholds: ['免除担当'],
+		holidays: '2026-11-03,休校', specials: '2026-11-04,,行事', manualOverrides: {}
+	};
+	const generated = hata.generateHataSchedule(config);
+	assert.equal(generated.length, 10);
+	assert.equal(generated[1].type, 'holiday');
+	assert.equal(generated[2].type, 'special');
+	assert.equal(generated[2].person, '担当B');
+	assert.ok(generated.every(row => row.person !== '免除担当'));
+	let stats = hata.calculateHataStats(generated, config.members.split('\n'));
+	assert.deepEqual({ ...stats['担当A'] }, { regular: 5, special: 0 });
+	assert.deepEqual({ ...stats['担当B'] }, { regular: 3, special: 1 });
+	assert.deepEqual({ ...stats['免除担当'] }, { regular: 0, special: 0 });
+	hata.swapScheduleDates(config, generated[0].date, generated[0].person, generated[3].date, generated[3].person);
+	const swapped = hata.generateHataSchedule(config);
+	assert.equal(swapped[0].person, generated[3].person);
+	assert.equal(swapped[3].person, generated[0].person);
+	assert.equal(swapped[0].isSwapped, true);
+	assert.deepEqual(hata.calculateHataStats(swapped, config.members.split('\n')), stats);
+	assert.deepEqual(hata.generateHataSchedule(config), swapped, 'Manual overrides survive regeneration');
+	hata.clearDateOverride(config, generated[0].date); hata.clearDateOverride(config, generated[3].date);
+	assert.deepEqual(hata.generateHataSchedule(config), generated);
+});
+
+for (const members of ['', '担当A', '担当A\n担当B\n担当C']) {
+	test(`hata normal: ${members.split('\n').filter(Boolean).length} members preserve total duty counts and balanced assignment`, () => {
+		const schedule = hata.generateHataSchedule({ startDate: '2026-11-02', endDate: '2026-11-30', weekdays: [1, 2, 3, 4, 5], holidays: '', members });
+		assert.equal(schedule.length, 21);
+		const stats = hata.calculateHataStats(schedule, members.split('\n').filter(Boolean));
+		const totals = Object.values(stats).map(count => count.regular + count.special);
+		assert.equal(totals.reduce((sum, value) => sum + value, 0), members ? 21 : 0);
+		if (totals.length) assert.ok(Math.max(...totals) - Math.min(...totals) <= 1);
+	});
+}

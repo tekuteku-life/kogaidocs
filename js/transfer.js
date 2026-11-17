@@ -147,6 +147,7 @@ function buildTransferPayload() {
 
 // 転入児童データを暗号化してファイル保存します
 async function exportTransferTxt() {
+	const outputIsCurrent = captureStorageOutputGuard();
 	if (!validateTransferPasswords()) {
 		alert("暗号化パスワードは12文字以上（英大文字・小文字・数字・記号）で、確認用と一致させて入力してください。");
 		return false;
@@ -157,12 +158,14 @@ async function exportTransferTxt() {
 
 	try {
 		const encrypted = await encryptPayload(JSON.stringify(payload), password);
+		if (!outputIsCurrent()) return false;
 		const outputContent = `BEGIN_DATA:\n${encrypted}\n:END_DATA`;
 		const filename = '家庭情報データ.txt';
 		downloadTextFile(outputContent, filename);
 		alert(`家庭情報データを暗号化してファイル出力しました（${filename}）。\nこのファイルを指定された提出先へお渡しください。`);
 		return true;
 	} catch (e) {
+		if (!outputIsCurrent()) return false;
 		alert("暗号化ファイル出力に失敗しました: " + e.message);
 		return false;
 	}
@@ -170,6 +173,7 @@ async function exportTransferTxt() {
 
 // 転入児童データを暗号化してクリップボードにコピーします
 async function copyTransferEncryptedText() {
+	const outputIsCurrent = captureStorageOutputGuard();
 	if (!validateTransferPasswords()) {
 		alert("暗号化パスワードは12文字以上で確認用と一致させて入力してください。");
 		return false;
@@ -180,11 +184,13 @@ async function copyTransferEncryptedText() {
 
 	try {
 		const encrypted = await encryptPayload(JSON.stringify(payload), password);
+		if (!outputIsCurrent()) return false;
 		const fullText = `BEGIN_DATA:\n${encrypted}\n:END_DATA`;
 		await navigator.clipboard.writeText(fullText);
 		alert("暗号化された家庭情報データをクリップボードにコピーしました。\nLINEやメール等で指定された提出先へ送信してください。");
 		return true;
 	} catch (e) {
+		if (!outputIsCurrent()) return false;
 		alert("クリップボードへのコピーに失敗しました: " + e.message);
 		return false;
 	}

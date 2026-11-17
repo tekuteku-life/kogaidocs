@@ -55,7 +55,7 @@ function prepareLeakage() {
 			}
 			await ui.waitFor(() => currentDistrict.district === data.district && ui.element(intake === 'file' ? '#d-file-in' : '#d-paste-box').value === '', 'DOM intake completes and clears input');
 			assert.strictEqual(ui.element('#students-tbody [data-field="lastName"]').value, attack, 'Actual imported roster input preserves hostile text');
-			assert.strictEqual(JSON.parse(localStorage.getItem('kogai_district_v2')).students[0].lastName, attack, 'Accepted import is saved before real reload');
+			assert.strictEqual((await loadStorageDecrypted('kogai_district_v2')).students[0].lastName, attack, 'Accepted import is saved before real reload');
 			this.noAttackDOM();
 		},
 		async printDistrict() {
@@ -99,7 +99,7 @@ function prepareLeakage() {
 			};
 			await ui.file('#card-d-hata input[data-change="loadHataOfficialFile"]', JSON.stringify(config), 'hostile-official.json');
 			await ui.waitFor(() => currentDistrict.hata.title === config.scheduleTitle && ui.element('#card-d-hata input[type="file"]').value === '', 'Official JSON file selection completes');
-			assert.strictEqual(JSON.parse(localStorage.getItem('kogai_district_v2')).hata.headerMsg, config.metaHeaderMsg, 'Official JSON metadata is persisted');
+			assert.strictEqual((await loadStorageDecrypted('kogai_district_v2')).hata.headerMsg, config.metaHeaderMsg, 'Official JSON metadata is persisted');
 			await this.printHata();
 		},
 		async printHata() {

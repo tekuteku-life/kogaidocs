@@ -35,6 +35,7 @@ function prepareWorkflows() {
 		await saveTransferLocal();
 	};
 	ui.encrypt = async () => {
+			if (isStorageEncrypted()) { await setupStorageEncryption('UiPassword1!'); sessionStorage.setItem('__uiDatabasePassword', 'UiPassword1!'); return; }
 		await ui.click('#storage-security-badge');
 		ui.password('modal-set-pass');
 		await ui.click('#modal-btn-enable-enc');
@@ -152,11 +153,11 @@ browserTest('UI rep add modal: whitespace, duplicate, error clearing, Enter, Esc
 	assert.ok(ui.visible('#rep-add-district-modal'), 'Content click keeps dialog open');
 	ui.element('#rep-add-district-modal').click();
 	assert.ok(!ui.visible('#rep-add-district-modal'), 'Backdrop closes modal');
-	await ui.waitFor(() => {
-		const saved = localStorage.getItem('kogai_rep_v2');
-		return saved && JSON.parse(saved).districts?.length === 1;
+	await ui.waitFor(async () => {
+		const saved = await loadStorageDecrypted('kogai_rep_v2');
+		return saved?.districts?.length === 1;
 	}, 'Accepted district persisted');
-	assert.strictEqual(JSON.parse(localStorage.getItem('kogai_rep_v2')).districts.length, 1, 'Only accepted district persisted');
+	assert.strictEqual((await loadStorageDecrypted('kogai_rep_v2')).districts.length, 1, 'Only accepted district persisted');
 });
 
 browserTest('UI rep detail: all row types, draft discard/save and confirmed deletion', async () => {
@@ -381,7 +382,7 @@ browserTest('UI encryption migration: all four modes encrypted, reload locks, wr
 		assert.ok(raw?.startsWith('STORAGE_ENC:'), `${mode} migrated to ciphertext`);
 		assert.ok(!raw.includes('未来') && !raw.includes('山田'), `${mode} has no plaintext names`);
 	}
-}, { afterReload: async () => {
+}, { autoUnlock: false, afterReload: async () => {
 	assert.ok(ui.visible('#storage-lock-modal'), 'Actual reload starts locked');
 	assert.ok(!isStorageUnlocked(), 'Key not persisted');
 	ui.fill('#modal-unlock-pass', 'WrongPassword!');
@@ -463,7 +464,7 @@ browserTest('UI full reset: cancel preserves storage; confirmed wipe survives ac
 	assert.ok(isStorageEncrypted(), 'Reset cancellation preserves auth metadata');
 	assert.ok(localStorage.getItem('kogai_transfer_v2'), 'Reset cancellation preserves transfer data');
 	window.__confirmAnswer = true;
-}, { reloadSelector: '#storage-settings-modal button[data-click="handleResetStorageConfirm"]', afterReload: async () => {
+}, { autoSecureAfterReload: false, reloadSelector: '#storage-settings-modal button[data-click="handleResetStorageConfirm"]', afterReload: async () => {
 	assert.ok(!isStorageEncrypted(), 'Auth metadata wiped');
 	assert.ok(!ui.visible('#storage-lock-modal'), 'Fresh startup is unlocked');
 	assert.strictEqual(transferState.children[0].lastName, '', 'Transfer not restored after full wipe');
@@ -535,7 +536,7 @@ browserTest('UI hata: imported holidays survive DOM/state/storage/schedule and a
 	assert.strictEqual(currentDistrict.hata.holidays, config.holidays, 'State holidays preserved');
 	await ui.click('button[data-click="runAutoHataGeneration"]');
 	assert.ok(ui.element('#hata-schedule-preview').textContent.includes('独自休校日'), 'Imported holiday used in generated schedule');
-	assert.strictEqual(JSON.parse(localStorage.getItem('kogai_district_v2')).hata.holidays, config.holidays, 'Imported holiday persisted');
+	assert.strictEqual((await loadStorageDecrypted('kogai_district_v2')).hata.holidays, config.holidays, 'Imported holiday persisted');
 }, { afterReload: async () => {
 	await ui.expand('district');
 	assert.strictEqual(ui.element('#hata-holidays').value, '2026-10-20,独自休校日', 'Holiday restored after reload');
@@ -956,8 +957,6 @@ browserTest('UI legacy officer: valid single-row data restores normalized name, 
 
 for (const failure of ['crypto', 'quota']) {
 	browserTest(`UI encryption failure: ${failure} preserves plaintext consistently, retry then reload`, async () => {
-		await ui.transfer();
-		await ui.district();
 		const keys = ['district', 'rep', 'neighbor', 'transfer'].map(mode => `kogai_${mode}_v2`);
 		const before = keys.map(key => localStorage.getItem(key));
 		const failure = window.__failureMode;
@@ -968,12 +967,12 @@ for (const failure of ['crypto', 'quota']) {
 			if (key === 'kogai_neighbor_v2' && String(value).startsWith('STORAGE_ENC:')) throw new DOMException('Injected quota', 'QuotaExceededError');
 			return setItem.call(this, key, value);
 		};
-		await ui.click('#storage-security-badge');
 		ui.password('modal-set-pass');
 		const count = __dialogs.length;
 		await ui.click('#modal-btn-enable-enc');
 		await ui.waitFor(() => __dialogs.length > count, 'Encryption failure notified');
 		assert.ok(!isStorageEncrypted(), 'Failed migration never marked protected');
+		assert.ok(!ui.visible('#tab-district'), 'Failed encryption never grants officer access');
 		assert.ok(__dialogs.at(-1).message.includes('失敗'), 'No false success notification');
 		assert.strictEqual(JSON.stringify(keys.map(key => localStorage.getItem(key))), JSON.stringify(before), 'Rollback preserves every previous value');
 		crypto.subtle.encrypt = encrypt;
@@ -981,7 +980,7 @@ for (const failure of ['crypto', 'quota']) {
 		await ui.click('#modal-btn-enable-enc');
 		await ui.waitFor(() => !ui.visible('#storage-settings-modal'), 'Retry succeeds');
 		assert.ok(keys.every(key => localStorage.getItem(key)?.startsWith('STORAGE_ENC:')), 'Retry protects all modes');
-	}, { beforeLoad: new Function(`window.__failureMode = ${JSON.stringify(failure)};`), afterReload: async () => {
+	}, { autoSecure: false, beforeLoad: new Function(`window.__failureMode = ${JSON.stringify(failure)}; if (!localStorage.getItem('kogai_auth_meta')) { localStorage.setItem('kogai_district_v2', JSON.stringify({district:'青空地区', students:[{lastName:'山田',grade:'1'}],officers:[],neighborhood:[]})); localStorage.setItem('kogai_transfer_v2', JSON.stringify({children:[{lastName:'転入',firstName:'未来',grade:'1',className:'1'}]})); }`), afterReload: async () => {
 		assert.ok(ui.visible('#storage-lock-modal'), 'Retry persists encrypted state on reload');
 		ui.fill('#modal-unlock-pass', 'UiPassword1!');
 		await ui.key('Enter');
@@ -1040,7 +1039,7 @@ browserTest('UI hata holiday arrays: normalize, use, save and restore after relo
 	await ui.waitFor(() => ui.element('#hata-title').value === '配列休日シフト', 'Array-form settings loaded');
 	assert.strictEqual(ui.element('#hata-holidays').value, '2026-10-20,配列の休校日', 'Holiday array normalized for text editor');
 	assert.ok(ui.element('#hata-schedule-preview').textContent.includes('配列の休校日'), 'Array holiday used as holiday');
-	assert.strictEqual(JSON.parse(localStorage.getItem('kogai_district_v2')).hata.holidays, '2026-10-20,配列の休校日', 'Normalized holiday saved');
+	assert.strictEqual((await loadStorageDecrypted('kogai_district_v2')).hata.holidays, '2026-10-20,配列の休校日', 'Normalized holiday saved');
 }, { afterReload: async () => {
 	await ui.expand('district');
 	assert.strictEqual(ui.element('#hata-holidays').value, '2026-10-20,配列の休校日', 'Array holiday survives real reload');

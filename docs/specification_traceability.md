@@ -320,3 +320,26 @@ SEC-18/19先行Redの記録は64件中7件合格・57件失敗であり、本番
 ## 家庭情報入力の改修（2026年11月11日）
 
 R-05 / E-05 / I-03・I-04 の追加観点は `tests/unit/household-transfer.test.js` と `tests/system/headless-household.test.js` に対応する。家庭欄の型・必須検査、旧下書き移行、兄弟追加、復元・消去、暗号文の復号内容、固定ファイル名、地区・代表への住所・電話番号の保持、共有ボタン集約、パスワード案内を検査する。実行結果および未実施工程は [review67](reviews/review67_household_information_verification.md) へ記載する。実機のLINE配送・本番更新は検証対象外である。
+
+## 2026-11-17 改修の検証計画
+
+| 要件・仕様 | 実装対象 | 具体的アサーション・環境 |
+| --- | --- | --- |
+| R-08 / E-10-03 | CSS、hata.js | Chromium 375/390/1280px、0/1/多人数、開閉、末尾まで実スクロール、通常・特別回数・免除・手動変更・再生成 |
+| R-12 / E-10-01〜02 / I-08 | app.js、crypto.js、events.js | 実WebCrypto設定・再起動・誤鍵・モード変更、役員フォーム非表示・操作拒否、暗号文不変、旧平文移行 |
+| R-19 / E-10-04 | app.js | 無応答fetch、応答本文無応答、オフライン、手動確認復帰、初期化と入力継続 |
+| R-19 / E-10-05 | CSS、events.js | Chromiumのフォーム内選択許可、フォーム外copy/cut拒否、明示コピー維持 |
+
+独立サブエージェントレビューは本セッションの実行制約により未実施である。実装担当の点検を独立Gate PASSとして扱わない。OS画面取得・クリップボード履歴・実HTTPS/PWA更新はローカル試験の保証外である。
+
+## 今回の追加セキュリティ追跡
+
+| 仕様・指摘 | 具体的検査 | 証拠 |
+| --- | --- | --- |
+| I-09 / SEC-22 | 実WebCrypto待機→設定/解除画面から移動→新規入力→旧処理完了、鍵/保存/入力保持。生体認証と採用直前中断も単体検査する。 | `headless-security-followup.test.js`、`security-output-lifecycle.test.js` |
+| I-09 / SEC-23 | 全8出力で暗号化中ロックを挟み、download/clipboardがないことを確認する。失敗後の手動コピー/ダウンロード/外部起動も阻止する。 | 同上、[追加評価](reviews/review69_followup_security_assessment.md) |
+| I-09 / SEC-24 | 暗号化中の地区名・班編集後に実復号し、本文・見出し・ファイル名が同じ取得時点であることを確認する。 | `security-output-lifecycle.test.js` |
+| E-10-04 | fetchと本文の無応答を5秒でabortし、手動ボタン復帰と遅い応答の無効果を検査する。 | `access-version.test.js`、`headless-access-mobile.test.js` |
+| I-08 / SW | mode URLは固定index.htmlへ対応し、通常scriptのcredentials includeを匿名化する。未知URL/更新URL/認証ヘッダーは保存しない。 | `sw-security.test.js`。実HTTPは `tests/manual/offline-http.js` に残し未完了を明記する。 |
+
+最終測定と制約は[今回の検証記録](reviews/review70_mobile_encryption_security_verification.md)を参照する。旧記録の平文任意仕様と件数を今回の結果へ流用しない。
