@@ -126,7 +126,13 @@ async function parseTxtContent(text, password, generation = getStorageSessionGen
 	if (new TextEncoder().encode(String(text)).byteLength > 8 * 1024 * 1024) throw new Error('ファイルサイズが上限を超えています。');
 	const match = text.match(/BEGIN_DATA:\s*([\s\S]+?)\s*:END_DATA/);
 	const payload = match ? match[1].trim() : text.trim();
-	const jsonStr = await decryptPayload(payload, password);
+	let jsonStr;
+	try {
+		jsonStr = await decryptPayload(payload, password);
+	} catch (err) {
+		assertStorageSession(generation);
+		throw err;
+	}
 	assertStorageSession(generation);
 	const data = JSON.parse(jsonStr);
 	if (!kind) {
@@ -219,6 +225,19 @@ function isValidWrapMeta(value) {
 		['salt', 'iv', 'wrappedKey'].every(key => typeof value[key] === 'string' && value[key].length > 0);
 }
 
+function isValidWebAuthnMeta(value) {
+	return !!value && typeof value === 'object' && !Array.isArray(value) &&
+		['credentialId', 'prfSalt', 'iv', 'wrappedKey'].every(key => typeof value[key] === 'string' && value[key].length > 0);
+}
+
+function zeroBuffer(buffer) {
+	if (!buffer) return;
+	const view = ArrayBuffer.isView(buffer)
+		? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+		: new Uint8Array(buffer);
+	view.fill(0);
+}
+
 function passwordWrapIterations(passwordMeta) {
 	const iterations = passwordMeta.iterations === undefined ? LEGACY_PBKDF2_ITERATIONS : passwordMeta.iterations;
 	if (!Number.isInteger(iterations) || ![LEGACY_PBKDF2_ITERATIONS, CURRENT_PBKDF2_ITERATIONS].includes(iterations)) {
@@ -230,7 +249,7 @@ function passwordWrapIterations(passwordMeta) {
 function requireStorageAuthMeta(raw) {
 	let meta;
 	try { meta = JSON.parse(raw); } catch (_) { throw new Error('STORAGE_AUTH_INVALID'); }
-	if (!meta || meta.isEncrypted !== true || !isValidWrapMeta(meta.password)) throw new Error('STORAGE_AUTH_INVALID');
+	if (!meta || meta.isEncrypted !== true || !isValidWrapMeta(meta.password) || (meta.webauthn != null && !isValidWebAuthnMeta(meta.webauthn))) throw new Error('STORAGE_AUTH_INVALID');
 	passwordWrapIterations(meta.password);
 	if (meta.storageFormat !== undefined && meta.storageFormat !== STORAGE_FORMAT) throw new Error('STORAGE_FORMAT_UNSUPPORTED');
 	return meta;
@@ -428,16 +447,20 @@ async function registerWebAuthnPrf(rawMasterKey) {
 		throw new Error("お使いの生体認証デバイス・ブラウザはPRF鍵導出拡張に対応していません。パスワード暗号化をご利用ください。");
 	}
 
-	const prfWrapKey = await crypto.subtle.importKey("raw", prfResult, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
-	const iv = crypto.getRandomValues(new Uint8Array(12));
-	const cipherBuf = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, prfWrapKey, rawMasterKey);
+	try {
+		const prfWrapKey = await crypto.subtle.importKey("raw", prfResult, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+		const iv = crypto.getRandomValues(new Uint8Array(12));
+		const cipherBuf = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, prfWrapKey, rawMasterKey);
 
-	return {
-		credentialId: uint8ToBase64(new Uint8Array(credential.rawId)),
-		prfSalt: uint8ToBase64(prfSalt),
-		iv: uint8ToBase64(iv),
-		wrappedKey: uint8ToBase64(new Uint8Array(cipherBuf))
-	};
+		return {
+			credentialId: uint8ToBase64(new Uint8Array(credential.rawId)),
+			prfSalt: uint8ToBase64(prfSalt),
+			iv: uint8ToBase64(iv),
+			wrappedKey: uint8ToBase64(new Uint8Array(cipherBuf))
+		};
+	} finally {
+		zeroBuffer(prfResult);
+	}
 }
 
 /**
@@ -481,12 +504,14 @@ async function unwrapKeyWithWebAuthn(webauthnMeta) {
 		throw new Error("生体認証デバイスからPRF鍵を取得できませんでした。パスワードで解除してください。");
 	}
 
-	const prfWrapKey = await crypto.subtle.importKey("raw", prfResult, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
-	const rawMasterBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, prfWrapKey, wrappedBytes);
+	let rawMasterBuf;
 	try {
+		const prfWrapKey = await crypto.subtle.importKey("raw", prfResult, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+		rawMasterBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, prfWrapKey, wrappedBytes);
 		return await crypto.subtle.importKey("raw", rawMasterBuf, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
 	} finally {
-		new Uint8Array(rawMasterBuf).fill(0);
+		zeroBuffer(prfResult);
+		zeroBuffer(rawMasterBuf);
 	}
 }
 
@@ -655,7 +680,8 @@ async function setupStorageEncryption(password, enableBiometric = false, guard) 
 /**
  * 現在の暗号化設定に生体認証（WebAuthn PRF）を追加・更新登録します
  */
-async function registerWebAuthnForActiveKeyUnlocked() {
+async function registerWebAuthnForActiveKeyUnlocked(guard = () => {}) {
+	guard();
 	const generation = getStorageSessionGeneration();
 	if (localStorage.getItem(STORAGE_AUTH_KEY) === null && !hasStorageCiphertext()) {
 		invalidateStorageSession();
@@ -672,8 +698,9 @@ async function registerWebAuthnForActiveKeyUnlocked() {
 		rawMasterKey = await crypto.subtle.exportKey("raw", activeStorageKey);
 		webauthnMeta = await registerWebAuthnPrf(rawMasterKey);
 	} finally {
-		if (rawMasterKey) new Uint8Array(rawMasterKey).fill(0);
+		zeroBuffer(rawMasterKey);
 	}
+	guard();
 	assertStorageContext(generation, authSnapshot);
 	meta.webauthn = webauthnMeta;
 	const nextAuth = JSON.stringify(meta);
@@ -682,8 +709,8 @@ async function registerWebAuthnForActiveKeyUnlocked() {
 	return true;
 }
 
-async function registerWebAuthnForActiveKey() {
-	return withStorageLock('exclusive', registerWebAuthnForActiveKeyUnlocked, true);
+async function registerWebAuthnForActiveKey(guard = () => {}) {
+	return withStorageLock('exclusive', () => registerWebAuthnForActiveKeyUnlocked(guard), true);
 }
 
 /**
@@ -812,6 +839,122 @@ function adoptImportedModel(result) {
 	return result.model;
 }
 
+const DEFAULT_SZ_EXTERNAL_ROWS = [
+	{ category: "学校関係者", org: "小学校", role: "校長" },
+	{ category: "学校関係者", org: "小学校", role: "副校長" },
+	{ category: "PTA本部", org: "PTA本部", role: "会長" },
+	{ category: "役所・警察・関係機関", org: "区役所 地域振興課", role: "担当" },
+	{ category: "役所・警察・関係機関", org: "土木事務所", role: "担当" },
+	{ category: "役所・警察・関係機関", org: "警察署 交通課", role: "担当" }
+];
+const HATA_DEFAULT_TEXTS = {
+	title: ['', '登校見守り活動シフト表'],
+	scheduleTitle: ['', '登校見守り活動シフト表'],
+	time: ['', '7:55 〜 8:25', '7:45〜8:15'],
+	metaTime: ['', '7:55 〜 8:25', '7:45〜8:15'],
+	headerMsg: ['', '※雨天時も原則実施します。ご協力をお願いいたします。'],
+	metaHeaderMsg: ['', '※雨天時も原則実施します。ご協力をお願いいたします。'],
+	footerMsg: ['', '※都合がつかない場合は、各自で他の担当者と交代してください。'],
+	metaFooterMsg: ['', '※都合がつかない場合は、各自で他の担当者と交代してください。'],
+	format: ['', '{住所数字} {苗字}']
+};
+
+function isDefaultHolidayValue(h) {
+	if (!h.holidays || (Array.isArray(h.holidays) && h.holidays.length === 0)) return true;
+	const serialized = Array.isArray(h.holidays)
+		? h.holidays.map(x => x && x.date ? `${x.date},${x.name || ''}` : '').join('\n')
+		: String(h.holidays);
+	const nowYr = new Date().getFullYear();
+	const years = h.startDate && /^\d{4}/.test(String(h.startDate))
+		? [parseInt(String(h.startDate).slice(0, 4), 10), nowYr]
+		: [nowYr, nowYr - 1, nowYr + 1];
+	return years.some(yr => yr >= 2000 && yr <= 2099 && serialized === generateJapaneseHolidays(yr, Math.min(yr + 1, 2099)).map(x => `${x.date},${x.name}`).join('\n'));
+}
+
+function isDefaultStartEndDates(h) {
+	const start = h.startDate || '';
+	const end = h.endDate || '';
+	if (!start && !end) return true;
+	const nowYr = new Date().getFullYear();
+	return [nowYr - 1, nowYr, nowYr + 1].some(yr => {
+		const preset = getPeriodPresetDates('zenki', yr);
+		return start === preset.startDate && end === preset.endDate;
+	});
+}
+
+function isNonEmptyHata(h) {
+	if (!h || typeof h !== 'object') return false;
+	const mem = h.members;
+	if (Array.isArray(mem) ? mem.some(m => String(m || '').trim() !== '') : String(mem || '').trim() !== '') return true;
+	if (['district', 'location', 'contactMsg', 'specials', 'metaLocation', 'metaContactMsg', 'metaCreatedDate', 'scheduleCreatedDate'].some(k => String(h[k] || '').trim() !== '')) return true;
+	if (['exemptHouseholds', 'schedule'].some(k => Array.isArray(h[k]) && h[k].length > 0)) return true;
+	if (h.manualOverrides && Object.keys(h.manualOverrides).length > 0) return true;
+	if (h.inputDrafts && Object.values(h.inputDrafts).some(v => String(v || '') !== '')) return true;
+	if (['orientation', 'metaOrientation'].some(k => h[k] && h[k] !== 'portrait')) return true;
+	if (['layoutColumns', 'metaLayoutColumns'].some(k => h[k] && String(h[k]) !== '2')) return true;
+	if (h.weekdays && (!Array.isArray(h.weekdays) || h.weekdays.length !== 5 || [1, 2, 3, 4, 5].some((d, i) => h.weekdays[i] !== d))) return true;
+	if (h.dedup === false) return true;
+	if (Object.entries(HATA_DEFAULT_TEXTS).some(([k, allowed]) => h[k] !== undefined && !allowed.includes(String(h[k])))) return true;
+	if (h.createdDate && !/^作成日：\d{4}年\d{1,2}月\d{1,2}日$/.test(String(h.createdDate))) return true;
+	return !isDefaultStartEndDates(h) || !isDefaultHolidayValue(h);
+}
+
+function isNonEmptyDistrictSingleRow(row, defaultRole) {
+	if (row.role && row.role !== defaultRole) return true;
+	return Object.entries(row).some(([k, v]) => k !== 'role' && (typeof v === 'boolean' ? v : String(v || '').trim() !== ''));
+}
+
+function isNonEmptyStudentSingleRow(row) {
+	if (row.isOutOfDistrict) return true;
+	const g = row.grade || '';
+	const c = row.class || '';
+	if (!((g === '6' && c === '1') || (g === '1' && c === '') || (!g && !c))) return true;
+	return Object.entries(row).some(([k, v]) => k !== 'grade' && k !== 'class' && k !== 'isOutOfDistrict' && String(v || '').trim() !== '');
+}
+
+const SEAT_DEFAULT_LABELS = {
+	leftSide: ['', '窓側'],
+	rightSide: ['', '廊下側'],
+	topLabel: ['', '前方（演台・司会・スクリーン側）', '前方'],
+	bottomLabel: ['', '後方（出入口側）', '後方']
+};
+
+function hasOfficerData(modelKey, value) {
+	if (!value || typeof value !== 'object') return false;
+	if (modelKey === 'kogai_district_v2') {
+		if (String(value.district || '').trim() !== '' || String(value.han || '').trim() !== '' || String(value.savedFilePassword || '') !== '') return true;
+		if (Array.isArray(value.hanList) && value.hanList.some(h => String(h || '').trim() !== '')) return true;
+		if (value.officer != null || value.hatafurotto != null || value.szNeighborChecks != null || value.selectedForPrint === false) return true;
+		if (Array.isArray(value.officers) && (value.officers.length > 1 || (value.officers[0] && isNonEmptyDistrictSingleRow(value.officers[0], '校外委員')))) return true;
+		if (Array.isArray(value.neighborhood) && (value.neighborhood.length > 1 || (value.neighborhood[0] && isNonEmptyDistrictSingleRow(value.neighborhood[0], '会長')))) return true;
+		if (Array.isArray(value.students) && (value.students.length > 1 || (value.students[0] && isNonEmptyStudentSingleRow(value.students[0])))) return true;
+		return isNonEmptyHata(value.hata);
+	}
+	if (modelKey !== 'kogai_rep_v2') return false;
+	if (Array.isArray(value.districts) && value.districts.length > 0) return true;
+	if (Array.isArray(value.szExternals) && value.szExternals.length > 0) {
+		if (value.szExternals.length !== DEFAULT_SZ_EXTERNAL_ROWS.length) return true;
+		const changed = value.szExternals.some((row, i) => {
+			const tpl = DEFAULT_SZ_EXTERNAL_ROWS[i];
+			if (!row || row.attend !== true || (row.category || '') !== tpl.category || (row.org || '') !== tpl.org || (row.role || '') !== tpl.role) return true;
+			return Object.entries(row).some(([k, v]) => !['attend', 'category', 'org', 'role'].includes(k) && (typeof v === 'boolean' ? v : String(v || '').trim() !== ''));
+		});
+		if (changed) return true;
+	}
+	if (value.seatConfig != null) {
+		const cfg = value.seatConfig;
+		if ((cfg.cols != null && Number(cfg.cols) !== 4) || (cfg.rows != null && Number(cfg.rows) !== 5)) return true;
+		if (Object.entries(SEAT_DEFAULT_LABELS).some(([k, allowed]) => cfg[k] !== undefined && !allowed.includes(cfg[k]))) return true;
+		if (cfg.cells && Object.keys(cfg.cells).length > 0) return true;
+	}
+	return false;
+}
+
+function hasNonEmptyOfficerModels(models) {
+	if (!Array.isArray(models)) return false;
+	return hasOfficerData('kogai_district_v2', models[0]) || hasOfficerData('kogai_rep_v2', models[1]);
+}
+
 /** 全モードのブラウザ引き継ぎを、保存方式を維持して一括確定する。 */
 async function replaceStoredAppData(models, guard = () => {}) {
 	const generation = getStorageSessionGeneration();
@@ -821,10 +964,14 @@ async function replaceStoredAppData(models, guard = () => {}) {
 		guard();
 		const authSnapshot = localStorage.getItem(STORAGE_AUTH_KEY);
 		const encrypted = isStorageEncrypted();
-		if (officerPlaintextWriteDenied('kogai_district_v2')) throw new Error('STORAGE_ENCRYPTION_REQUIRED');
+		const plaintextOfficerDenied = officerPlaintextWriteDenied('kogai_district_v2');
+		if (plaintextOfficerDenied && (hasNonEmptyOfficerModels(models) || hasNonEmptyOfficerModels(values))) {
+			throw new Error('STORAGE_ENCRYPTION_REQUIRED');
+		}
+		const targetIndices = plaintextOfficerDenied ? [2, 3] : [0, 1, 2, 3];
 		const key = activeStorageKey;
 		const entries = [];
-		for (let index = 0; index < STORAGE_DATA_KEYS.length; index++) {
+		for (const index of targetIndices) {
 			const serialized = JSON.stringify(values[index]);
 			const encoded = encrypted ? await encryptStorageValue(serialized, key, STORAGE_DATA_KEYS[index]) : serialized;
 			assertStorageContext(generation, authSnapshot);
@@ -842,8 +989,8 @@ async function replaceStoredAppData(models, guard = () => {}) {
  */
 async function loadStorageDecryptedUnlocked(storageKey) {
 	const raw = localStorage.getItem(storageKey);
-	if (!raw) return null;
 	if (!isStorageEncrypted()) {
+		if (!raw) return null;
 		try {
 			return JSON.parse(raw);
 		} catch (e) {
@@ -852,6 +999,10 @@ async function loadStorageDecryptedUnlocked(storageKey) {
 		}
 	}
 	if (!activeStorageSessionIsCurrent()) throw new Error("STORAGE_LOCKED");
+	if (!raw) {
+		if (STORAGE_DATA_KEYS.includes(storageKey)) throw new Error('STORAGE_DATA_MISSING');
+		return null;
+	}
 	const generation = getStorageSessionGeneration();
 	const authSnapshot = activeStorageAuthSnapshot;
 	const meta = requireStorageAuthMeta(authSnapshot);
@@ -872,9 +1023,11 @@ if (typeof module !== 'undefined' && module.exports) {
 		assertStorageSession,
 		invalidateStorageSecurity,
 		STORAGE_AUTH_KEY,
+		STORAGE_DATA_KEYS,
 		WEBAUTHN_USER_ID,
 		deriveKey,
 		requireOfficerStorageEncryption, officerPlaintextWriteDenied,
+		hasOfficerData, hasNonEmptyOfficerModels,
 		encryptPayload,
 		decryptPayload,
 		uint8ToBase64,

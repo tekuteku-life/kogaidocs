@@ -275,6 +275,86 @@ function sanitizePasswordInput(el) {
 	}
 }
 
+const PASSWORD_RESET_GROUPS = {
+	'tab-district': {
+		inputs: ['d-pass', 'd-pass-confirm'],
+		messages: ['d-pass-match-msg']
+	},
+	'tab-rep': {
+		inputs: ['rep-pass', 'rep-pass-confirm'],
+		messages: ['rep-pass-match-msg']
+	},
+	'tab-neighbor': {
+		inputs: ['neighbor-pass', 'neighbor-pass-confirm', 'neighbor-import-pass'],
+		messages: ['neighbor-pass-match-msg']
+	},
+	'tab-transfer': {
+		inputs: ['transfer-export-pass', 'transfer-export-pass-confirm'],
+		messages: []
+	},
+	'browser-handoff-dialog': {
+		inputs: ['handoff-create-pass', 'handoff-confirm-pass', 'handoff-restore-pass'],
+		messages: []
+	},
+	'storage-lock-modal': {
+		inputs: ['modal-unlock-pass'],
+		messages: ['modal-unlock-error']
+	},
+	'storage-settings-modal': {
+		inputs: ['modal-set-pass', 'modal-set-pass-confirm'],
+		messages: ['modal-set-pass-msg']
+	}
+};
+const ALL_PASSWORD_INPUT_IDS = Array.from(new Set(Object.values(PASSWORD_RESET_GROUPS).flatMap(group => group.inputs)));
+const ALL_PASSWORD_MESSAGE_IDS = Array.from(new Set(Object.values(PASSWORD_RESET_GROUPS).flatMap(group => group.messages)));
+
+/**
+ * 指定コンテナ（または document 全体）配下のパスワード入力・表示切替アイコン・一致判定表示を初期状態へ戻します
+ * （`#rep-new-district-error` 等の非パスワード判定領域には触れません）
+ * @param {Document|Element} [root=document]
+ */
+function resetPasswordInputs(root = document) {
+	if (!root || typeof document === 'undefined') return;
+	const isDoc = root === document;
+	const group = !isDoc && root.id ? PASSWORD_RESET_GROUPS[root.id] : null;
+	const inputIds = isDoc ? ALL_PASSWORD_INPUT_IDS : (group ? group.inputs : []);
+	const msgIds = isDoc ? ALL_PASSWORD_MESSAGE_IDS : (group ? group.messages : []);
+	const idSet = new Set(inputIds);
+
+	const seenButtons = new Set();
+	for (const container of (isDoc ? [document] : [root, document])) {
+		if (typeof container.querySelectorAll !== 'function') continue;
+		for (const btn of container.querySelectorAll('.btn-toggle-pass')) {
+			if (seenButtons.has(btn)) continue;
+			const targetId = btn.getAttribute?.('data-password-target');
+			if (isDoc || container === root || (targetId && idSet.has(targetId))) {
+				seenButtons.add(btn);
+				btn.textContent = '👁️';
+				if (targetId) idSet.add(targetId);
+			}
+		}
+	}
+	for (const id of idSet) {
+		const el = document.getElementById(id);
+		if (el) {
+			el.value = '';
+			el.type = 'password';
+		}
+	}
+	if (typeof root.querySelectorAll === 'function') {
+		for (const el of root.querySelectorAll('input')) {
+			if (el.type === 'password') el.value = '';
+		}
+	}
+	for (const id of msgIds) {
+		const msgEl = document.getElementById(id);
+		if (msgEl) {
+			msgEl.textContent = '';
+			if (id !== 'modal-unlock-error') msgEl.className = 'pass-feedback-msg';
+		}
+	}
+}
+
 /**
  * 児童名簿の並び順比較関数
  * 優先順位:
@@ -394,10 +474,10 @@ function isNewerVersion(remote, current) {
 	if (!current || typeof current !== 'string') return false;
 	const rClean = remote.trim().replace(/^v/, '');
 	const cClean = current.trim().replace(/^v/, '');
-	if (!rClean || !cClean) return false;
-	const rParts = rClean.split('.').map(n => parseInt(n, 10));
-	const cParts = cClean.split('.').map(n => parseInt(n, 10));
-	if (rParts.some(isNaN) || cParts.some(isNaN)) return false;
+	if (!rClean || !cClean || rClean.length > 32 || cClean.length > 32) return false;
+	if (!/^\d+(?:\.\d+)*$/.test(rClean) || !/^\d+(?:\.\d+)*$/.test(cClean)) return false;
+	const rParts = rClean.split('.').map(Number);
+	const cParts = cClean.split('.').map(Number);
 	const len = Math.max(rParts.length, cParts.length);
 	for (let i = 0; i < len; i++) {
 		const r = rParts[i] !== undefined ? rParts[i] : 0;
@@ -606,21 +686,21 @@ function validateHataConfig(config) {
 	validateImportStructure(config);
 	requireImportShape(isImportObject(config));
 	const strings = ['scheduleTitle', 'title', 'metaCreatedDate', 'createdDate', 'scheduleCreatedDate', 'district', 'metaLocation', 'location', 'metaTime', 'time', 'metaHeaderMsg', 'headerMsg', 'metaFooterMsg', 'footerMsg', 'metaContactMsg', 'contactMsg', 'startDate', 'endDate', 'specials', 'format'];
-	strings.forEach(key => requireImportShape(config[key] === undefined || typeof config[key] === 'string'));
+	strings.forEach(key => requireImportShape(config[key] === undefined || (typeof config[key] === 'string' && (key === 'specials' || config[key].length <= 4096))));
 	if (config.inputDrafts !== undefined) {
 		requireImportShape(isImportObject(config.inputDrafts));
 		for (const [field, value] of Object.entries(config.inputDrafts)) requireImportShape(HATA_SCHEDULE_INPUTS.includes(field) && typeof value === 'string');
 	}
 	requireImportShape(config.dedup === undefined || typeof config.dedup === 'boolean');
 	if (config.weekdays !== undefined) requireImportShape(Array.isArray(config.weekdays) && config.weekdays.every(day => Number.isInteger(day) && day >= 0 && day <= 6));
-	if (config.exemptHouseholds !== undefined) requireImportShape(Array.isArray(config.exemptHouseholds) && config.exemptHouseholds.every(key => typeof key === 'string'));
+	if (config.exemptHouseholds !== undefined) requireImportShape(Array.isArray(config.exemptHouseholds) && config.exemptHouseholds.every(key => typeof key === 'string' && key.length <= 4096));
 	for (const key of ['metaOrientation', 'orientation']) requireImportShape(config[key] === undefined || ['landscape', 'portrait'].includes(config[key]));
 	for (const key of ['metaLayoutColumns', 'layoutColumns']) requireImportShape(config[key] === undefined || /^[1-6]$/.test(String(config[key])));
 	if (config.manualOverrides !== undefined) {
 		requireImportShape(isImportObject(config.manualOverrides));
-		Object.values(config.manualOverrides).forEach(override => {
-			requireImportShape(isImportObject(override));
-			for (const key of ['person', 'note', 'originalPerson']) requireImportShape(override[key] === undefined || typeof override[key] === 'string');
+		Object.entries(config.manualOverrides).forEach(([ovrKey, override]) => {
+			requireImportShape(ovrKey.length <= 4096 && isImportObject(override));
+			for (const key of ['person', 'note', 'originalPerson']) requireImportShape(override[key] === undefined || (typeof override[key] === 'string' && override[key].length <= 4096));
 			requireImportShape(override.isSwapped === undefined || typeof override.isSwapped === 'boolean');
 			requireImportShape(override.type === undefined || ['regular', 'special', 'holiday'].includes(override.type));
 		});
@@ -630,14 +710,14 @@ function validateHataConfig(config) {
 		config.schedule.forEach(item => {
 			requireImportShape(isImportObject(item));
 			for (const key of ['date', 'day', 'dayOfWeek', 'type', 'tag', 'person', 'note', 'originalPerson']) {
-				requireImportShape(item[key] === undefined || typeof item[key] === 'string');
+				requireImportShape(item[key] === undefined || (typeof item[key] === 'string' && item[key].length <= 4096));
 			}
 			for (const key of ['isSpecial', 'isSwapped']) requireImportShape(item[key] === undefined || typeof item[key] === 'boolean');
 		});
 	}
 	const clean = { ...config };
 	if (Array.isArray(config.holidays)) {
-		config.holidays.forEach(holiday => requireImportShape(isImportObject(holiday) && typeof holiday.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(holiday.date) && (holiday.name === undefined || typeof holiday.name === 'string')));
+		config.holidays.forEach(holiday => requireImportShape(isImportObject(holiday) && typeof holiday.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(holiday.date) && (holiday.name === undefined || (typeof holiday.name === 'string' && holiday.name.length <= 4096))));
 		clean.holidays = config.holidays.map(holiday => `${holiday.date},${holiday.name || '祝日'}`).join('\n');
 	} else requireImportShape(config.holidays === undefined || typeof config.holidays === 'string');
 	if (Array.isArray(config.members)) {
@@ -712,13 +792,13 @@ function validateImportData(data, kind) {
 				requireValid((typeof value === 'number' || typeof value === 'string') && Number.isInteger(Number(value)) && Number(value) >= 2 && Number(value) <= max);
 				cfg[key] = Number(value);
 			}
-			for (const key of ['topLabel', 'bottomLabel', 'leftSide', 'rightSide']) requireValid(cfg[key] === undefined || typeof cfg[key] === 'string');
+			for (const key of ['topLabel', 'bottomLabel', 'leftSide', 'rightSide']) requireValid(cfg[key] === undefined || (typeof cfg[key] === 'string' && cfg[key].length <= 4096));
 			requireValid(cfg.cells == null || isObject(cfg.cells));
 			Object.entries(cfg.cells || {}).forEach(([cellKey, cell]) => {
 				requireValid(/^\d+_\d+$/.test(cellKey));
 				const [row, col] = cellKey.split('_').map(Number);
 				requireValid(row >= 0 && row < cfg.rows && col >= 0 && col < cfg.cols);
-				requireValid(isObject(cell) && (cell.refKey == null || typeof cell.refKey === 'string') && (cell.customText == null || typeof cell.customText === 'string'));
+				requireValid(isObject(cell) && (cell.refKey == null || (typeof cell.refKey === 'string' && cell.refKey.length <= 4096)) && (cell.customText == null || (typeof cell.customText === 'string' && cell.customText.length <= 4096)));
 			});
 			cfg.cells = cfg.cells || {};
 		}
@@ -760,7 +840,7 @@ function validateStoredData(data, storageKey) {
 	if (storageKey === 'kogai_transfer_v2') {
 		validateImportStructure(data);
 		requireImportShape(isImportObject(data) && Array.isArray(data.children));
-		requireImportShape(data.memo === undefined || typeof data.memo === 'string');
+		requireImportShape(data.memo === undefined || (typeof data.memo === 'string' && data.memo.length <= 4096));
 		const clean = JSON.parse(JSON.stringify(data));
 		for (const field of ['address', 'tel']) requireImportShape(clean[field] === undefined || (typeof clean[field] === 'string' && clean[field].length <= 4096));
 		const fields = ['id', 'lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'grade', 'class', 'className', 'address', 'tel'];
@@ -825,6 +905,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		validatePassword,
 		togglePasswordVisibility,
 		sanitizePasswordInput,
+		resetPasswordInputs,
 		compareStudents,
 		getUniqueNeighborhoodDistricts,
 		getDistrictWideValidStudents,

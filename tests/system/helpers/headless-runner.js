@@ -13,6 +13,7 @@ function installBrowserHarness() {
 	window.__dialogs = [];
 	window.__downloads = [];
 	window.__prints = [];
+	Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => true });
 	window.alert = message => window.__dialogs.push({ type: 'alert', message: String(message) });
 	window.confirm = message => {
 		window.__dialogs.push({ type: 'confirm', message: String(message) });

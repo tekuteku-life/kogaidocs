@@ -306,3 +306,63 @@ test('offline static assets: classic script credentials include is normalized to
 	assert.equal(response.type, 'basic');
 	assert.ok(sw.requests.slice(before).every(request => request.credentials === 'omit'), 'Browser credential mode never sends credentials for public code');
 });
+
+test('service worker SEC-29: message listener accepts only same-origin in-scope client URLs for SKIP_WAITING', () => {
+	const listeners = new Map();
+	let skipCount = 0;
+	const sandbox = {
+		URL, Response, Headers,
+		caches: { keys: async () => [], open: async () => ({ addAll: async () => {}, match: async () => null, put: async () => {}, delete: async () => {} }), delete: async () => false },
+		fetch: async () => new Response('ok', { status: 200 }),
+		clients: { claim: async () => {} },
+		self: {
+			registration: { scope: 'https://example.test/kogaidocs/' },
+			addEventListener: (name, handler) => listeners.set(name, handler),
+			skipWaiting: async () => { skipCount++; }
+		}
+	};
+	sandbox.self.clients = sandbox.clients;
+	vm.runInNewContext(source, sandbox);
+	const onMessage = listeners.get('message');
+	assert.equal(typeof onMessage, 'function');
+
+	// Rejected: cross-origin, missing event.origin, missing source.url (MessagePort), non-string source.url, same-origin+cross-origin source.url, path-traversal URL, invalid URL, same-origin out-of-scope
+	for (const event of [
+		{ origin: 'https://evil.test', data: { type: 'SKIP_WAITING' }, source: { url: 'https://example.test/kogaidocs/index.html' } },
+		{ data: { type: 'SKIP_WAITING' }, source: { url: 'https://example.test/kogaidocs/index.html' } },
+		{ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: { url: 'https://evil.test/kogaidocs/index.html' } },
+		{ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: { url: 'https://example.test/kogaidocs/../other-app/index.html' } },
+		{ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: null },
+		{ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: {} },
+		{ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: { url: 12345 } },
+		{ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: { url: 'not a valid url' } },
+		{ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: { url: 'https://example.test/other-app/index.html' } },
+		{ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: { url: 'https://example.test/kogaidocs-evil/index.html' } }
+	]) {
+		onMessage(event);
+	}
+	assert.equal(skipCount, 0);
+
+	// Accepted: exact origin + scope root or prefix
+	onMessage({ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: { url: 'https://example.test/kogaidocs/index.html' } });
+	onMessage({ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: { url: 'https://example.test/kogaidocs/' } });
+	assert.equal(skipCount, 2);
+
+	// Scope without trailing slash enforces exact boundary
+	const noSlashListeners = new Map();
+	let noSlashSkips = 0;
+	vm.runInNewContext(source, {
+		...sandbox,
+		self: {
+			registration: { scope: 'https://example.test/kogaidocs' },
+			addEventListener: (name, handler) => noSlashListeners.set(name, handler),
+			skipWaiting: async () => { noSlashSkips++; }
+		}
+	});
+	const onNoSlashMsg = noSlashListeners.get('message');
+	onNoSlashMsg({ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: { url: 'https://example.test/kogaidocs-evil/index.html' } });
+	assert.equal(noSlashSkips, 0);
+	onNoSlashMsg({ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: { url: 'https://example.test/kogaidocs' } });
+	onNoSlashMsg({ origin: 'https://example.test', data: { type: 'SKIP_WAITING' }, source: { url: 'https://example.test/kogaidocs/app.html' } });
+	assert.equal(noSlashSkips, 2);
+});

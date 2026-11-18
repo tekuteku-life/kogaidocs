@@ -515,7 +515,9 @@ async function loadHataOfficialFile(event) {
 	if (!file) return;
 	const generation = getStorageSessionGeneration();
 	try {
+		assertStorageSession(generation);
 		const text = await readImportFile(file);
+		assertStorageSession(generation);
 		if (!text.trim()) throw new Error('旗振り設定ファイルが空です。');
 		const config = importHataOfficialJson(text);
 		// 展開上限も確定前に検査し、失敗時に現在の設定を置換しない。
@@ -526,6 +528,7 @@ async function loadHataOfficialFile(event) {
 		renderHataCard();
 		markHataSaved();
 	} catch (error) {
+		if (error.message === 'STORAGE_SESSION_CHANGED') return;
 		alert('旗振り設定の読み込みに失敗しました: ' + error.message);
 	} finally {
 		input.value = '';
@@ -984,8 +987,20 @@ function buildHataLineText(schedule, config) {
 	return text;
 }
 
+function clearHataOutputElement(id, hide = false) {
+	const el = document.getElementById(id);
+	if (!el) return;
+	if (hide) { el.value = ''; el.hidden = true; }
+	else el.innerHTML = '';
+}
+
 async function copyHataForLine() {
+	if (isStorageEncrypted() && !isStorageUnlocked()) {
+		clearHataOutputElement('hata-line-text', true);
+		return false;
+	}
 	if (!ensureHataInputsReady()) return;
+	const outputIsCurrent = captureStorageOutputGuard();
 	renderHataSchedulePreview();
 	if (!hataCurrentSchedule.length) { alert('先に期間と曜日を設定してシフトを作成してください。'); return; }
 	const text = buildHataLineText(hataCurrentSchedule, currentDistrict.hata);
@@ -993,8 +1008,16 @@ async function copyHataForLine() {
 	if (output) { output.value = text; output.hidden = false; }
 	try {
 		await navigator.clipboard.writeText(text);
+		if (!outputIsCurrent()) {
+			clearHataOutputElement('hata-line-text', true);
+			return false;
+		}
 		alert('LINE送信用シフトをコピーしました。');
 	} catch (_) {
+		if (!outputIsCurrent()) {
+			clearHataOutputElement('hata-line-text', true);
+			return false;
+		}
 		if (output) { output.focus(); output.select(); }
 		alert('表示したシフト本文を選択してコピーしてください。');
 	}
@@ -1081,6 +1104,11 @@ function renderHataSchedulePreview(explicitSchedule) {
  * ハタフロット印刷を実行します
  */
 function printHataSchedule() {
+	const outputIsCurrent = captureStorageOutputGuard();
+	if (isStorageEncrypted() && !isStorageUnlocked()) {
+		clearHataOutputElement('print-area');
+		return;
+	}
 	if (!ensureHataInputsReady()) return;
 	renderHataSchedulePreview();
 	const printContent = buildHataPrintHtml(hataCurrentSchedule, currentDistrict.hata);
@@ -1111,6 +1139,7 @@ function printHataSchedule() {
 		if (printEl.parentElement) {
 			printEl.parentElement.removeChild(printEl);
 		}
+		if (!outputIsCurrent()) clearHataOutputElement('print-area');
 	}
 }
 

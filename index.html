@@ -266,19 +266,19 @@
 					<div class="grid-form" style="align-items: start;">
 						<div style="grid-column: 1 / -1;">
 							<label>シフト表タイトル</label>
-							<input type="text" id="hata-title" value="登校見守り活動シフト表" placeholder="〇〇地区 登校見守り活動シフト表" data-input="updateHataConfig" data-field="title">
+							<input type="text" maxlength="4096" id="hata-title" value="登校見守り活動シフト表" placeholder="〇〇地区 登校見守り活動シフト表" data-input="updateHataConfig" data-field="title">
 						</div>
 						<div>
 							<label for="hata-created-date">作成日（印刷表示）</label>
-							<input type="text" id="hata-created-date" placeholder="作成日：2026年11月10日" data-input="updateHataConfig" data-field="createdDate">
+							<input type="text" maxlength="4096" id="hata-created-date" placeholder="作成日：2026年11月10日" data-input="updateHataConfig" data-field="createdDate">
 						</div>
 						<div>
 							<label for="hata-district">シフト表の地区名</label>
-							<input type="text" id="hata-district" data-input="updateHataConfig" data-field="district">
+							<input type="text" maxlength="4096" id="hata-district" data-input="updateHataConfig" data-field="district">
 						</div>
 						<div>
 							<label>当番場所・交差点</label>
-							<input type="text" id="hata-location" placeholder="例: セブンイレブン前交差点" data-input="updateHataConfig" data-field="location">
+							<input type="text" maxlength="4096" id="hata-location" placeholder="例: セブンイレブン前交差点" data-input="updateHataConfig" data-field="location">
 						</div>
 						<div>
 							<label>活動時間帯</label>
@@ -332,7 +332,7 @@
 					<label for="hata-members">当番名簿（1行につき1世帯・担当者、記載順に割当）</label>
 					<label for="hata-format" class="help-text">児童名簿から反映する書式</label>
 					<div class="flex-row hata-member-format-row" style="margin-top:4px; gap:8px;">
-						<input type="text" id="hata-format" value="{住所数字} {苗字}" style="flex:1; font-size:0.85rem;" data-input="updateHataFormat">
+						<input type="text" maxlength="4096" id="hata-format" value="{住所数字} {苗字}" style="flex:1; font-size:0.85rem;" data-input="updateHataFormat">
 						<label class="check-item" style="font-size:0.8rem; margin:0;">
 							<input type="checkbox" id="hata-dedup" checked data-change="updateHataFormat">
 							同一世帯まとめ
@@ -376,7 +376,7 @@
 							<div>
 								<label>フッター連絡事項 ＆ 連絡先（シフト表下部ボックス）</label>
 								<textarea id="hata-footer-msg" rows="2" placeholder="例: ●当番日に活動できない場合&#10;・保護者間で交代をお願いします" style="font-size:0.85rem;" data-input="updateHataConfig" data-field="footerMsg"></textarea>
-								<input type="text" id="hata-contact-msg" placeholder="校外委員連絡先：〇〇（TEL: 090-XXXX-XXXX）" style="margin-top:4px; font-size:0.85rem;" data-input="updateHataConfig" data-field="contactMsg">
+								<input type="text" maxlength="4096" id="hata-contact-msg" placeholder="校外委員連絡先：〇〇（TEL: 090-XXXX-XXXX）" style="margin-top:4px; font-size:0.85rem;" data-input="updateHataConfig" data-field="contactMsg">
 							</div>
 						</div>
 					</div>
@@ -1076,7 +1076,7 @@
 			<form data-submit="confirmAddRepDistrict" autocomplete="off">
 				<div class="form-group" style="margin-bottom: 16px;">
 					<label for="rep-new-district-name" style="display:block; font-weight:bold; margin-bottom:6px;">地区名 <span class="badge badge-required">* 必須</span></label>
-					<input type="text" maxlength="4096" id="rep-new-district-name" class="input-field" placeholder="例: 5丁目" maxlength="50" style="width:100%; font-size:1rem; padding:8px 10px;" data-input="clearAddDistrictError" required>
+					<input type="text" maxlength="4096" id="rep-new-district-name" class="input-field" placeholder="例: 5丁目" style="width:100%; font-size:1rem; padding:8px 10px;" data-input="clearAddDistrictError" required>
 					<div id="rep-new-district-error" class="pass-feedback-msg pass-msg-ng" style="display:none; margin-top:6px;"></div>
 				</div>
 				<div class="modal-actions" style="display:flex; justify-content:flex-end; gap:8px;">

@@ -2,13 +2,22 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
-const CURRENT_APP_VERSION = "2.11.0";
+const CURRENT_APP_VERSION = "2.11.1";
 let deferredInstallPrompt = null;
 let pwaInstallationCompleted = false;
 let activeAppMode = null;
 let appAccessInitialized = false;
 let storageAccessEpoch = 0;
 let storageAccessBusy = false;
+
+function getActiveAppMode() {
+	return activeAppMode;
+}
+
+function resetActiveAppMode() {
+	activeAppMode = null;
+	appAccessInitialized = false;
+}
 
 function cancelStorageAccess() {
 	storageAccessEpoch++;
@@ -321,9 +330,10 @@ function showStorageUnlockModal() {
 function hideStorageUnlockModal() {
 	cancelStorageAccess();
 	const modal = document.getElementById('storage-lock-modal');
-	if (modal) modal.style.display = 'none';
-	const pass = document.getElementById('modal-unlock-pass');
-	if (pass) { pass.value = ''; pass.type = 'password'; }
+	if (modal) {
+		modal.style.display = 'none';
+		resetPasswordInputs(modal);
+	}
 }
 
 /**
@@ -555,7 +565,10 @@ function openStorageSettingsModal() {
 function closeStorageSettingsModal() {
 	cancelStorageAccess();
 	const modal = document.getElementById('storage-settings-modal');
-	if (modal) modal.style.display = 'none';
+	if (modal) {
+		modal.style.display = 'none';
+		resetPasswordInputs(modal);
+	}
 	const body = document.getElementById('settings-modal-body');
 	if (body) body.innerHTML = '';
 }
@@ -636,13 +649,26 @@ async function handleEnableEncryptionSubmit() {
  * 生体認証の追加・再登録を実行します
  */
 async function handleAddOrUpdateBiometric() {
+	const epoch = ++storageAccessEpoch;
+	const generation = getStorageSessionGeneration();
+	const isCurrent = () => epoch === storageAccessEpoch && generation === getStorageSessionGeneration() && isStorageUnlocked();
+	const guard = () => {
+		if (!isCurrent()) {
+			throw new Error('STORAGE_ACCESS_CANCELLED');
+		}
+	};
 	try {
-		await registerWebAuthnForActiveKey();
+		guard();
+		await registerWebAuthnForActiveKey(guard);
+		guard();
 		alert("生体認証（WebAuthn PRF）の登録が完了しました！\n次回以降、生体認証でワンタッチ解除できます。");
 		openStorageSettingsModal();
 	} catch (err) {
+		if (!isCurrent()) return false;
 		alert("生体認証の登録に失敗しました: " + err.message);
+		return false;
 	}
+	return true;
 }
 
 /**
@@ -699,7 +725,13 @@ function clearMemoryAndDomForLock() {
 	document.querySelectorAll('input').forEach(input => {
 		if (input.type === 'password' || input.closest('.pass-input-group') || input.id.includes('paste')) input.value = '';
 	});
+	resetPasswordInputs(document);
 	document.querySelectorAll('textarea').forEach(input => { input.value = ''; });
+	const hataLineText = document.getElementById('hata-line-text');
+	if (hataLineText) {
+		hataLineText.value = '';
+		hataLineText.hidden = true;
+	}
 	const settingsBody = document.getElementById('settings-modal-body');
 	if (settingsBody) settingsBody.innerHTML = '';
 	const printArea = document.getElementById('print-area');
@@ -753,8 +785,17 @@ function initAutoLockListeners() {
 	});
 	window.addEventListener('storage', event => {
 		if (event.storageArea && event.storageArea !== localStorage) return;
-		if (event.key !== STORAGE_AUTH_KEY && event.key !== null) return;
-		if (event.key === STORAGE_AUTH_KEY && event.oldValue === event.newValue) return;
+		if (event.key === STORAGE_AUTH_KEY || event.key === null) {
+			if (event.key === STORAGE_AUTH_KEY && event.oldValue === event.newValue) return;
+			invalidateStorageSecurity();
+			handleImmediateLock();
+			return;
+		}
+		if (!STORAGE_DATA_KEYS.includes(event.key) || !isStorageEncrypted()) return;
+		if (event.oldValue === event.newValue) return;
+		const meta = getStorageAuthMeta();
+		const validPrefix = meta && meta.storageFormat === 2 ? 'STORAGE_ENC:2:' : 'STORAGE_ENC:';
+		if (typeof event.newValue === 'string' && event.newValue.startsWith(validPrefix)) return;
 		invalidateStorageSecurity();
 		handleImmediateLock();
 	}, { capture: true });
@@ -784,26 +825,41 @@ function handleImmediateLock() {
  * カード6または代表カード1のパスワード入力からワンクリックでストレージ暗号化を適用
  * @param {string} inputId
  */
+async function persistDistrictCardPassword(password) {
+	currentDistrict.savedFilePassword = password;
+	const optinEl = document.getElementById('d-save-password-optin');
+	if (optinEl) optinEl.checked = true;
+	const passEl = document.getElementById('d-pass');
+	if (passEl) passEl.value = password;
+	return await saveDistrictLocal();
+}
+
 async function quickSetupEncryptionFromCard(inputId) {
+	if (isStorageEncrypted() && !isStorageUnlocked()) {
+		showStorageUnlockModal();
+		return false;
+	}
+	const isKnownCardInput = ['d-pass', 'rep-pass', 'neighbor-pass'].includes(inputId);
+	const isDistrictSource = !['neighbor-pass', 'rep-pass'].includes(inputId);
 	const pEl = document.getElementById(inputId);
-	const password = (pEl && pEl.value) ? pEl.value : (typeof inputId === 'string' ? inputId : "");
+	const password = isKnownCardInput ? (pEl ? pEl.value : "") : (typeof inputId === 'string' ? inputId : "");
 	const v = validatePassword(password);
 	if (!v.valid) {
 		alert(v.message);
-		return;
+		return false;
 	}
 
 	// 既にストレージ暗号化が有効な場合、WebAuthn再登録を促さず既存暗号化ストレージに保存（一本化）
-	if (isStorageEncrypted() && isStorageUnlocked()) {
-		currentDistrict.savedFilePassword = password;
-		const optinEl = document.getElementById('d-save-password-optin');
-		if (optinEl) optinEl.checked = true;
-		const passEl = document.getElementById('d-pass');
-		if (passEl) passEl.value = password;
-		await saveDistrictLocal();
+	if (isStorageEncrypted()) {
+		if (isDistrictSource) {
+			if (await persistDistrictCardPassword(password) === false) return false;
+			resetAutoLockTimer();
+			alert("ファイル保存用パスワードを暗号化ストレージに記憶しました。");
+			return true;
+		}
 		resetAutoLockTimer();
-		alert("ファイル保存用パスワードを暗号化ストレージに記憶しました。");
-		return;
+		alert("この端末の暗号化ストレージは既に保護・解除されています。");
+		return true;
 	}
 
 	const bioAvailable = isWebAuthnAvailable();
@@ -812,20 +868,28 @@ async function quickSetupEncryptionFromCard(inputId) {
 		enableBio = confirm("生体認証（Touch ID / Windows Hello / 指紋認証等）も合わせて登録しますか？\n（[OK]を押すと指紋または顔認証の登録画面が開きます）");
 	}
 
+	const access = beginStorageAccess();
 	try {
-		const result = await setupStorageEncryption(password, enableBio);
-		currentDistrict.savedFilePassword = password;
-		const optinEl = document.getElementById('d-save-password-optin');
-		if (optinEl) optinEl.checked = true;
-		const passEl = document.getElementById('d-pass');
-		if (passEl) passEl.value = password;
-		await saveDistrictLocal();
-		alert(`このパスワードで端末内保存（LocalStorage）の暗号化を有効化しました！\n${result.biometric ? '生体認証の登録も完了しました。' : ''}`);
+		const result = await setupStorageEncryption(password, enableBio, access.guard);
+		access.guard();
+		if (isDistrictSource) {
+			const saved = await persistDistrictCardPassword(password);
+			if (saved === false || !access.current() || !isStorageUnlocked()) {
+				storageAccessBusy = false;
+				return false;
+			}
+		}
+		storageAccessBusy = false;
 		updateSecurityBadge('unlocked');
 		if (appAccessInitialized) updateOfficerAccess();
 		resetAutoLockTimer();
+		alert(`このパスワードで端末内保存（LocalStorage）の暗号化を有効化しました！\n${result.biometric ? '生体認証の登録も完了しました。' : ''}`);
+		return true;
 	} catch (err) {
+		if (!access.current()) return false;
+		storageAccessBusy = false;
 		alert("暗号化設定に失敗しました: " + err.message);
+		return false;
 	}
 }
 
@@ -972,7 +1036,7 @@ async function checkAppVersion(isManual = false) {
 	try {
 		const data = await Promise.race([
 			(async () => {
-				const res = await fetch('./version.json?_t=' + Date.now(), { cache: 'no-store', signal: controller.signal });
+				const res = await fetch('./version.json?_t=' + Date.now(), { cache: 'no-store', credentials: 'omit', signal: controller.signal });
 				if (!res.ok) throw new Error('HTTP ' + res.status);
 				return res.json();
 			})(),
@@ -1038,16 +1102,22 @@ async function checkAppVersion(isManual = false) {
  * @param {string} [targetVersion=null] 更新対象バージョン（sessionStorageに記録）
  */
 async function performAppUpdate(targetVersion = null) {
-	const saveDistFn = (typeof global !== 'undefined' && global.saveDistrictLocal) || (typeof saveDistrictLocal === 'function' ? saveDistrictLocal : null);
-	const saveRepFn = (typeof global !== 'undefined' && global.saveRepLocal) || (typeof saveRepLocal === 'function' ? saveRepLocal : null);
-	const saveNeighborFn = (typeof global !== 'undefined' && global.saveNeighborLocal) || (typeof saveNeighborLocal === 'function' ? saveNeighborLocal : null);
-	const saveTransferFn = (typeof global !== 'undefined' && global.saveTransferLocal) || (typeof saveTransferLocal === 'function' ? saveTransferLocal : null);
+	const generationBefore = getStorageSessionGeneration();
+	const encryptedBefore = isStorageEncrypted();
+	const entries = [
+		['kogai_district_v2', globalThis.saveDistrictLocal],
+		['kogai_rep_v2', globalThis.saveRepLocal],
+		['kogai_neighbor_v2', globalThis.saveNeighborLocal],
+		['kogai_transfer_v2', globalThis.saveTransferLocal]
+	].filter(([, fn]) => typeof fn === 'function');
 	try {
-		const saves = [saveDistFn, saveRepFn, saveNeighborFn, saveTransferFn]
-			.filter(fn => typeof fn === 'function')
-			.map(fn => Promise.resolve().then(() => fn()));
-		const results = await Promise.all(saves);
-		if (results.some(result => result === false)) throw new Error('STORAGE_SAVE_REJECTED');
+		const results = await Promise.all(entries.map(([, fn]) => Promise.resolve().then(() => fn())));
+		if (getStorageSessionGeneration() !== generationBefore || isStorageEncrypted() !== encryptedBefore) {
+			throw new Error('STORAGE_SESSION_CHANGED');
+		}
+		if (results.some((result, index) => result === false && !officerPlaintextWriteDenied(entries[index][0]))) {
+			throw new Error('STORAGE_SAVE_REJECTED');
+		}
 	} catch (e) {
 		console.warn("Failed to persist data before update:", e);
 		alert("更新前のデータ保存に失敗しました。空き容量と暗号化状態を確認してください。");
@@ -1180,6 +1250,7 @@ if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		CURRENT_APP_VERSION,
 		updateOfficerAccess, closeStorageAccessModal,
+		getActiveAppMode, resetActiveAppMode,
 		switchTab,
 		restoreActiveMode,
 		toggleModeSelector,

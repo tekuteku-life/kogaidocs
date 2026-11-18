@@ -156,12 +156,20 @@ async function loadMultipleDistrictFiles(e) {
 	let ok = 0, ng = 0, saveFailures = 0;
 	for (const f of files) {
 		try {
+			assertStorageSession(generation);
 			const data = await parseTxtContent(await readImportFile(f), pass, generation, importKind);
 			if (!await applyRepImport(data, pass, generation)) continue;
 			assertStorageSession(generation + 1);
 			generation++;
 			ok++;
-		} catch (err) { ng++; if (err.code === 'IMPORT_SAVE_FAILED') saveFailures++; }
+		} catch (err) {
+			if (err.message === 'STORAGE_SESSION_CHANGED') {
+				e.target.value = "";
+				return;
+			}
+			ng++;
+			if (err.code === 'IMPORT_SAVE_FAILED') saveFailures++;
+		}
 	}
 	renderRepAll();
 	alert(`${ok}件のファイルを読み込みました。` + (ng ? `\n（${ng}件はパスワード不一致等で失敗）` : "") + (saveFailures ? `\n${saveFailures}件は端末への保存に失敗しました。空き容量を確認して再試行してください。` : ""));
@@ -177,6 +185,7 @@ async function loadPastedTextToRep() {
 	if (!raw) return;
 	const pass = document.getElementById('rep-pass')?.value || "";
 	try {
+		assertStorageSession(generation);
 		const data = await parseTxtContent(raw, pass, generation, importKind);
 		if (!await applyRepImport(data, pass, generation)) return;
 		box.value = '';
@@ -187,6 +196,7 @@ async function loadPastedTextToRep() {
 			else alert(`「${data.district}${data.han ? `（${data.han}）` : ''}」を追加しました。`);
 		}
 	} catch (err) {
+		if (err.message === 'STORAGE_SESSION_CHANGED') return;
 		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "復号に失敗しました。パスワードを確認してください。");
 	}
 }
@@ -272,12 +282,14 @@ async function loadRepMasterTxt(e) {
 	if (!file) return;
 	const pass = document.getElementById('rep-pass').value;
 	try {
+		assertStorageSession(generation);
 		const data = await parseTxtContent(await readImportFile(file), pass, generation, importKind);
 		if (await applyRepImport(data, pass, generation)) {
 			renderRepAll();
 			if (!data.isTransferData) alert(data.districts ? '代表統合マスターデータを読み込みました。' : `地区データ「${data.district || '自治会'}${data.han ? `（${data.han}）` : ''}」として追加しました。`);
 		}
 	} catch (err) {
+		if (err.message === 'STORAGE_SESSION_CHANGED') { e.target.value = ""; return; }
 		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "読み込みに失敗しました。パスワードを確認してください。");
 	}
 	e.target.value = "";
@@ -293,6 +305,9 @@ function runRepYearUpdate() {
 		contact: "", attend: true
 	}));
 	repState.seatConfig.cells = {};
+	resetPasswordInputs(document.getElementById('tab-rep'));
+	const printArea = document.getElementById('print-area');
+	if (printArea) printArea.innerHTML = "";
 	saveRepLocal();
 	renderRepAll();
 	alert("代表データの年度更新が完了しました。「代表統合ファイル(.txt)を保存」から次年度代表への引き継ぎファイルを出力できます。");
@@ -384,33 +399,46 @@ function saveAndCloseRepDistrictDetailModal() {
 		const newIndex = modalOfficerIndexes.indexOf(oldIndex);
 		explicitKeys[`OFF_${modalDistrictIndex}_${oldIndex}`] = newIndex < 0 ? '' : `OFF_${modalDistrictIndex}_${newIndex}`;
 	});
-	repState.districts[modalDistrictIndex] = JSON.parse(JSON.stringify(modalCurrentDistrict));
-	const edited = repState.districts[modalDistrictIndex];
-	const newNeighborSource = getUniqueNeighborhoodDistricts(repState.districts, true).find(({ d }) => d.district === original.district)?.dIdx;
+	const candidateDistrict = JSON.parse(JSON.stringify(modalCurrentDistrict));
+	const newNeighborSource = getUniqueNeighborhoodDistricts(
+		repState.districts.map((d, idx) => (idx === modalDistrictIndex ? candidateDistrict : d)),
+		true
+	).find(({ d }) => d.district === original.district)?.dIdx;
 	const oldChecks = original.szNeighborChecks || {};
 	const checks = {};
 	modalNeighborIndexes.forEach((oldIndex, newIndex) => {
 		if (oldIndex !== null && Object.hasOwn(oldChecks, oldIndex)) checks[newIndex] = oldChecks[oldIndex];
 	});
-	edited.szNeighborChecks = checks;
-	const oldGroup = previous.neighbors.find(group => group.district === original.district);
-	if (oldGroup && oldGroup.sourceIndex === modalDistrictIndex) {
-		oldGroup.identities = edited.neighborhood.map(neighborIdentity);
-		oldGroup.checks = checks;
-	}
+	candidateDistrict.szNeighborChecks = checks;
 	if (oldNeighborSource === modalDistrictIndex && newNeighborSource === modalDistrictIndex) {
 		(original.neighborhood || []).forEach((_, oldIndex) => {
 			const newIndex = modalNeighborIndexes.indexOf(oldIndex);
 			explicitKeys[`NEI_${original.district}_${oldIndex}`] = newIndex < 0 ? '' : `NEI_${original.district}_${newIndex}`;
 		});
 	}
-	(repState.districts[modalDistrictIndex].officers || []).forEach(normalizeNameFields);
-	(repState.districts[modalDistrictIndex].neighborhood || []).forEach(normalizeNameFields);
-	(repState.districts[modalDistrictIndex].students || []).forEach(s => {
+	(candidateDistrict.officers || []).forEach(normalizeNameFields);
+	(candidateDistrict.neighborhood || []).forEach(normalizeNameFields);
+	(candidateDistrict.students || []).forEach(s => {
 		normalizeNameFields(s);
-		if (s.han === undefined) s.han = repState.districts[modalDistrictIndex].han || "";
+		if (s.han === undefined) s.han = candidateDistrict.han || "";
 		if (s.isOutOfDistrict === undefined) s.isOutOfDistrict = false;
 	});
+	const candidate = JSON.parse(JSON.stringify(repState));
+	candidate.districts[modalDistrictIndex] = candidateDistrict;
+	try {
+		validateImportData(candidate, 'rep');
+	} catch (err) {
+		alert("地区詳細の保存に失敗しました。入力文字数や形式を確認してください。");
+		return;
+	}
+
+	const edited = candidateDistrict;
+	const oldGroup = previous.neighbors.find(group => group.district === original.district);
+	if (oldGroup && oldGroup.sourceIndex === modalDistrictIndex) {
+		oldGroup.identities = edited.neighborhood.map(neighborIdentity);
+		oldGroup.checks = checks;
+	}
+	repState.districts[modalDistrictIndex] = edited;
 
 	reconcileSeatState(previous, explicitKeys);
 	closeRepDistrictDetailModalWithoutSaving();
@@ -785,6 +813,8 @@ function clearAllRepDistricts() {
 	const previous = captureSeatState();
 	repState.districts = [];
 	reconcileSeatState(previous);
+	const printArea = document.getElementById('print-area');
+	if (printArea) printArea.innerHTML = "";
 	saveRepLocal();
 	renderRepAll();
 }
@@ -1002,6 +1032,7 @@ async function loadTransferFileIntoRep(e) {
 	if (!file) return;
 	const pass = document.getElementById('rep-pass')?.value || "";
 	try {
+		assertStorageSession(generation);
 		const text = await readImportFile(file);
 		let data;
 		try {
@@ -1014,6 +1045,7 @@ async function loadTransferFileIntoRep(e) {
 		}
 		await integrateTransferDataIntoRep(data, pass, generation);
 	} catch (err) {
+		if (err.message === 'STORAGE_SESSION_CHANGED') { e.target.value = ""; return; }
 		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの読み込みに失敗しました。パスワードをご確認ください。");
 	}
 	if (e.target) e.target.value = "";
@@ -1026,6 +1058,7 @@ async function loadPastedTransferTextIntoRep(text) {
 	if (!raw) return;
 	let pass = document.getElementById('rep-pass')?.value || "";
 	try {
+		assertStorageSession(generation);
 		let data;
 		try {
 			data = await parseTxtContent(raw, pass, generation, importKind);
@@ -1039,6 +1072,7 @@ async function loadPastedTransferTextIntoRep(text) {
 		const box = document.getElementById('rep-transfer-paste-box');
 		if (box) box.value = "";
 	} catch (err) {
+		if (err.message === 'STORAGE_SESSION_CHANGED') return;
 		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの復号に失敗しました。パスワードをご確認ください。");
 	}
 }
@@ -1052,9 +1086,11 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 	if (!src) return false;
 
 	let pass = explicitPass;
+	let usedCardPass = false;
 	if (!pass) {
 		const passInput = document.getElementById('rep-pass');
 		pass = passInput ? passInput.value : '';
+		if (pass) usedCardPass = true;
 	}
 	if (!pass) {
 		pass = safePrompt(`地区「${src.district || ''}」の切り出し出力用パスワードを入力してください：`);
@@ -1073,6 +1109,12 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 		});
 		const passInput = document.getElementById('rep-pass');
 		if (passInput) passInput.focus();
+		return false;
+	}
+
+	const confirmEl = document.getElementById('rep-pass-confirm');
+	if (usedCardPass && confirmEl && confirmEl.value !== pass) {
+		alert('確認用パスワードが一致しません。');
 		return false;
 	}
 
@@ -1104,9 +1146,19 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 			`:END_DATA\n`
 		].join('\n');
 
+		const resolveChannelBody = async () => {
+			if (content.length <= 2000) return content;
+			try {
+				await navigator.clipboard.writeText(content);
+			} catch (_) {}
+			if (!outputIsCurrent()) return null;
+			return "校外委員会地区データを送信します。クリップボードにコピーされた暗号化テキストをここに貼り付けてください";
+		};
+
 		if (explicitMode === 'copy') {
 			if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
 				await navigator.clipboard.writeText(content);
+				if (!outputIsCurrent()) return false;
 				alert(`「${singleDistrict.district}」の暗号化データをクリップボードにコピーしました。`);
 				return true;
 			}
@@ -1114,7 +1166,9 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 		}
 
 		if (explicitMode === 'line') {
-			const lineUrl = 'https://line.me/R/msg/text/?' + encodeURIComponent(content);
+			const lineBody = await resolveChannelBody();
+			if (lineBody === null) return false;
+			const lineUrl = 'https://line.me/R/msg/text/?' + encodeURIComponent(lineBody);
 			if (typeof window !== 'undefined' && typeof window.open === 'function') {
 				window.open(lineUrl, '_blank', 'noopener,noreferrer');
 			}
@@ -1123,7 +1177,9 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 
 		if (explicitMode === 'mail') {
 			const subject = `【校外委員会】地区データ_${singleDistrict.district}${hanPart}`;
-			const mailUrl = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(content);
+			const mailBody = await resolveChannelBody();
+			if (mailBody === null) return false;
+			const mailUrl = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(mailBody);
 			if (typeof window !== 'undefined') {
 				if (window.location) {
 					window.location.href = mailUrl;

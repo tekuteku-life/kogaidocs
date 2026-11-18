@@ -8,10 +8,10 @@ const cryptoLib = require('../../js/crypto');
 const state = require('../../js/state');
 const hata = require('../../js/hata');
 require('../../js/seat');
-require('../../js/rep');
+const rep = require('../../js/rep');
 const district = require('../../js/district');
-require('../../js/neighbor');
-require('../../js/transfer');
+const neighbor = require('../../js/neighbor');
+const transfer = require('../../js/transfer');
 const print = require('../../js/print');
 const app = require('../../js/app');
 
@@ -393,4 +393,366 @@ test('security: a tab protected before foreign LocalStorage.clear cannot resume 
 	assert.ok(result.error || result.value === false, 'Stale writes are refused even though both metadata and ciphertext are gone');
 	assert.deepEqual(localStorage.store, {}, 'No plaintext or encrypted record is resurrected after foreign clear');
 	assert.equal(cryptoLib.isStorageUnlocked(), false);
+});
+
+test('security SEC-25: performAppUpdate succeeds on unencrypted guest device while guarding generation changes and guest save failures', async () => {
+	fresh();
+	cryptoLib.requireOfficerStorageEncryption(true);
+	let replacedUrls = [];
+	let clearedCaches = 0;
+	const appScope = 'https://app.example/kogaidocs/';
+	global.location = { origin: 'https://app.example', pathname: '/kogaidocs/index.html', replace: url => { replacedUrls.push(url); } };
+	if (typeof window !== 'undefined') window.location = global.location;
+	global.caches = {
+		keys: async () => [`kogai-cache-${encodeURIComponent(appScope)}-v2.11.0`, 'other-origin-cache'],
+		delete: async () => { clearedCaches++; return true; }
+	};
+	global.navigator.serviceWorker = { getRegistrations: async () => [] };
+	global.alert = () => {};
+
+	sessionStorage.removeItem('kogai_update_attempted_version');
+	assert.equal(await app.performAppUpdate('2.11.1'), true);
+	assert.equal(clearedCaches, 1);
+	assert.equal(replacedUrls.length, 1);
+
+	const origSaveDist = global.saveDistrictLocal;
+	const origSaveRep = global.saveRepLocal;
+	const origSaveNeighbor = global.saveNeighborLocal;
+	const origSaveTransfer = global.saveTransferLocal;
+	try {
+		// Partial saveFn undefined still maps saveNeighborLocal correctly to kogai_neighbor_v2
+		global.saveDistrictLocal = undefined;
+		global.saveNeighborLocal = async () => false;
+		clearedCaches = 0; replacedUrls = [];
+		sessionStorage.removeItem('kogai_update_attempted_version');
+		assert.equal(await app.performAppUpdate('2.11.1'), false);
+		assert.equal(clearedCaches, 0);
+		assert.equal(replacedUrls.length, 0, 'Guest save failure aborts update even when saveDistrictLocal is missing');
+		assert.equal(sessionStorage.getItem('kogai_update_attempted_version'), null);
+
+		// Encryption change mid-save (ALL 4 return true so only pre/post encryption change triggers abort)
+		global.saveDistrictLocal = async () => true;
+		global.saveRepLocal = async () => true;
+		global.saveNeighborLocal = async () => true;
+		global.saveTransferLocal = async () => {
+			await cryptoLib.setupStorageEncryption('MidUpdateLock123!', false);
+			return true;
+		};
+		clearedCaches = 0; replacedUrls = [];
+		sessionStorage.removeItem('kogai_update_attempted_version');
+		assert.equal(await app.performAppUpdate('2.11.1'), false);
+		assert.equal(clearedCaches, 0);
+		assert.equal(replacedUrls.length, 0, 'Encryption state change during update aborts reload');
+		assert.equal(sessionStorage.getItem('kogai_update_attempted_version'), null);
+
+		// Session generation change (lock) while staying encrypted & ALL 4 return true aborts reload
+		fresh();
+		global.location = { origin: 'https://app.example', pathname: '/kogaidocs/index.html', replace: url => { replacedUrls.push(url); } };
+		if (typeof window !== 'undefined') window.location = global.location;
+		await cryptoLib.setupStorageEncryption('MidUpdateLock123!', false);
+		global.saveDistrictLocal = async () => { cryptoLib.lockStorage(); return true; };
+		global.saveRepLocal = async () => true;
+		global.saveNeighborLocal = async () => true;
+		global.saveTransferLocal = async () => true;
+		clearedCaches = 0; replacedUrls = [];
+		sessionStorage.removeItem('kogai_update_attempted_version');
+		assert.equal(await app.performAppUpdate('2.11.1'), false);
+		assert.equal(clearedCaches, 0);
+		assert.equal(replacedUrls.length, 0, 'Session generation change during update aborts reload');
+		assert.equal(sessionStorage.getItem('kogai_update_attempted_version'), null);
+	} finally {
+		global.saveDistrictLocal = origSaveDist;
+		global.saveRepLocal = origSaveRep;
+		global.saveNeighborLocal = origSaveNeighbor;
+		global.saveTransferLocal = origSaveTransfer;
+	}
+});
+
+test('security SEC-28: resetPasswordInputs resets visible inputs, toggles, 5 password feedback IDs, #hata-line-text, and #print-area without stripping #rep-new-district-error', async () => {
+	fresh();
+	const passIds = [
+		'd-pass', 'd-pass-confirm', 'rep-pass', 'rep-pass-confirm',
+		'neighbor-pass', 'neighbor-pass-confirm', 'neighbor-import-pass',
+		'transfer-export-pass', 'transfer-export-pass-confirm',
+		'modal-unlock-pass', 'modal-set-pass', 'modal-set-pass-confirm'
+	];
+	const toggleButtons = passIds.map(id => {
+		const btn = document.createElement('button');
+		btn.className = 'btn-toggle-pass';
+		btn.setAttribute('data-password-target', id);
+		document.body.appendChild(btn);
+		return [id, btn];
+	});
+	const resetFixtures = () => {
+		for (const id of passIds) {
+			const el = document.getElementById(id);
+			el.type = 'text';
+			el.value = 'PlainVisible123!';
+		}
+		for (const [, btn] of toggleButtons) btn.textContent = '🙈';
+		for (const msgId of ['d-pass-match-msg', 'rep-pass-match-msg', 'neighbor-pass-match-msg', 'modal-set-pass-msg', 'modal-unlock-error']) {
+			const m = document.getElementById(msgId);
+			m.textContent = '判定残存';
+			m.className = 'pass-feedback-msg pass-msg-ok';
+		}
+		const repErr = document.getElementById('rep-new-district-error');
+		repErr.className = 'pass-feedback-msg pass-msg-ng';
+		repErr.textContent = '既存地区エラー維持';
+		const hataLine = document.getElementById('hata-line-text');
+		hataLine.value = '機密旗振りテキスト';
+		hataLine.hidden = false;
+		document.getElementById('print-area').innerHTML = '<div>機密印刷DOM</div>';
+	};
+
+	resetFixtures();
+	app.hideStorageUnlockModal();
+	assert.equal(document.getElementById('modal-unlock-pass').type, 'password');
+	assert.equal(document.getElementById('modal-unlock-pass').value, '');
+	assert.equal(toggleButtons.find(([id]) => id === 'modal-unlock-pass')[1].textContent, '👁️');
+	assert.equal(document.getElementById('modal-unlock-error').textContent, '');
+	assert.equal(document.getElementById('rep-new-district-error').textContent, '既存地区エラー維持');
+	assert.equal(document.getElementById('rep-new-district-error').className, 'pass-feedback-msg pass-msg-ng');
+
+	// Direct resetPasswordInputs(document) and scoped #storage-settings-modal both preserve #rep-new-district-error
+	resetFixtures();
+	utils.resetPasswordInputs(document);
+	for (const id of passIds) {
+		assert.equal(document.getElementById(id).type, 'password');
+		assert.equal(document.getElementById(id).value, '');
+	}
+	for (const [, btn] of toggleButtons) assert.equal(btn.textContent, '👁️');
+	for (const msgId of ['d-pass-match-msg', 'rep-pass-match-msg', 'neighbor-pass-match-msg', 'modal-set-pass-msg', 'modal-unlock-error']) {
+		assert.equal(document.getElementById(msgId).textContent, '');
+	}
+	assert.equal(document.getElementById('rep-new-district-error').textContent, '既存地区エラー維持');
+	assert.equal(document.getElementById('rep-new-district-error').className, 'pass-feedback-msg pass-msg-ng');
+
+	resetFixtures();
+	utils.resetPasswordInputs(null);
+	assert.equal(document.getElementById('d-pass').type, 'text');
+	assert.equal(document.getElementById('d-pass').value, 'PlainVisible123!');
+	assert.equal(document.getElementById('d-pass-match-msg').textContent, '判定残存');
+	const origLockModal = document.elements['storage-lock-modal'];
+	document.elements['storage-lock-modal'] = null;
+	try {
+		app.hideStorageUnlockModal();
+		assert.equal(document.getElementById('d-pass').value, 'PlainVisible123!');
+	} finally {
+		document.elements['storage-lock-modal'] = origLockModal;
+	}
+
+	resetFixtures();
+	utils.resetPasswordInputs(document.getElementById('storage-settings-modal'));
+	assert.equal(document.getElementById('modal-set-pass').type, 'password');
+	assert.equal(document.getElementById('modal-set-pass').value, '');
+	assert.equal(document.getElementById('modal-set-pass-confirm').type, 'password');
+	assert.equal(document.getElementById('modal-set-pass-confirm').value, '');
+	assert.equal(document.getElementById('modal-set-pass-msg').textContent, '');
+	assert.equal(toggleButtons.find(([id]) => id === 'modal-set-pass')[1].textContent, '👁️');
+	assert.equal(toggleButtons.find(([id]) => id === 'modal-set-pass-confirm')[1].textContent, '👁️');
+	// Out-of-scope inputs, toggles, and feedback messages stay untouched
+	assert.equal(document.getElementById('d-pass').type, 'text');
+	assert.equal(document.getElementById('d-pass').value, 'PlainVisible123!');
+	assert.equal(toggleButtons.find(([id]) => id === 'd-pass')[1].textContent, '🙈');
+	assert.equal(document.getElementById('d-pass-match-msg').textContent, '判定残存');
+	assert.equal(document.getElementById('modal-unlock-error').textContent, '判定残存');
+	assert.equal(document.getElementById('rep-new-district-error').textContent, '既存地区エラー維持');
+	assert.equal(document.getElementById('rep-new-district-error').className, 'pass-feedback-msg pass-msg-ng');
+
+	// clearMemoryAndDomForLock resets all password inputs/toggles, 5 password feedback IDs, #hata-line-text, #print-area without stripping #rep-new-district-error pass-msg-ng class
+	resetFixtures();
+	app.clearMemoryAndDomForLock();
+	assert.equal(document.getElementById('print-area').innerHTML, '');
+	assert.equal(document.getElementById('hata-line-text').value, '');
+	assert.equal(document.getElementById('hata-line-text').hidden, true);
+	for (const id of passIds) {
+		assert.equal(document.getElementById(id).type, 'password');
+		assert.equal(document.getElementById(id).value, '');
+		assert.equal(toggleButtons.find(([bId]) => bId === id)[1].textContent, '👁️');
+	}
+	for (const msgId of ['d-pass-match-msg', 'rep-pass-match-msg', 'neighbor-pass-match-msg', 'modal-set-pass-msg', 'modal-unlock-error']) {
+		assert.equal(document.getElementById(msgId).textContent, '');
+	}
+	assert.equal(document.getElementById('rep-new-district-error').className, 'pass-feedback-msg pass-msg-ng');
+
+	global.confirm = () => true;
+	global.alert = () => {};
+	const cases = [
+		{ name: 'runDistrictYearUpdate', fn: () => district.runDistrictYearUpdate(), ids: ['d-pass', 'd-pass-confirm'], msgs: ['d-pass-match-msg'], clearHataLine: true },
+		{ name: 'runRepYearUpdate', fn: () => rep.runRepYearUpdate(), ids: ['rep-pass', 'rep-pass-confirm'], msgs: ['rep-pass-match-msg'] },
+		{ name: 'runNeighborYearUpdate', fn: () => neighbor.runNeighborYearUpdate(), ids: ['neighbor-pass', 'neighbor-pass-confirm', 'neighbor-import-pass'], msgs: ['neighbor-pass-match-msg'] },
+		{ name: 'resetTransferForm', fn: () => transfer.resetTransferForm(), ids: ['transfer-export-pass', 'transfer-export-pass-confirm'], msgs: [] },
+		{ name: 'clearTransferForm', fn: () => transfer.clearTransferForm(), ids: ['transfer-export-pass', 'transfer-export-pass-confirm'], msgs: [] }
+	];
+	for (const tc of cases) {
+		resetFixtures();
+		await tc.fn();
+		assert.equal(document.getElementById('print-area').innerHTML, '', tc.name);
+		assert.equal(document.getElementById('rep-new-district-error').textContent, '既存地区エラー維持', tc.name);
+		assert.equal(document.getElementById('rep-new-district-error').className, 'pass-feedback-msg pass-msg-ng', tc.name);
+		for (const id of tc.ids) {
+			assert.equal(document.getElementById(id).type, 'password', `${tc.name}:${id}`);
+			assert.equal(document.getElementById(id).value, '', `${tc.name}:${id}`);
+			assert.equal(toggleButtons.find(([bId]) => bId === id)[1].textContent, '👁️', `${tc.name}:toggle:${id}`);
+		}
+		for (const msgId of tc.msgs) assert.equal(document.getElementById(msgId).textContent, '', `${tc.name}:${msgId}`);
+		if (tc.clearHataLine) {
+			assert.equal(document.getElementById('hata-line-text').value, '', tc.name);
+			assert.equal(document.getElementById('hata-line-text').hidden, true, tc.name);
+		}
+	}
+
+	// clearAllRepDistricts clears #print-area and loadDistrictTxt clears & hides #hata-line-text
+	resetFixtures();
+	rep.clearAllRepDistricts();
+	assert.equal(document.getElementById('print-area').innerHTML, '');
+
+	resetFixtures();
+	const sampleCipher = await cryptoLib.encryptPayload(JSON.stringify({ district: '読込地区', officers: [], students: [], neighborhood: [] }), 'LoadPass123!');
+	document.getElementById('d-pass').value = 'LoadPass123!';
+	await district.loadDistrictTxt({ target: { files: [{ name: 'd.txt', text: async () => sampleCipher }], value: 'd.txt' } });
+	assert.equal(document.getElementById('hata-line-text').value, '');
+	assert.equal(document.getElementById('hata-line-text').hidden, true);
+
+	// Null-element tolerance for restored DOM null guards (#hata-line-text, #print-area, #rep-pass-confirm)
+	resetFixtures();
+	state.repState.districts = [createMockDistrict({ district: 'NULL検証地区' })];
+	const origHataLine = document.elements['hata-line-text'];
+	const origPrintArea = document.elements['print-area'];
+	const origRepConfirm = document.elements['rep-pass-confirm'];
+	const origDownload = global.downloadTextFile;
+	document.elements['hata-line-text'] = null;
+	document.elements['print-area'] = null;
+	document.elements['rep-pass-confirm'] = null;
+	global.downloadTextFile = () => {};
+	try {
+		app.clearMemoryAndDomForLock();
+		district.runDistrictYearUpdate();
+		document.getElementById('d-pass').value = 'LoadPass123!';
+		await district.loadDistrictTxt({ target: { files: [{ name: 'd.txt', text: async () => sampleCipher }], value: 'd.txt' } });
+		rep.runRepYearUpdate();
+		rep.clearAllRepDistricts();
+		state.repState.districts = [createMockDistrict({ district: 'NULL検証地区' })];
+		document.getElementById('rep-pass').value = 'LoadPass123!';
+		assert.equal(await rep.exportSingleDistrictFromRep(0, '', 'download'), true);
+	} finally {
+		document.elements['hata-line-text'] = origHataLine;
+		document.elements['print-area'] = origPrintArea;
+		document.elements['rep-pass-confirm'] = origRepConfirm;
+		global.downloadTextFile = origDownload;
+	}
+});
+
+test('security SEC-29: saveAndCloseRepDistrictDetailModal preserves modal & draft on validateImportData rejection, initAutoLockListeners catches all STORAGE_DATA_KEYS tampering when encrypted, checkAppVersion sets credentials:omit, and HTML/dynamic inputs enforce maxlength=4096', async () => {
+	const fs = require('node:fs');
+	const path = require('node:path');
+	fresh();
+	state.repState.districts = [createMockDistrict({ district: '正規集約地区' })];
+	rep.openRepDistrictDetailModal(0);
+	document.getElementById('rep-district-detail-modal').style.display = 'block';
+	rep.getModalCurrentDistrict().students.push({ grade: '1', class: '1', lastName: '超'.repeat(4097) });
+	const beforeStorage = JSON.stringify(localStorage.store);
+	const alerts = [];
+	global.alert = msg => alerts.push(msg);
+	rep.saveAndCloseRepDistrictDetailModal();
+	assert.equal(document.getElementById('rep-district-detail-modal').style.display, 'block');
+	assert.equal(rep.getModalCurrentDistrict().students.at(-1).lastName.length, 4097);
+	assert.equal(state.repState.districts[0].students.length, createMockDistrict().students.length);
+	assert.equal(JSON.stringify(localStorage.store), beforeStorage);
+	assert.ok(alerts.length > 0);
+
+	// Verify STORAGE_DATA_KEYS export & initAutoLockListeners behavior across all 4 keys
+	assert.deepEqual(cryptoLib.STORAGE_DATA_KEYS, ['kogai_district_v2', 'kogai_rep_v2', 'kogai_neighbor_v2', 'kogai_transfer_v2']);
+	app.initAutoLockListeners();
+	window.dispatchEvent({ type: 'storage', key: 'kogai_district_v2', oldValue: '{}', newValue: null, storageArea: localStorage });
+	assert.equal(cryptoLib.isStorageEncrypted(), false);
+
+	// Valid STORAGE_ENC:2: foreign write while unlocked must NOT falsely lock; same oldValue/newValue and legacy STORAGE_ENC: with v1 metadata also behave accurately
+	fresh();
+	await cryptoLib.setupStorageEncryption('WatchDataKeys123!', false);
+	app.initAutoLockListeners();
+	const validVal = localStorage.getItem('kogai_district_v2');
+	window.dispatchEvent({ type: 'storage', key: 'kogai_district_v2', oldValue: validVal, newValue: 'STORAGE_ENC:2:updated-from-other-tab', storageArea: localStorage });
+	window.dispatchEvent({ type: 'storage', key: 'kogai_district_v2', oldValue: validVal, newValue: validVal, storageArea: localStorage });
+	assert.equal(cryptoLib.isStorageUnlocked(), true);
+	// Legacy (non-v2) metadata permits STORAGE_ENC: prefix without triggering handleImmediateLock()
+	const legacyMeta = JSON.parse(localStorage.getItem(cryptoLib.STORAGE_AUTH_KEY));
+	delete legacyMeta.storageFormat;
+	localStorage.setItem(cryptoLib.STORAGE_AUTH_KEY, JSON.stringify(legacyMeta));
+	document.getElementById('storage-lock-modal').style.display = 'none';
+	window.dispatchEvent({ type: 'storage', key: 'kogai_district_v2', oldValue: validVal, newValue: 'STORAGE_ENC:v1payload', storageArea: localStorage });
+	assert.notEqual(document.getElementById('storage-lock-modal').style.display, 'flex');
+	// Null auth metadata alongside encrypted ciphertext also falls back to STORAGE_ENC: check before locking invalid values
+	localStorage.removeItem(cryptoLib.STORAGE_AUTH_KEY);
+	window.dispatchEvent({ type: 'storage', key: 'kogai_district_v2', oldValue: validVal, newValue: '{"plain":1}', storageArea: localStorage });
+	assert.equal(cryptoLib.isStorageUnlocked(), false);
+
+	// Direct cryptoLib coverage: missing encrypted key throws STORAGE_DATA_MISSING, unknown key returns null, localStorage throw in isStorageEncrypted fails closed, malformed webauthn meta rejects STORAGE_AUTH_INVALID
+	fresh();
+	await cryptoLib.setupStorageEncryption('WatchDataKeys123!', false);
+	localStorage.removeItem('kogai_district_v2');
+	await assert.rejects(cryptoLib.loadStorageDecrypted('kogai_district_v2'), /STORAGE_DATA_MISSING/);
+	assert.equal(await cryptoLib.loadStorageDecrypted('custom_missing_key'), null);
+	const origGetItem = localStorage.getItem.bind(localStorage);
+	localStorage.getItem = () => { throw new Error('storage disabled'); };
+	try {
+		assert.equal(cryptoLib.isStorageEncrypted(), true);
+	} finally {
+		localStorage.getItem = origGetItem;
+	}
+	fresh();
+	await cryptoLib.setupStorageEncryption('WatchDataKeys123!', false);
+	const corruptedMeta = JSON.parse(localStorage.getItem(cryptoLib.STORAGE_AUTH_KEY));
+	corruptedMeta.webauthn = { credentialId: '' };
+	localStorage.setItem(cryptoLib.STORAGE_AUTH_KEY, JSON.stringify(corruptedMeta));
+	cryptoLib.lockStorage();
+	await assert.rejects(cryptoLib.unlockStorageWithPassword('WatchDataKeys123!'), /STORAGE_AUTH_INVALID/);
+
+	// Tampered STORAGE_DATA_KEYS across all 4 keys and formats locks immediately when encrypted
+	for (const key of cryptoLib.STORAGE_DATA_KEYS) {
+		for (const tamperedValue of [null, '{"district":"plaintext"}', 'STORAGE_ENC:legacy', 'STORAGE_ENC:1:downgraded']) {
+			fresh();
+			await cryptoLib.setupStorageEncryption('WatchDataKeys123!', false);
+			app.initAutoLockListeners();
+			assert.equal(cryptoLib.isStorageUnlocked(), true);
+			const oldVal = localStorage.getItem(key);
+			if (tamperedValue === null) localStorage.removeItem(key);
+			else localStorage.setItem(key, tamperedValue);
+			window.dispatchEvent({ type: 'storage', key, oldValue: oldVal, newValue: tamperedValue, storageArea: localStorage });
+			assert.equal(cryptoLib.isStorageUnlocked(), false, `Tamper on ${key} with ${String(tamperedValue)} locks immediately`);
+		}
+	}
+
+	// checkAppVersion sets credentials: 'omit' on version.json fetch
+	fresh();
+	const prevOnLine = navigator.onLine;
+	const origFetch = global.fetch;
+	let capturedFetchOptions = null;
+	navigator.onLine = true;
+	global.fetch = async (_url, options) => {
+		capturedFetchOptions = options;
+		return { ok: true, json: async () => ({ version: '2.11.0' }) };
+	};
+	global.alert = () => {};
+	try {
+		await app.checkAppVersion(true);
+		assert.equal(capturedFetchOptions?.credentials, 'omit');
+	} finally {
+		global.fetch = origFetch;
+		navigator.onLine = prevOnLine;
+	}
+
+	// Verify HTML #rep-new-district-name has single maxlength="4096" (no maxlength="50"), single-line #hata-* inputs have maxlength="4096", and dynamic tel/email inputs in district.js / neighbor.js have maxlength="4096"
+	const html = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
+	const newDistrictLine = html.split('\n').find(line => line.includes('id="rep-new-district-name"'));
+	assert.ok(newDistrictLine && newDistrictLine.includes('maxlength="4096"') && !newDistrictLine.includes('maxlength="50"'));
+	for (const id of ['hata-title', 'hata-created-date', 'hata-district', 'hata-location', 'hata-format', 'hata-contact-msg']) {
+		const line = html.split('\n').find(l => l.includes(`id="${id}"`));
+		assert.ok(line && line.includes('maxlength="4096"'), `${id} has maxlength="4096"`);
+	}
+	for (const file of ['js/district.js', 'js/neighbor.js']) {
+		const src = fs.readFileSync(path.resolve(__dirname, `../../${file}`), 'utf8');
+		const dynamicInputs = src.split('\n').filter(l => l.includes('<input ') && !l.includes('checkbox'));
+		assert.ok(dynamicInputs.length > 0 && dynamicInputs.every(l => l.includes('maxlength="4096"')), `${file} dynamic text/tel/email inputs include maxlength="4096"`);
+	}
 });

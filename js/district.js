@@ -103,11 +103,11 @@ function renderOfficersList() {
 				</div>
 				<div>
 					<label>電話番号</label>
-					<input type="tel" data-field="tel" value="${esc(off.tel || '')}" placeholder="090-0000-0000" data-input="saveDistrictLocal">
+					<input type="tel" maxlength="4096" data-field="tel" value="${esc(off.tel || '')}" placeholder="090-0000-0000" data-input="saveDistrictLocal">
 				</div>
 				<div>
 					<label>メールアドレス</label>
-					<input type="email" data-field="email" value="${esc(off.email || '')}" placeholder="example@mail.com" data-input="saveDistrictLocal">
+					<input type="email" maxlength="4096" data-field="email" value="${esc(off.email || '')}" placeholder="example@mail.com" data-input="saveDistrictLocal">
 				</div>
 				<div style="grid-column: 1 / -1;">
 					<label>役員のご住所（※学校提出用名簿に記載）</label>
@@ -193,7 +193,7 @@ function renderNeighborhoodTable() {
 				</div>
 			</td>
 			<td><input type="text" maxlength="4096" value="${esc(row.address)}" placeholder="住所" data-input="updateN" data-index="${i}" data-field="address"></td>
-			<td><input type="tel" value="${esc(row.tel)}" placeholder="電話番号" data-input="updateN" data-index="${i}" data-field="tel"></td>
+			<td><input type="tel" maxlength="4096" value="${esc(row.tel)}" placeholder="電話番号" data-input="updateN" data-index="${i}" data-field="tel"></td>
 			<td style="text-align:center;"><button class="btn btn-danger btn-sm" data-click="removeN" data-index="${i}">×</button></td>
 		`;
 		tbody.appendChild(tr);
@@ -237,7 +237,7 @@ function renderStudentsTable() {
 				</div>
 			</td>
 			<td><input type="text" maxlength="4096" value="${esc(row.address || '')}" placeholder="1号棟203号室" data-input="updateS" data-index="${i}" data-field="address"></td>
-			<td><input type="tel" value="${esc(row.tel || '')}" placeholder="電話番号" data-input="updateS" data-index="${i}" data-field="tel"></td>
+			<td><input type="tel" maxlength="4096" value="${esc(row.tel || '')}" placeholder="電話番号" data-input="updateS" data-index="${i}" data-field="tel"></td>
 			<td>
 				<select data-change="updateS" data-index="${i}" data-field="leader">
 					<option value="" ${!isLeader && !isSubLeader ? 'selected' : ''}>-</option>
@@ -347,6 +347,18 @@ function updateStudentSummaryText() {
 	summaryEl.textContent = `【${label} 学年別集計】： ${formatGradeCounts(counts)}`;
 }
 
+function clearDistrictOutputDom(clearPrint = false) {
+	const hataLineText = document.getElementById('hata-line-text');
+	if (hataLineText) {
+		hataLineText.value = '';
+		hataLineText.hidden = true;
+	}
+	if (clearPrint) {
+		const printArea = document.getElementById('print-area');
+		if (printArea) printArea.innerHTML = '';
+	}
+}
+
 function runDistrictYearUpdate() {
 	if (!confirm("【地区データの年度更新】\n・校外役員情報と自治会役員一覧をクリアします。\n・児童一覧から6年生を削除し、1〜5年生の学年を+1します。\n・クラスと班長・副班長をリセットします。\n※地区名・班名・学区外フラグは保持されます。\n\n実行してよろしいですか？")) return;
 
@@ -416,6 +428,8 @@ function runDistrictYearUpdate() {
 
 	renderDistrictForm();
 	if (typeof renderHataCard === 'function') renderHataCard();
+	resetPasswordInputs(document.getElementById('tab-district'));
+	clearDistrictOutputDom(true);
 	saveDistrictLocal();
 	alert("年度更新が完了しました。新年度用の引き継ぎファイルとして「提出・保存用ファイル(.txt)出力」から保存してください。");
 }
@@ -625,6 +639,7 @@ async function loadDistrictTxt(e) {
 	if (!file) return;
 	const pass = document.getElementById('d-pass')?.value || document.getElementById('d-file-pass')?.value || '';
 	try {
+		assertStorageSession(generation);
 		const rawText = await readImportFile(file);
 
 		const data = await parseTxtContent(rawText, pass, generation, importKind);
@@ -679,11 +694,16 @@ async function loadDistrictTxt(e) {
 		data.han = data.han || data.hanList[0] || '';
 		currentDistrict = adoptImportedModel(await commitImportedModel('kogai_district_v2', data, generation));
 		renderDistrictForm();
+		clearDistrictOutputDom();
 		const hanMsg = currentDistrict.han ? `（${currentDistrict.han}）` : "";
 		alert(`地区データ「${currentDistrict.district || ""}」${hanMsg}を読み込みました。`);
 		if (e && e.target) e.target.value = "";
 		return true;
 	} catch (err) {
+		if (err.message === 'STORAGE_SESSION_CHANGED') {
+			if (e.target) e.target.value = "";
+			return;
+		}
 		console.error("Failed to load district file:", err);
 		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "読み込みに失敗しました。パスワードを確認してください。");
 		if (e && e.target) e.target.value = "";
@@ -849,6 +869,7 @@ async function loadTransferFileIntoDistrict(e) {
 	if (!file) return;
 	const pass = document.getElementById('d-pass')?.value || "";
 	try {
+		assertStorageSession(generation);
 		const text = await readImportFile(file);
 		let data;
 		try {
@@ -861,6 +882,10 @@ async function loadTransferFileIntoDistrict(e) {
 		}
 		await integrateTransferDataIntoDistrict(data, pass, generation);
 	} catch (err) {
+		if (err.message === 'STORAGE_SESSION_CHANGED') {
+			e.target.value = "";
+			return;
+		}
 		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの読み込みに失敗しました。パスワードをご確認ください。");
 	}
 	if (e.target) e.target.value = "";
@@ -873,6 +898,7 @@ async function loadPastedTransferTextIntoDistrict(text) {
 	if (!raw) return;
 	let pass = document.getElementById('d-pass')?.value || "";
 	try {
+		assertStorageSession(generation);
 		let data;
 		try {
 			data = await parseTxtContent(raw, pass, generation, importKind);
@@ -886,6 +912,7 @@ async function loadPastedTransferTextIntoDistrict(text) {
 		const box = document.getElementById('d-transfer-paste-box');
 		if (box) box.value = "";
 	} catch (err) {
+		if (err.message === 'STORAGE_SESSION_CHANGED') return;
 		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの復号に失敗しました。パスワードをご確認ください。");
 	}
 }
@@ -897,6 +924,7 @@ async function loadNeighborFileIntoDistrict(e) {
 	if (!file) return;
 	const pass = document.getElementById('d-pass')?.value || "";
 	try {
+		assertStorageSession(generation);
 		const text = await readImportFile(file);
 		let data;
 		try {
@@ -909,6 +937,10 @@ async function loadNeighborFileIntoDistrict(e) {
 		}
 		await mergeNeighborDataIntoDistrict(data, generation);
 	} catch (err) {
+		if (err.message === 'STORAGE_SESSION_CHANGED') {
+			e.target.value = "";
+			return;
+		}
 		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "自治会データの読み込みに失敗しました。パスワードをご確認ください。");
 	}
 	e.target.value = "";
@@ -923,6 +955,7 @@ async function loadPastedNeighborTextIntoDistrict() {
 	if (!raw) return;
 	let pass = document.getElementById('d-pass')?.value || "";
 	try {
+		assertStorageSession(generation);
 		let data;
 		try {
 			data = await parseTxtContent(raw, pass, generation, importKind);
@@ -935,6 +968,7 @@ async function loadPastedNeighborTextIntoDistrict() {
 		await mergeNeighborDataIntoDistrict(data, generation);
 		box.value = "";
 	} catch (err) {
+		if (err.message === 'STORAGE_SESSION_CHANGED') return;
 		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "自治会データの復号に失敗しました。パスワードをご確認ください。");
 	}
 }

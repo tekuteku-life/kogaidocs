@@ -64,7 +64,7 @@ function createTab(localStorage = storage()) {
 		subtle[method] = webcrypto.subtle[method].bind(webcrypto.subtle);
 	}
 	const prf = new Uint8Array(32).fill(7);
-	const credential = id => ({ rawId: id || new Uint8Array([1, 2, 3, 4]), getClientExtensionResults: () => ({ prf: { results: { first: prf } } }) });
+	const credential = id => ({ rawId: id || new Uint8Array([1, 2, 3, 4]), getClientExtensionResults: () => ({ prf: { results: { first: new Uint8Array(prf) } } }) });
 	const sandbox = {
 		localStorage, crypto: { subtle, getRandomValues: value => webcrypto.getRandomValues(value) },
 		TextEncoder, TextDecoder, Uint8Array, ArrayBuffer, URL, URLSearchParams, btoa, atob,
@@ -678,4 +678,79 @@ test('security crypto locks: unavailable Web Locks still permits unencrypted sin
 	assert.equal((await owner.run(`loadStorageDecrypted('${keys[0]}')`)).district, '未暗号化で利用する地区');
 	await owner.run('clearStorageSecurity()');
 	assert.deepEqual(owner.localStorage.snapshot(), {});
+});
+
+test('security crypto SEC-26: zeroBuffer zeroes Uint8Array/ArrayBuffer prfResult in finally (including subviews and subtle errors) and validates non-null webauthn metadata', async () => {
+	const owner = await configured();
+	const createdBacking = new Uint8Array(48).fill(55);
+	const origCreate = owner.credentials.create;
+	owner.credentials.create = async opts => {
+		const res = await origCreate(opts);
+		const view = new Uint8Array(createdBacking.buffer, 8, 32);
+		view.fill(9);
+		return { rawId: res.rawId, getClientExtensionResults: () => ({ prf: { results: { first: view } } }) };
+	};
+	assert.equal(await owner.run('registerWebAuthnForActiveKey()'), true);
+	assert.ok(createdBacking.subarray(8, 40).every(b => b === 0), 'Uint8Array PRF view is zeroed in-place in finally');
+	assert.ok(createdBacking.subarray(0, 8).every(b => b === 55) && createdBacking.subarray(40).every(b => b === 55), 'Backing buffer outside byteOffset/byteLength stays untouched');
+
+	const gotBuffers = [];
+	owner.run('lockStorage()');
+	owner.credentials.get = async opts => {
+		const buf = new Uint8Array(32).fill(9).buffer;
+		gotBuffers.push(buf);
+		return { rawId: opts?.publicKey?.allowCredentials?.[0]?.id, getClientExtensionResults: () => ({ prf: { results: { first: buf } } }) };
+	};
+	assert.equal(await owner.run('unlockStorageWithWebAuthn()'), true);
+	assert.ok(new Uint8Array(gotBuffers[0]).every(b => b === 0), 'ArrayBuffer PRF result is zeroed in finally');
+
+	// Subtle failure inside registerWebAuthnPrf & unwrapKeyWithWebAuthn still zeroes prfResult in finally
+	const failTab = await configured();
+	const errRegView = new Uint8Array(32).fill(13);
+	failTab.credentials.create = async () => ({ rawId: new Uint8Array([1, 2]), getClientExtensionResults: () => ({ prf: { results: { first: errRegView } } }) });
+	const origImport = failTab.subtle.importKey;
+	failTab.subtle.importKey = async () => { throw new Error('MOCK_IMPORT_FAIL'); };
+	try {
+		await assert.rejects(failTab.run('registerWebAuthnForActiveKey()'), /MOCK_IMPORT_FAIL/);
+		assert.ok(errRegView.every(b => b === 0), 'prfResult zeroed even when subtle throws during register');
+	} finally { failTab.subtle.importKey = origImport; }
+
+	const unwrapFailTab = await configured();
+	await unwrapFailTab.run('registerWebAuthnForActiveKey()');
+	unwrapFailTab.run('lockStorage()');
+	const errUnlockView = new Uint8Array(32).fill(19);
+	unwrapFailTab.credentials.get = async opts => ({ rawId: opts?.publicKey?.allowCredentials?.[0]?.id, getClientExtensionResults: () => ({ prf: { results: { first: errUnlockView } } }) });
+	const origDecrypt = unwrapFailTab.subtle.decrypt;
+	unwrapFailTab.subtle.decrypt = async () => { throw new Error('MOCK_DECRYPT_FAIL'); };
+	try {
+		await assert.rejects(unwrapFailTab.run('unlockStorageWithWebAuthn()'), /MOCK_DECRYPT_FAIL|OperationError/);
+		assert.ok(errUnlockView.every(b => b === 0), 'prfResult zeroed even when subtle throws during unwrap');
+	} finally { unwrapFailTab.subtle.decrypt = origDecrypt; }
+
+	// WebAuthn metadata validation rejects invalid non-null primitives/shapes
+	for (const badWebAuthn of [[], {}, 'str', 123, true, false, { credentialId: 123, prfSalt: 'a', iv: 'b', wrappedKey: 'c' }, { credentialId: '', prfSalt: 'a', iv: 'b', wrappedKey: 'c' }, { credentialId: 'id', prfSalt: '', iv: 'b', wrappedKey: 'c' }, { credentialId: 'id', prfSalt: 'a', iv: 9, wrappedKey: 'c' }, { credentialId: 'id', prfSalt: 'a', iv: 'b' }]) {
+		const meta = JSON.parse(owner.localStorage.getItem(authKey));
+		meta.webauthn = badWebAuthn;
+		owner.localStorage.setItem(authKey, JSON.stringify(meta));
+		await assert.rejects(owner.run(`loadStorageDecrypted('${keys[0]}')`), /STORAGE_AUTH_INVALID|STORAGE_LOCKED/);
+		const checkTab = createTab(owner.localStorage);
+		assert.throws(() => checkTab.run(`requireStorageAuthMeta(localStorage.getItem('${authKey}'))`), /STORAGE_AUTH_INVALID/);
+	}
+
+	// Valid null webauthn passes requireStorageAuthMeta
+	const cleanOwner = await configured();
+	const cleanMeta = JSON.parse(cleanOwner.localStorage.getItem(authKey));
+	assert.equal(cleanMeta.webauthn, null);
+	assert.ok(cleanOwner.run(`requireStorageAuthMeta(localStorage.getItem('${authKey}'))`));
+});
+
+test('security crypto SEC-29: STORAGE_DATA_KEYS is exported and loadStorageDecrypted enforces lock before STORAGE_DATA_MISSING', async () => {
+	assert.deepEqual(Array.from(createTab().run('STORAGE_DATA_KEYS')), ['kogai_district_v2', 'kogai_rep_v2', 'kogai_neighbor_v2', 'kogai_transfer_v2']);
+	assert.deepEqual(require('../../js/crypto').STORAGE_DATA_KEYS, ['kogai_district_v2', 'kogai_rep_v2', 'kogai_neighbor_v2', 'kogai_transfer_v2']);
+	const cleanOwner = await configured();
+	assert.equal(await cleanOwner.run("loadStorageDecrypted('kogai_non_data_key')"), null);
+	cleanOwner.localStorage.removeItem(keys[0]);
+	await assert.rejects(cleanOwner.run(`loadStorageDecrypted('${keys[0]}')`), /STORAGE_DATA_MISSING/);
+	cleanOwner.run('lockStorage()');
+	await assert.rejects(cleanOwner.run(`loadStorageDecrypted('${keys[0]}')`), /STORAGE_LOCKED/);
 });

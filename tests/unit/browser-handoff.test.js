@@ -6,6 +6,7 @@ setupDomEnvironment();
 require('../../js/utils');
 const cryptoLib = require('../../js/crypto');
 const state = require('../../js/state');
+const INITIAL_SZ_EXTERNALS = JSON.parse(JSON.stringify(state.repState.szExternals));
 const handoff = require('../../js/handoff');
 const NativeURL = require('node:url').URL;
 require('../../js/hata');
@@ -15,7 +16,7 @@ require('../../js/neighbor');
 require('../../js/transfer');
 require('../../js/seat');
 require('../../js/print');
-require('../../js/app');
+const app = require('../../js/app');
 
 function fresh() {
 	setupDomEnvironment();
@@ -286,4 +287,247 @@ test('handoff: a native close prevents late output and a closed clipboard task c
 	reject(new Error('denied after close'));
 	await task;
 	assert.equal(document.getElementById('handoff-status').textContent, '');
+});
+
+test('handoff SEC-25 (normal): unencrypted guest collectBrowserHandoff & updateLineBrowserNotice succeed via activeAppMode priority without officer models or officer drafts', async () => {
+	fresh();
+	cryptoLib.requireOfficerStorageEncryption(true);
+	state.currentDistrict = createMockDistrict({ district: '残存秘密地区', savedFilePassword: 'DoNotLeakPassword1!' });
+	state.repState.districts = [createMockDistrict({ district: '残存集約地区' })];
+	rep.openRepDistrictDetailModal(0);
+	assert.notEqual(rep.captureRepDetailDraft(), null, 'Fixture has active repDraft before handoff collection');
+	state.neighborState = { district: '下町自治会', neighborhood: [{ role: '会長', lastName: '田中' }] };
+	document.getElementById('neighbor-district-name').value = '下町自治会';
+	state.transferState = { address: '北1-2', tel: '09011112222', children: [{ id: 'c1', lastName: '佐藤', firstName: '花' }], memo: '転入メモ' };
+	document.getElementById('d-paste-box').value = '秘密役員下書き';
+	document.getElementById('d-neighbor-paste-box').value = '役員自治会貼付';
+	document.getElementById('d-transfer-paste-box').value = '役員転入貼付';
+	document.getElementById('rep-paste-box').value = '代表貼付';
+	document.getElementById('rep-transfer-paste-box').value = '代表転入貼付';
+	document.getElementById('rep-new-district-name').value = '役員新地区';
+	document.getElementById('neighbor-paste-box').value = 'ゲスト自治会下書き';
+	app.switchTab('neighbor');
+	localStorage.setItem('kogai_active_mode', 'district');
+	handoff.updateLineBrowserNotice();
+	assert.match(document.querySelector('[data-external-browser-link]').href, /mode=neighbor/);
+	const collected = await handoff.collectBrowserHandoff();
+	assert.equal(collected.mode, 'neighbor');
+	assert.equal(collected.repDraft, null);
+	assert.equal(collected.models[0].district, '');
+	assert.equal(collected.models[0].savedFilePassword, undefined);
+	assert.deepEqual(collected.models[1].districts, []);
+	assert.equal(collected.models[2].district, '下町自治会');
+	assert.equal(collected.models[3].memo, '転入メモ');
+	assert.deepEqual(collected.drafts, { 'neighbor-paste-box': 'ゲスト自治会下書き' });
+	assert.equal(handoff.hasOfficerHandoffData(collected), false);
+	assert.equal(localStorage.getItem('kogai_district_v2'), null);
+	assert.equal(localStorage.getItem('kogai_rep_v2'), null);
+});
+
+test('handoff SEC-25 (boundary & abnormal): unencrypted guest restore allows unedited default variants, wipes officer drafts/passwords/#hata-line-text, and rejects all officer boundary variants before confirm()', async () => {
+	fresh();
+	cryptoLib.requireOfficerStorageEncryption(true);
+	state.currentDistrict = { district: '', han: '', hanList: [], officers: [], neighborhood: [], students: [] };
+	renderHataCard();
+	const yr = new Date().getFullYear();
+	const autoHata = JSON.parse(JSON.stringify(state.currentDistrict.hata));
+	const baseGuestPayload = {
+		type: 'kogaidocs-browser-handoff',
+		version: 1,
+		mode: 'transfer',
+		models: [
+			{ district: '', han: '', hanList: [], officers: [{ role: '校外委員', lastName: '' }], neighborhood: [{ role: '会長', lastName: '' }], students: [{ grade: '1', class: '' }], hata: autoHata },
+			{ districts: [], szExternals: JSON.parse(JSON.stringify(INITIAL_SZ_EXTERNALS)), seatConfig: { cols: 4, rows: 5, cells: {} } },
+			{ district: 'ゲスト自治会', neighborhood: [{ role: '会長', lastName: '鈴木' }] },
+			{ address: '東2-3', tel: '08099998888', children: [{ id: 'c2', lastName: '高橋', firstName: '翼', grade: '2', className: '1' }], memo: '引き継ぎ済' }
+		],
+		drafts: {},
+		repDraft: null
+	};
+	for (const id of ['d-paste-box', 'd-neighbor-paste-box', 'd-transfer-paste-box', 'rep-paste-box', 'rep-transfer-paste-box', 'rep-new-district-name', 'neighbor-paste-box']) {
+		document.getElementById(id).value = `残留_${id}`;
+	}
+	const dPass = document.getElementById('d-pass');
+	dPass.type = 'text';
+	dPass.value = 'VisiblePass123!';
+	const toggleBtn = document.createElement('button');
+	toggleBtn.className = 'btn-toggle-pass';
+	toggleBtn.setAttribute('data-password-target', 'd-pass');
+	toggleBtn.textContent = '🙈';
+	document.body.appendChild(toggleBtn);
+	const hataLine = document.getElementById('hata-line-text');
+	hataLine.value = '古い旗振り案内';
+	hataLine.hidden = false;
+	document.getElementById('print-area').innerHTML = '<p>古い印刷</p>';
+	let confirmed = 0;
+	global.confirm = () => { confirmed++; return true; };
+	global.alert = () => {};
+	const restorePass = 'RestoreGuest123!';
+	const enc = await cryptoLib.encryptPayload(JSON.stringify(baseGuestPayload), restorePass);
+	document.getElementById('handoff-input').value = enc;
+	document.getElementById('handoff-restore-pass').value = restorePass;
+	const ok = await handoff.restoreBrowserHandoff();
+	assert.equal(ok, true);
+	assert.equal(confirmed, 1);
+	assert.equal(localStorage.getItem('kogai_district_v2'), null);
+	assert.equal(localStorage.getItem('kogai_rep_v2'), null);
+	assert.ok(localStorage.getItem('kogai_neighbor_v2'));
+	assert.ok(localStorage.getItem('kogai_transfer_v2'));
+	for (const id of ['d-paste-box', 'd-neighbor-paste-box', 'd-transfer-paste-box', 'rep-paste-box', 'rep-transfer-paste-box', 'rep-new-district-name', 'neighbor-paste-box']) {
+		assert.equal(document.getElementById(id).value, '', `${id} is cleared when omitted from payload.drafts`);
+	}
+	assert.equal(dPass.type, 'password');
+	assert.equal(dPass.value, '');
+	assert.equal(toggleBtn.textContent, '👁️');
+	assert.equal(hataLine.value, '');
+	assert.equal(hataLine.hidden, true);
+	assert.equal(document.getElementById('print-area').innerHTML, '');
+
+	// Clean empty/default boundary shapes must NOT be falsely rejected as officer data
+	const cleanVariants = [
+		payload => {
+			payload.models[0].officers = [];
+			payload.models[0].neighborhood = [];
+			payload.models[0].students = [];
+			payload.models[0].hanList = [''];
+			payload.models[0].hata = { ...JSON.parse(JSON.stringify(autoHata)), inputDrafts: {} };
+			payload.models[1].szExternals = [];
+			payload.models[1].seatConfig = null;
+		},
+		payload => {
+			// Initial state.js hata defaults (7:55 〜 8:25, layoutColumns: 2, headerMsg/footerMsg empty)
+			payload.models[0].hata = {
+				title: '登校見守り活動シフト表', location: '', time: '7:55 〜 8:25',
+				startDate: '', endDate: '', orientation: 'portrait', layoutColumns: 2,
+				specials: '', headerMsg: '', footerMsg: '', contactMsg: '',
+				exemptHouseholds: [], schedule: [], manualOverrides: {}
+			};
+		},
+		payload => {
+			payload.models[0].students = [{ grade: '6', class: '1' }];
+			payload.models[0].hata.holidays = generateJapaneseHolidays(yr, Math.min(yr + 1, 2099));
+			payload.models[1].seatConfig = { cols: 4, rows: 5, topLabel: '前方（演台・司会・スクリーン側）', bottomLabel: '後方（出入口側）', leftSide: '窓側', rightSide: '廊下側', cells: {} };
+		},
+		payload => {
+			payload.models[1].seatConfig = { cols: 4, rows: 5, topLabel: '前方', bottomLabel: '後方', leftSide: '窓側', rightSide: '廊下側', cells: {} };
+		}
+	];
+	for (const makeClean of cleanVariants) {
+		const clean = JSON.parse(JSON.stringify(baseGuestPayload));
+		makeClean(clean);
+		assert.equal(handoff.hasOfficerHandoffData(clean), false, 'Default empty templates never classify as officer data');
+	}
+
+	// Unit boundary checks on hasOfficerHandoffData including repDraft alone and savedFilePassword before stripping
+	const cleanRepDraftPayload = JSON.parse(JSON.stringify(baseGuestPayload));
+	cleanRepDraftPayload.repDraft = { index: 0, district: { district: '下書き', officers: [], students: [], neighborhood: [] }, officerIndexes: [], neighborIndexes: [] };
+	assert.equal(handoff.hasOfficerHandoffData(cleanRepDraftPayload), true);
+	const savedPassPayload = JSON.parse(JSON.stringify(baseGuestPayload));
+	savedPassPayload.models[0].savedFilePassword = 'Saved123!';
+	assert.equal(handoff.hasOfficerHandoffData(savedPassPayload), true);
+
+	// Officer data variants must reject BEFORE confirm(), setting #handoff-status.textContent
+	const dirtyVariants = [
+		payload => { payload.mode = 'district'; },
+		payload => { payload.mode = 'rep'; },
+		payload => { payload.models[0].district = '北地区'; },
+		payload => { payload.models[0].han = '2班'; },
+		payload => { payload.models[0].hanList = ['1班']; },
+		payload => { payload.models[0].officer = { lastName: '旧役員' }; },
+		payload => { payload.models[0].hatafurotto = { title: '旧設定' }; },
+		payload => { payload.models[0].szNeighborChecks = { 0: true }; },
+		payload => { payload.models[0].selectedForPrint = false; },
+		payload => { payload.models[0].officers = [{ role: '副代表', lastName: '田中' }]; },
+		payload => { payload.models[0].neighborhood = [{ role: '副会長' }]; },
+		payload => { payload.models[0].students = [{ grade: '3', class: '2', lastName: 'A' }]; },
+		payload => { payload.models[0].students = [{ grade: '6', class: '1', isOutOfDistrict: true }]; },
+		payload => { payload.models[0].hata.title = '編集後タイトル'; },
+		payload => { payload.models[0].hata.time = '8:00〜8:30'; },
+		payload => { payload.models[0].hata.headerMsg = '編集後ヘッダ'; },
+		payload => { payload.models[0].hata.footerMsg = '編集後フッタ'; },
+		payload => { payload.models[0].hata.format = '{氏名}'; },
+		payload => { payload.models[0].hata.createdDate = '2026-04-01 手入力作成日'; },
+		payload => { payload.models[0].hata.startDate = '2026-05-01'; },
+		payload => { payload.models[0].hata.endDate = '2026-12-20'; },
+		payload => { payload.models[0].hata.members = '1班 山田'; },
+		payload => { payload.models[0].hata.district = '北'; },
+		payload => { payload.models[0].hata.location = '正門'; },
+		payload => { payload.models[0].hata.contactMsg = '連絡'; },
+		payload => { payload.models[0].hata.specials = '2026-04-10,役員,見守り'; },
+		payload => { payload.models[0].hata.exemptHouseholds = ['1_田中']; },
+		payload => { payload.models[0].hata.schedule = [{ date: '2026-04-06', person: 'A' }]; },
+		payload => { payload.models[0].hata.manualOverrides = { '2026-04-06': { person: 'B' } }; },
+		payload => { payload.models[0].hata.metaLocation = '正門前'; },
+		payload => { payload.models[0].hata.dedup = false; },
+		payload => { payload.models[0].hata.weekdays = [1, 2]; },
+		payload => { payload.models[0].hata.orientation = 'landscape'; },
+		payload => { payload.models[0].hata.layoutColumns = 3; },
+		payload => { payload.models[0].hata.inputDrafts = { members: '入力中' }; },
+		payload => { payload.models[0].hata.holidays = '2026-05-01,テスト休日'; },
+		payload => { payload.models[1].districts = [{ district: '集約単独非空', officers: [], students: [], neighborhood: [] }]; },
+		payload => { payload.models[1].szExternals = payload.models[1].szExternals.slice(0, 5); },
+		payload => { payload.models[1].szExternals = [...payload.models[1].szExternals, { category: '他', org: '追加組織', role: '会員', attend: true }]; },
+		payload => { payload.models[1].szExternals[0].category = '改変区分'; },
+		payload => { payload.models[1].szExternals[0].org = '改変団体'; },
+		payload => { payload.models[1].szExternals[0].role = '改変役職'; },
+		payload => { payload.models[1].szExternals[0].attend = false; },
+		payload => { payload.models[1].szExternals[0].lastName = '山田'; },
+		payload => { payload.models[1].szExternals[0].kana = 'やまだ'; },
+		payload => { payload.models[1].szExternals[0].note = '代表窓口メモ'; },
+		payload => { payload.models[1].szExternals[0].email = 'ext@example.test'; },
+		payload => { payload.models[1].szExternals[0].customFlag = true; },
+		payload => { payload.models[1].seatConfig.cols = 5; },
+		payload => { payload.models[1].seatConfig.rows = 6; },
+		payload => { payload.models[1].seatConfig.leftSide = '東側'; },
+		payload => { payload.models[1].seatConfig.rightSide = '西側'; },
+		payload => { payload.models[1].seatConfig.topLabel = '変更ラベル'; },
+		payload => { payload.models[1].seatConfig.bottomLabel = '変更後'; },
+		payload => { payload.models[1].seatConfig.cells = { '0_0': { customText: 'A' } }; },
+		payload => {
+			payload.models[1].districts = [{ district: '下書き地区', officers: [], students: [], neighborhood: [] }];
+			payload.repDraft = { index: 0, district: { district: '下書き地区', officers: [], students: [], neighborhood: [] }, officerIndexes: [], neighborIndexes: [] };
+		},
+		...['d-paste-box', 'd-neighbor-paste-box', 'd-transfer-paste-box', 'rep-paste-box', 'rep-transfer-paste-box', 'rep-new-district-name'].map(draftId => (
+			payload => { payload.drafts = { [draftId]: '役員下書き' }; }
+		))
+	];
+	for (const mutate of dirtyVariants) {
+		const dirty = JSON.parse(JSON.stringify(baseGuestPayload));
+		mutate(dirty);
+		const dirtyEnc = await cryptoLib.encryptPayload(JSON.stringify(dirty), restorePass);
+		handoff.openBrowserHandoff();
+		document.getElementById('handoff-input').value = dirtyEnc;
+		document.getElementById('handoff-restore-pass').value = restorePass;
+		document.getElementById('handoff-status').textContent = '';
+		let confirmBeforeReject = 0;
+		global.confirm = () => { confirmBeforeReject++; return true; };
+		const res = await handoff.restoreBrowserHandoff();
+		assert.equal(res, false);
+		assert.equal(confirmBeforeReject, 0, 'Officer handoff into unencrypted browser rejects before confirm()');
+		assert.match(document.getElementById('handoff-status').textContent, /STORAGE_ENCRYPTION_REQUIRED|端末暗号化|暗号化/);
+	}
+	await assert.rejects(
+		cryptoLib.replaceStoredAppData([
+			{ district: '', han: '', hanList: [], officers: [], neighborhood: [], students: [], savedFilePassword: 'Saved123!' },
+			{ districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: {} } },
+			{ district: '自治会', neighborhood: [] },
+			{ children: [], memo: '' }
+		]),
+		/STORAGE_ENCRYPTION_REQUIRED/
+	);
+	await assert.rejects(
+		cryptoLib.replaceStoredAppData([
+			{ district: '', han: '', hanList: [], officers: [], neighborhood: [], students: [], hata: { title: '登校見守り活動シフト表', members: `当年${yr}異常` } },
+			{ districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: {} } },
+			{ district: '自治会', neighborhood: [] },
+			{ children: [], memo: '' }
+		]),
+		/STORAGE_ENCRYPTION_REQUIRED/
+	);
+	app.switchTab('district');
+	localStorage.setItem('kogai_active_mode', 'transfer');
+	await assert.rejects(handoff.collectBrowserHandoff(), /STORAGE_ENCRYPTION_REQUIRED|端末暗号化/);
+	app.switchTab('rep');
+	localStorage.setItem('kogai_active_mode', 'transfer');
+	await assert.rejects(handoff.collectBrowserHandoff(), /STORAGE_ENCRYPTION_REQUIRED|端末暗号化/);
 });

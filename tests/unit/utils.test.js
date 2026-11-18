@@ -492,3 +492,53 @@ test('utils: safePrompt safely handles standard prompt, exceptions, and non-supp
 		else delete global.prompt;
 	}
 });
+
+test('utils SEC-29: validateHataConfig, validateImportData, and validateStoredData enforce 4096-char limits while allowing multiline specials', () => {
+	const long4097 = 'あ'.repeat(4097);
+	const ok4096 = 'あ'.repeat(4096);
+	assert.doesNotThrow(() => utils.validateHataConfig({ title: ok4096, time: ok4096, headerMsg: ok4096, footerMsg: ok4096, contactMsg: ok4096, exemptHouseholds: [ok4096], holidays: [{ date: '2026-05-03', name: 'あ'.repeat(4085) }], manualOverrides: { [ok4096]: { person: ok4096, note: ok4096, originalPerson: ok4096 } }, schedule: [{ person: ok4096, note: ok4096, originalPerson: ok4096 }] }));
+	for (const key of ['title', 'scheduleTitle', 'metaCreatedDate', 'createdDate', 'scheduleCreatedDate', 'district', 'metaLocation', 'location', 'metaTime', 'time', 'metaHeaderMsg', 'headerMsg', 'metaFooterMsg', 'footerMsg', 'metaContactMsg', 'contactMsg', 'format']) {
+		assert.throws(() => utils.validateHataConfig({ [key]: long4097 }));
+	}
+	assert.throws(() => utils.validateHataConfig({ exemptHouseholds: [long4097] }));
+	assert.throws(() => utils.validateHataConfig({ manualOverrides: { [long4097]: { person: 'a' } } }));
+	for (const ovrField of ['person', 'note', 'originalPerson']) {
+		assert.throws(() => utils.validateHataConfig({ manualOverrides: { '2026-05-01': { [ovrField]: long4097 } } }));
+	}
+	for (const schedField of ['date', 'day', 'dayOfWeek', 'type', 'tag', 'person', 'note', 'originalPerson']) {
+		assert.throws(() => utils.validateHataConfig({ schedule: [{ [schedField]: long4097 }] }));
+	}
+	assert.throws(() => utils.validateHataConfig({ holidays: [{ date: '2026-05-03', name: long4097 }] }));
+	assert.throws(() => utils.validateHataConfig({ holidays: `2026-05-03,${long4097}` }));
+	assert.throws(() => utils.validateHataConfig({ members: long4097 }));
+	assert.doesNotThrow(() => utils.validateHataConfig({ holidays: '2026-05-03,憲法記念日\n2026-05-04,みどりの日', members: '1班 田中\n2班 鈴木' }));
+
+	// Multiline specials exceeding 4096 total chars (each line <= 4096) remains valid
+	const multiSpecials = Array.from({ length: 200 }, (_, i) => `2026-04-${String((i % 28) + 1).padStart(2, '0')},特${String(i).padStart(3, '0')},担当テスト${'x'.repeat(20)}`).join('\n');
+	assert.ok(multiSpecials.length > 4096);
+	assert.doesNotThrow(() => utils.validateHataConfig({ specials: multiSpecials }));
+	assert.throws(() => utils.validateHataConfig({ specials: `2026-04-01,枠,${long4097}` }));
+
+	for (const labelKey of ['topLabel', 'bottomLabel', 'leftSide', 'rightSide']) {
+		assert.throws(() => utils.validateImportData({ districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, [labelKey]: long4097, cells: {} } }, 'rep'));
+	}
+	assert.throws(() => utils.validateImportData({ districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: { '0_0': { customText: long4097 } } } }, 'rep'));
+	assert.throws(() => utils.validateImportData({ districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: { '0_0': { refKey: long4097 } } } }, 'rep'));
+	assert.throws(() => utils.validateImportData({ isTransferData: true, children: [{ lastName: '太郎', firstName: '翼', grade: '1', class: '1', address: long4097, tel: '09012345678' }], address: '住所', tel: '09012345678' }, 'transfer'));
+	assert.doesNotThrow(() => utils.validateImportData({ isTransferData: true, children: [{ lastName: '太郎', firstName: '翼', grade: '1', class: '1', address: ok4096, tel: '09012345678' }], address: '住所', tel: '09012345678' }, 'transfer'));
+	assert.throws(() => utils.validateStoredData({ children: [], memo: long4097 }, 'kogai_transfer_v2'));
+	assert.doesNotThrow(() => utils.validateStoredData({ children: [], memo: ok4096 }, 'kogai_transfer_v2'));
+});
+
+test('utils SEC-29: isNewerVersion restricts versions to strict dotted numeric strings (max 32 chars, optional single leading v)', () => {
+	assert.strictEqual(utils.isNewerVersion('99.0.0 malicious', '2.11.0'), false);
+	assert.strictEqual(utils.isNewerVersion('vv2.11.1', '2.11.0'), false);
+	assert.strictEqual(utils.isNewerVersion('V2.11.1', '2.11.0'), false);
+	assert.strictEqual(utils.isNewerVersion('v2.11.1-beta', '2.11.0'), false);
+	assert.strictEqual(utils.isNewerVersion('2..11.1', '2.11.0'), false);
+	assert.strictEqual(utils.isNewerVersion('9'.repeat(33), '2.11.0'), false);
+	assert.strictEqual(utils.isNewerVersion('2.11.1', '2.11.0 bad'), false);
+	assert.strictEqual(utils.isNewerVersion('9'.repeat(32), '1'), true);
+	assert.strictEqual(utils.isNewerVersion('v2.11.1', '2.11.0'), true);
+	assert.strictEqual(utils.isNewerVersion('2.11.1', '2.11.0'), true);
+});
