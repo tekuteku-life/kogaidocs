@@ -1,7 +1,7 @@
 # 要件・外部仕様・内部仕様とテストのトレーサビリティ
 
-**作成日**: 2026年10月24日（2026年11月17日 2.11.1 追補）<br>
-**対象**: kogaidocs 2.11.1（過去の検証結果は各記録の対象版による）<br>
+**作成日**: 2026年10月24日（2026年11月18日 2.12.0 追補）<br>
+**対象**: kogaidocs 2.12.0（過去の検証結果は各記録の対象版による）<br>
 **対応文書**: [要件定義書](requirements.md)、[外部仕様書](external_design.md)、[内部仕様書](internal_design.md)
 
 ## 1. 判定方法と適用範囲
@@ -355,3 +355,16 @@ R-05 / E-05 / I-03・I-04 の追加観点は `tests/unit/household-transfer.test
 | R-20 / E-10-10 / I-10 / SEC-29 | 旗振りメタ/免除/調整・座席・転入メモの4096文字超過拒否と `maxlength="4096"`、代表モーダル保存の `validateImportData('rep')` 検査、暗号化時データ欠損・他タブ個別キー削除検知、`isNewerVersion` 厳格化・`credentials: 'omit'`、SW `message` 送信元検証。 | `utils.test.js`、`security-state.test.js`、`security-crypto.test.js`、`sw-security.test.js`、`headless-security-followup.test.js` |
 
 詳細アセスメントは [review71](reviews/review71_security_assessment.md)、実装・試験の最終検証記録は [review74](reviews/review74_security_verification.md)、独立ゲートレビューは [review72](reviews/review72_security_design_gate1.md)（Gate 1）・[review73](reviews/review73_security_tests_gate2.md)（Gate 2）・[review75](reviews/review75_security_final_gate3.md)（Gate 3）を参照する。
+
+
+## 8. 次年度名簿作成と長文保存の再検証（2.12.0）
+
+| 要件・仕様 | 実装 | 具体的な検査と実行環境 |
+| --- | --- | --- |
+| R-21 / E-11 / I-11 長文入力・旧保存復旧 | `utils.js`, `state.js`, `events.js`, `hata.js`, `index.html` | `hata-text-recovery.test.js` と `headless-next-year.test.js`：4096/4097文字、有効値保持、全文下書き、実WebCrypto保存・解除・修正・再解除、DOM文字数上限と出力停止。 |
+| R-21 / E-11 / I-11 共有拒否 | `rep.js` | `hata-text-recovery.test.js` と `security-output-lifecycle.test.js`：長文LINE/mailのコピー拒否・API不在で外部起動ゼロ、失敗通知、ロック後通知抑止。OSの実共有は未検証である。 |
+| R-22 / E-11 / I-11 児童限定追加 | `crypto.js`, `district.js`, `events.js`, `index.html` | `next-year-import.test.js` と `headless-next-year.test.js`：役員ファイル通常読込→児童限定追記→暗号化出力・復元、役員等保持、無進級、重複・地区相違の確認、取消・不正・保存失敗・ロック時の原状維持。 |
+
+実施結果と独立レビューの有無は検証記録へ分離して記載する。上記はテスト設計であり、未実行の合格を示さない。
+
+実施した最終結果・未検証境界・独立レビューの有無は [review77](reviews/review77_followup_verification.md) を参照する。

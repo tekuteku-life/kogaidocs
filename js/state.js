@@ -151,11 +151,9 @@ function saveDistrictLocal() {
 	const hTitle = document.getElementById('hata-title');
 	if (hTitle) {
 		currentDistrict.hata = currentDistrict.hata || {};
+		const inputs = {};
 		for (const [field, id] of [
-			['title', 'hata-title'], ['location', 'hata-location'], ['time', 'hata-time'],
-			['orientation', 'hata-orientation'], ['layoutColumns', 'hata-columns'],
-			['headerMsg', 'hata-header-msg'], ['footerMsg', 'hata-footer-msg'], ['contactMsg', 'hata-contact-msg'],
-			['createdDate', 'hata-created-date'], ['district', 'hata-district']
+			['orientation', 'hata-orientation'], ['layoutColumns', 'hata-columns']
 		]) {
 			const el = document.getElementById(id);
 			if (!el) continue;
@@ -163,8 +161,7 @@ function saveDistrictLocal() {
 			if (field === 'layoutColumns' && !/^[1-6]$/.test(el.value)) continue;
 			currentDistrict.hata[field] = el.value;
 		}
-		const inputs = {};
-		for (const [field, id] of [['startDate', 'hata-start-date'], ['endDate', 'hata-end-date'], ['holidays', 'hata-holidays'], ['specials', 'hata-specials'], ['members', 'hata-members'], ['format', 'hata-format']]) {
+		for (const [field, id] of [...Object.entries(HATA_META_INPUT_IDS), ['startDate', 'hata-start-date'], ['endDate', 'hata-end-date'], ['holidays', 'hata-holidays'], ['specials', 'hata-specials'], ['members', 'hata-members'], ['format', 'hata-format']]) {
 			const el = document.getElementById(id);
 			if (el) inputs[field] = el.value;
 		}

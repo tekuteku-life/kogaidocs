@@ -647,12 +647,21 @@ function validateHataScheduleOutput(schedule) {
 	return schedule;
 }
 
-// 未完成の手入力を有効設定とは別に保持し、日付展開へ渡さない。
+const HATA_META_INPUT_IDS = {
+	title: 'hata-title', createdDate: 'hata-created-date', district: 'hata-district',
+	location: 'hata-location', time: 'hata-time', headerMsg: 'hata-header-msg',
+	footerMsg: 'hata-footer-msg', contactMsg: 'hata-contact-msg'
+};
+// 未完成の手入力を有効設定とは別に保持し、日付展開や出力へ渡さない。
 const HATA_SCHEDULE_INPUTS = ['startDate', 'endDate', 'holidays', 'specials', 'members', 'format'];
+const HATA_INPUT_FIELDS = [...HATA_SCHEDULE_INPUTS, ...Object.keys(HATA_META_INPUT_IDS)];
 function collectHataScheduleInputs(config, inputs) {
 	const drafts = { ...config.inputDrafts, ...inputs };
 	const candidate = { ...config, ...drafts };
 	try {
+		for (const field of Object.keys(HATA_META_INPUT_IDS)) {
+			requireHataOutputSize(candidate[field] === undefined || (typeof candidate[field] === 'string' && candidate[field].length <= MAX_HATA_TEXT_LENGTH));
+		}
 		validateDateExpansion(candidate.startDate, candidate.endDate);
 		validateHataExpansionBudget(candidate);
 		validateHataTextBudget(candidate);
@@ -660,7 +669,7 @@ function collectHataScheduleInputs(config, inputs) {
 		config.inputDrafts = drafts;
 		return false;
 	}
-	for (const field of HATA_SCHEDULE_INPUTS) if (Object.hasOwn(drafts, field)) config[field] = drafts[field];
+	for (const field of HATA_INPUT_FIELDS) if (Object.hasOwn(drafts, field)) config[field] = drafts[field];
 	delete config.inputDrafts;
 	return true;
 }
@@ -689,7 +698,7 @@ function validateHataConfig(config) {
 	strings.forEach(key => requireImportShape(config[key] === undefined || (typeof config[key] === 'string' && (key === 'specials' || config[key].length <= 4096))));
 	if (config.inputDrafts !== undefined) {
 		requireImportShape(isImportObject(config.inputDrafts));
-		for (const [field, value] of Object.entries(config.inputDrafts)) requireImportShape(HATA_SCHEDULE_INPUTS.includes(field) && typeof value === 'string');
+		for (const [field, value] of Object.entries(config.inputDrafts)) requireImportShape(HATA_INPUT_FIELDS.includes(field) && typeof value === 'string');
 	}
 	requireImportShape(config.dedup === undefined || typeof config.dedup === 'boolean');
 	if (config.weekdays !== undefined) requireImportShape(Array.isArray(config.weekdays) && config.weekdays.every(day => Number.isInteger(day) && day >= 0 && day <= 6));
@@ -752,6 +761,10 @@ function validateRepRenderBudget(data) {
 	for (const person of data.szExternals) add(`${person.category || ''} ${person.org || ''} ${person.role || ''} ${getFullName(person)}`);
 	const cells = (data.seatConfig?.rows || 5) * (data.seatConfig?.cols || 4);
 	requireImportShape(options * cells <= 16 * 1024 * 1024);
+}
+
+function isNeighborhoodImportData(data) {
+	return !!data && (data.isNeighborhoodData === true || (!data.students && data.officers === undefined && data.officer === undefined && Array.isArray(data.neighborhood)));
 }
 
 function validateImportData(data, kind) {
@@ -837,6 +850,20 @@ function validateImportData(data, kind) {
 }
 
 function validateStoredData(data, storageKey) {
+	if (storageKey === 'kogai_district_v2' && isImportObject(data?.hata)) {
+		const overlong = Object.keys(HATA_META_INPUT_IDS).filter(field => typeof data.hata[field] === 'string' && data.hata[field].length > MAX_HATA_TEXT_LENGTH);
+		if (overlong.length) {
+			validateImportStructure(data);
+			data = JSON.parse(JSON.stringify(data));
+			requireImportShape(data.hata.inputDrafts === undefined || isImportObject(data.hata.inputDrafts));
+			const drafts = { ...data.hata.inputDrafts };
+			for (const field of overlong) {
+				if (!Object.hasOwn(drafts, field)) drafts[field] = data.hata[field];
+				data.hata[field] = '';
+			}
+			data.hata.inputDrafts = drafts;
+		}
+	}
 	if (storageKey === 'kogai_transfer_v2') {
 		validateImportStructure(data);
 		requireImportShape(isImportObject(data) && Array.isArray(data.children));
@@ -883,9 +910,9 @@ if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		requireImportShape,
 		isImportObject,
-		validateImportData,
+		isNeighborhoodImportData, validateImportData,
 		validateHataConfig,
-		collectHataScheduleInputs, validateHataTextBudget, validateHataScheduleOutput, requireHataOutputSize,
+		HATA_META_INPUT_IDS, collectHataScheduleInputs, validateHataTextBudget, validateHataScheduleOutput, requireHataOutputSize,
 		validateImportStructure,
 		validateStoredData,
 		validateDateExpansion,

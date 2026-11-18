@@ -643,7 +643,7 @@ async function loadDistrictTxt(e) {
 		const rawText = await readImportFile(file);
 
 		const data = await parseTxtContent(rawText, pass, generation, importKind);
-		if (data.isNeighborhoodData || (!data.students && Array.isArray(data.neighborhood))) {
+		if (isNeighborhoodImportData(data)) {
 			await mergeNeighborDataIntoDistrict(data, generation);
 			if (e && e.target) e.target.value = "";
 			return true;
@@ -716,6 +716,53 @@ async function loadPastedTextToDistrict() {
 	if (!text) return;
 	const restored = await loadDistrictTxt({ text: async () => text });
 	if (restored) box.value = '';
+}
+
+async function loadDistrictStudentsTxt(event) {
+	const generation = getStorageSessionGeneration();
+	const input = event.target;
+	const file = input.files[0];
+	if (!file) return false;
+	try {
+		assertStorageSession(generation);
+		const text = await readImportFile(file);
+		assertStorageSession(generation);
+		const password = document.getElementById('d-pass')?.value || '';
+		const data = await parseTxtContent(text, password, generation, 'district');
+		requireImportShape(!data.isNeighborhoodData && !data.isTransferData && data.districts === undefined && data.students.length > 0);
+		const candidate = JSON.parse(JSON.stringify(currentDistrict));
+		const students = data.students;
+		students.forEach(student => {
+			normalizeNameFields(student);
+			if (student.han === undefined) student.han = data.han || '';
+			if (student.isOutOfDistrict === undefined) student.isOutOfDistrict = false;
+		});
+		const existing = candidate.students || [];
+		const identity = row => JSON.stringify([row.lastName, row.firstName, row.grade]);
+		const identities = new Set(existing.map(identity));
+		const duplicates = students.some(student => {
+			const key = identity(student);
+			const duplicate = identities.has(key);
+			identities.add(key);
+			return duplicate;
+		});
+		candidate.students = [...existing, ...students];
+		validateImportData(candidate, 'district');
+		const mismatch = data.district && candidate.district && data.district !== candidate.district
+			? `取込元「${data.district}」と現在の地区「${candidate.district}」が異なります。\n` : '';
+		if (!confirm(`${mismatch}児童${students.length}名を既存の児童名簿へ追加します。\n役員・自治会・地区設定・旗振り設定は保持し、進級処理は行いません。${duplicates ? '\n同姓同名・同学年の児童がおり、重複する可能性があります。' : ''}\n追加してよろしいですか？`)) return false;
+		currentDistrict = adoptImportedModel(await commitImportedModel('kogai_district_v2', candidate, generation));
+		renderStudentsTable();
+		renderHataExemptList();
+		alert(`児童${students.length}名を追加しました。役員情報は変更していません。`);
+		return true;
+	} catch (error) {
+		if (error.message === 'STORAGE_SESSION_CHANGED' || generation !== getStorageSessionGeneration() || !isStorageUnlocked()) return false;
+		alert(error.code === 'IMPORT_SAVE_FAILED' ? error.message : '児童名簿の追加に失敗しました。地区形式のファイル・児童の有無・パスワード・入力上限を確認してください。');
+		return false;
+	} finally {
+		input.value = '';
+	}
 }
 
 async function mergeNeighborDataIntoDistrict(data, generation = getStorageSessionGeneration()) {
@@ -1016,6 +1063,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		exportDistrictTxt,
 		shareDistrictData,
 		loadDistrictTxt,
+		loadDistrictStudentsTxt,
 		loadPastedTextToDistrict,
 		mergeNeighborDataIntoDistrict,
 		integrateNeighborDataIntoDistrict: mergeNeighborDataIntoDistrict,

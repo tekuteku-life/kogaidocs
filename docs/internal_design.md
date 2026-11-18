@@ -1,7 +1,7 @@
 # kogaidocs 内部仕様書
 
-**文書版**: 1.6（アプリケーション 2.11.1 対応）<br>
-**改訂日**: 2026年11月17日<br>
+**文書版**: 1.7（アプリケーション 2.12.0 対応）<br>
+**改訂日**: 2026年11月18日<br>
 **文体・規範**: 本文の「する」「である」は要求または仕様を表す。試験済みという意味ではない。
 
 [外部仕様書](external_design.md)の実現方式を定める。過去改修のレビューは[レビュー記録](reviews/)に保持する。
@@ -504,3 +504,12 @@ SEC-23では全ての暗号化ファイル・コピー・共有・代表地区�
 	- `saveAndCloseRepDistrictDetailModal()` は確定前複製を `validateImportData(candidate, 'rep')` に通し、失敗時はアラート表示のうえ確定・クローズを中止する。
 	- `loadStorageDecryptedUnlocked()` は `!isStorageEncrypted()` 判定後に `if (!activeStorageSessionIsCurrent()) throw new Error('STORAGE_LOCKED')` を評価し、その後に `STORAGE_DATA_KEYS` 対象の `!raw` を `STORAGE_DATA_MISSING` として拒否する。`js/crypto.js` から `STORAGE_DATA_KEYS` をエクスポート（`global` / `module.exports`）し、`initAutoLockListeners()`（`js/app.js`）は `isStorageEncrypted()` 時のみ `STORAGE_DATA_KEYS` の `storage` イベントを監視して `!event.newValue || typeof event.newValue !== 'string' || !event.newValue.startsWith('STORAGE_ENC:') || (meta?.storageFormat === 2 && !event.newValue.startsWith('STORAGE_ENC:2:'))` 検知時に即時無効化・ロックする。
 	- `isNewerVersion` は `String(v || '').trim().replace(/^v/, '')` で先頭 `'v'`（1文字のみ）を除去したうえで純数字ドット形式（`/^\d+(?:\.\d+)*$/`、最大32文字）に厳格化し、`checkAppVersion` の `fetch` に `credentials: 'omit'` を付与する。`sw.js` の `message` リスナーは `SCOPE_PREFIX = CACHE_SCOPE.endsWith('/') ? CACHE_SCOPE : CACHE_SCOPE + '/'` を定義し、`event.origin === SCOPE_ORIGIN` に加え `typeof event.source?.url === 'string'` かつ `try/catch` 内の `new URL(event.source.url)` が `SCOPE_ORIGIN` かつ `CACHE_SCOPE` / `SCOPE_PREFIX` 配下であることを必須検証（`MessagePort` や不正URL・別スコープを拒否）する。
+
+
+## I-11 長文の下書き復旧と児童行限定取込
+
+- `collectHataScheduleInputs` の対象を表示メタ8項目にも広げ、4096文字検証を有効値への採用前に実施する。`saveDistrictLocal` とイベント処理は同じ経路を通す。超過時は有効値を保持し `hata.inputDrafts` へ全文を保存する。構造全体の4MiB等の上限は維持する。
+- `validateStoredData` は地区の旧保存表示メタ8項目の長文だけを、複製上で同名の `inputDrafts` へ移して有効値を空にする。既存の明示下書きがあれば優先する。型不正・未知下書きキー・その他のスキーマ違反は従来通り拒否し、元保存値は読込だけでは書き換えない。描画時は下書きを優先し、修正後の保存で再解除可能な有効モデルを作る。
+- `exportSingleDistrictFromRep` の退避処理はコピー例外を成功へ変換しない。呼出元の既存エラー処理とセッションガードへ伝播し、外部起動前に中止する。
+- `loadDistrictStudentsTxt` はファイルサイズ検査・復号・地区スキーマ検証後、児童行だけを複製・正規化する。児童0件や別用途フラグは拒否する。既存モデルの複製の `students` だけへ追記し、合成結果の容量・描画予算検査を行う。確認後 `commitImportedModel` と `adoptImportedModel` で保存・採用し、成功時だけ名簿・集計・免除候補を描画する。ロックは無通知中断し、保存失敗と取消では既存モデル・DOM・保存値を変更しない。
+- 通常地区読込の種別推論は `officers` または旧 `officer` のある入力を地区と扱う。明示的な `isNeighborhoodData` は自治会を優先する。これにより `students` 省略の次年度役員ファイルも通常読込できる。

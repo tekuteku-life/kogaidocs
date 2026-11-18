@@ -142,7 +142,7 @@ async function parseTxtContent(text, password, generation = getStorageSessionGen
 	if (kind === 'auto' || kind === 'districtOrNeighbor') {
 		kind = kind === 'auto' && data?.isTransferData ? 'transfer'
 			: kind === 'auto' && data?.districts !== undefined ? 'rep'
-				: data?.isNeighborhoodData || (!data?.students && Array.isArray(data?.neighborhood)) ? 'neighbor' : 'district';
+				: isNeighborhoodImportData(data) ? 'neighbor' : 'district';
 	}
 	return validateImportData(data, kind);
 }

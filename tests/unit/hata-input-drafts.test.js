@@ -25,7 +25,7 @@ test('flag drafts: invalid range and unfinished lists preserve canonical fields 
 });
 
 test('flag drafts: nested shape is validated before import, storage or handoff acceptance', () => {
-	for (const inputDrafts of [null, [], 'text', { title: 'forbidden' }, { holidays: 42 }, { specials: false }]) assert.throws(() => utils.validateHataConfig({ inputDrafts }));
+	for (const inputDrafts of [null, [], 'text', { unknownField: 'forbidden' }, { holidays: 42 }, { specials: false }, { title: 42 }]) assert.throws(() => utils.validateHataConfig({ inputDrafts }));
 	const inputDrafts = { startDate: '2026-', endDate: '2050-11-15', holidays: '<img src=x>', specials: '2026-' };
 	assert.deepEqual(utils.validateHataConfig({ inputDrafts }).inputDrafts, inputDrafts);
 	assert.deepEqual(hata.importHataOfficialJson({ inputDrafts }).inputDrafts, inputDrafts);

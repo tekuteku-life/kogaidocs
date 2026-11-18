@@ -812,7 +812,7 @@ function renderHataCard() {
 		h.members = '';
 		collectHataScheduleInputs(h, { members });
 	}
-	for (const [field, id] of [['members', 'hata-members'], ['createdDate', 'hata-created-date'], ['district', 'hata-district']]) {
+	for (const [field, id] of [['members', 'hata-members'], ...Object.entries(HATA_META_INPUT_IDS)]) {
 		const el = document.getElementById(id);
 		if (el) el.value = h.inputDrafts?.[field] ?? h[field] ?? (field === 'district' ? currentDistrict.district : '');
 	}
@@ -822,12 +822,6 @@ function renderHataCard() {
 	const dedupEl = document.getElementById('hata-dedup');
 	if (dedupEl) dedupEl.checked = h.dedup ?? true;
 	checkHataMemberDuplicates();
-	const titleEl = document.getElementById('hata-title');
-	if (titleEl) titleEl.value = h.title || '';
-	const locEl = document.getElementById('hata-location');
-	if (locEl) locEl.value = h.location || '';
-	const timeEl = document.getElementById('hata-time');
-	if (timeEl) timeEl.value = h.time || '';
 	const startEl = document.getElementById('hata-start-date');
 	if (startEl) startEl.value = h.inputDrafts?.startDate ?? h.startDate ?? '';
 	const endEl = document.getElementById('hata-end-date');
@@ -836,12 +830,6 @@ function renderHataCard() {
 	if (orientEl) orientEl.value = h.orientation || 'portrait';
 	const colEl = document.getElementById('hata-columns');
 	if (colEl) colEl.value = h.layoutColumns || '2';
-	const headEl = document.getElementById('hata-header-msg');
-	if (headEl) headEl.value = h.headerMsg || '';
-	const footEl = document.getElementById('hata-footer-msg');
-	if (footEl) footEl.value = h.footerMsg || '';
-	const contactEl = document.getElementById('hata-contact-msg');
-	if (contactEl) contactEl.value = h.contactMsg || '';
 	const specEl = document.getElementById('hata-specials');
 	if (specEl) specEl.value = h.inputDrafts?.specials ?? h.specials ?? '';
 
@@ -1047,14 +1035,14 @@ function renderHataInputStatus() {
 	const el = document.getElementById('hata-input-status');
 	if (el) {
 		el.hidden = !pending;
-		el.textContent = pending ? '当番名簿・書式・期間・休日・特別枠に未完成、不正または上限を超える入力があります。日付・順序・文字数と期間上限（3660日）を確認してください。途中入力は下書きとして保存されます。' : '';
+		el.textContent = pending ? '旗振りの表示項目・当番名簿・書式・期間・休日・特別枠に未完成、不正または上限を超える入力があります。日付・順序・文字数（表示項目は4096文字まで）と期間上限（3660日）を確認してください。途中入力は下書きとして保存されます。' : '';
 	}
 	return !pending;
 }
 function ensureHataInputsReady() {
 	if (renderHataInputStatus()) return true;
 	renderHataSchedulePreview();
-	alert('当番名簿・書式・期間・休日・特別枠の未完成、不正または上限超過の入力を修正してください。');
+	alert('旗振りの表示項目・当番名簿・書式・期間・休日・特別枠の未完成、不正または上限超過の入力を修正してください。');
 	return false;
 }
 
@@ -1069,7 +1057,7 @@ function renderHataSchedulePreview(explicitSchedule) {
 
 	if (!renderHataInputStatus()) {
 		hataCurrentSchedule = [];
-		previewContainer.textContent = '期間・休日・特別枠を修正するとシフトを表示します。';
+		previewContainer.textContent = '表示項目・名簿・書式・期間・休日・特別枠を修正するとシフトを表示します。';
 		const summary = document.getElementById('hata-summary-container');
 		if (summary) summary.textContent = '';
 		return;

@@ -177,6 +177,13 @@
 				</div>
 			</h2>
 			<div class="card-body">
+				<div class="flex-row" style="margin-bottom:12px; gap:8px; flex-wrap:wrap;">
+					<label class="btn btn-outline btn-sm" for="d-students-file-in" style="cursor:pointer;">
+						📥 児童名簿を追加（.txt）
+						<input type="file" id="d-students-file-in" accept=".txt" style="display:none;" data-change="loadDistrictStudentsTxt">
+					</label>
+					<span class="help-text">先に次年度役員ファイルを読み込み、次年度の児童名簿を追加できます。役員情報は保持します。復号にはカード6のパスワードを使います。</span>
+				</div>
 				<div id="d-transfer-import-panel" style="display: none; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;">
 					<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
 						<span style="font-weight: bold; font-size: 0.9rem; color: #166534;">📥 転入児童データの取り込み（統合）</span>
@@ -282,7 +289,7 @@
 						</div>
 						<div>
 							<label>活動時間帯</label>
-							<textarea id="hata-time" rows="2" placeholder="例: 7:55 〜 8:25" data-input="updateHataConfig" data-field="time"></textarea>
+							<textarea id="hata-time" maxlength="4096" rows="2" placeholder="例: 7:55 〜 8:25" data-input="updateHataConfig" data-field="time"></textarea>
 						</div>
 						<div>
 							<label>活動期間（開始日 〜 終了日）</label>
@@ -371,11 +378,11 @@
 							</div>
 							<div>
 								<label>ヘッダー連絡事項（シフト表上部ボックス）</label>
-								<textarea id="hata-header-msg" rows="2" placeholder="例: ・旗振り終了後、〇をつけてください&#10;・次の方へ回してください" style="font-size:0.85rem;" data-input="updateHataConfig" data-field="headerMsg"></textarea>
+								<textarea id="hata-header-msg" maxlength="4096" rows="2" placeholder="例: ・旗振り終了後、〇をつけてください&#10;・次の方へ回してください" style="font-size:0.85rem;" data-input="updateHataConfig" data-field="headerMsg"></textarea>
 							</div>
 							<div>
 								<label>フッター連絡事項 ＆ 連絡先（シフト表下部ボックス）</label>
-								<textarea id="hata-footer-msg" rows="2" placeholder="例: ●当番日に活動できない場合&#10;・保護者間で交代をお願いします" style="font-size:0.85rem;" data-input="updateHataConfig" data-field="footerMsg"></textarea>
+								<textarea id="hata-footer-msg" maxlength="4096" rows="2" placeholder="例: ●当番日に活動できない場合&#10;・保護者間で交代をお願いします" style="font-size:0.85rem;" data-input="updateHataConfig" data-field="footerMsg"></textarea>
 								<input type="text" maxlength="4096" id="hata-contact-msg" placeholder="校外委員連絡先：〇〇（TEL: 090-XXXX-XXXX）" style="margin-top:4px; font-size:0.85rem;" data-input="updateHataConfig" data-field="contactMsg">
 							</div>
 						</div>

@@ -140,7 +140,7 @@ async function applyRepImport(data, password, generation = getStorageSessionGene
 		repState = adoptImportedModel(await commitImportedModel('kogai_rep_v2', data, generation));
 	} else {
 		const candidate = JSON.parse(JSON.stringify(repState));
-		if (data.isNeighborhoodData || (!data.students && Array.isArray(data.neighborhood))) mergeNeighborDataIntoRep(data, candidate, false);
+		if (isNeighborhoodImportData(data)) mergeNeighborDataIntoRep(data, candidate, false);
 		else upsertRepDistrict(data, candidate, false);
 		repState = adoptImportedModel(await commitImportedModel('kogai_rep_v2', candidate, generation));
 	}
@@ -192,7 +192,7 @@ async function loadPastedTextToRep() {
 		renderRepAll();
 		if (!data.isTransferData) {
 			if (data.districts) alert('代表統合マスターデータを読み込みました。');
-			else if (data.isNeighborhoodData || !data.students) alert(`自治会役員データ「${data.district || '自治会'}」を集約データに反映しました。`);
+			else if (isNeighborhoodImportData(data)) alert(`自治会役員データ「${data.district || '自治会'}」を集約データに反映しました。`);
 			else alert(`「${data.district}${data.han ? `（${data.han}）` : ''}」を追加しました。`);
 		}
 	} catch (err) {
@@ -1148,9 +1148,10 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 
 		const resolveChannelBody = async () => {
 			if (content.length <= 2000) return content;
-			try {
-				await navigator.clipboard.writeText(content);
-			} catch (_) {}
+			if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+				throw new Error('クリップボードを利用できません。ファイルに保存して送信してください。');
+			}
+			await navigator.clipboard.writeText(content);
 			if (!outputIsCurrent()) return null;
 			return "校外委員会地区データを送信します。クリップボードにコピーされた暗号化テキストをここに貼り付けてください";
 		};
