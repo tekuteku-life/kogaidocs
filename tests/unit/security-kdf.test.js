@@ -34,7 +34,7 @@ function createTab() {
 		isSecureContext: true, PublicKeyCredential: class {}, location: { protocol: 'https:', hostname: 'localhost' },
 		navigator: {
 			locks: { request: async (_name, _options, callback) => callback({}) },
-			credentials: { get: async () => ({ getClientExtensionResults: () => ({ prf: { results: { first: prf } } }) }) }
+			credentials: { get: async () => ({ getClientExtensionResults: () => ({ prf: { results: { first: new Uint8Array(prf) } } }) }) }
 		},
 		addEventListener() {}, document: { addEventListener() {}, getElementById: () => null, querySelectorAll: () => [] }
 	};

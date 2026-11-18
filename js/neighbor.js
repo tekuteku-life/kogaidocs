@@ -44,9 +44,9 @@ function renderNeighborTable() {
 				</div>
 			</td>
 			<td><input type="text" maxlength="4096" value="${esc(row.address || '')}" placeholder="住所（〇〇1-2-3）" data-input="updateNeighborItem" data-index="${i}" data-field="address"></td>
-			<td><input type="tel" value="${esc(row.tel || '')}" placeholder="090-0000-0000" data-input="updateNeighborItem" data-index="${i}" data-field="tel"></td>
+			<td><input type="tel" maxlength="4096" value="${esc(row.tel || '')}" placeholder="090-0000-0000" data-input="updateNeighborItem" data-index="${i}" data-field="tel"></td>
 			<td>
-				<input type="email" value="${esc(row.email || '')}" placeholder="メールアドレス（任意）" data-input="updateNeighborItem" data-index="${i}" data-field="email" style="margin-bottom:4px;">
+				<input type="email" maxlength="4096" value="${esc(row.email || '')}" placeholder="メールアドレス（任意）" data-input="updateNeighborItem" data-index="${i}" data-field="email" style="margin-bottom:4px;">
 				<input type="text" maxlength="4096" value="${esc(row.note || '')}" placeholder="備考" data-input="updateNeighborItem" data-index="${i}" data-field="note">
 			</td>
 			<td style="text-align:center;">
@@ -211,6 +211,7 @@ async function copyNeighborEncryptedText() {
 	if (navigator.clipboard && navigator.clipboard.writeText) {
 		try {
 			await navigator.clipboard.writeText(text);
+			if (!outputIsCurrent()) return false;
 			alert("暗号化テキストをクリップボードにコピーしました。メールやチャットに貼り付けて提出できます。");
 			return;
 		} catch (e) {}
@@ -232,6 +233,7 @@ async function loadNeighborTxt(e) {
 	if (!file) return;
 	let pass = document.getElementById('neighbor-import-pass')?.value || "";
 	try {
+		assertStorageSession(generation);
 		const text = await readImportFile(file);
 		let data;
 		try {
@@ -252,6 +254,10 @@ async function loadNeighborTxt(e) {
 		renderNeighborForm();
 		alert(`自治会役員データ「${neighborState.district}」（${neighborState.neighborhood.length}名）を読み込みました。`);
 	} catch (err) {
+		if (err.message === 'STORAGE_SESSION_CHANGED') {
+			e.target.value = "";
+			return;
+		}
 		alert(['INVALID_IMPORT_DATA', 'IMPORT_SAVE_FAILED'].includes(err.code) ? err.message : "ファイルの読み込み・復号に失敗しました。パスワードをご確認ください。");
 	}
 	e.target.value = "";
@@ -266,6 +272,7 @@ async function loadPastedTextToNeighbor() {
 	if (!raw) return;
 	let pass = document.getElementById('neighbor-import-pass')?.value || "";
 	try {
+		assertStorageSession(generation);
 		let data;
 		try {
 			data = await parseTxtContent(raw, pass, generation, importKind);
@@ -286,6 +293,7 @@ async function loadPastedTextToNeighbor() {
 		box.value = "";
 		alert(`自治会役員データ「${neighborState.district}」（${neighborState.neighborhood.length}名）を読み込みました。`);
 	} catch (err) {
+		if (err.message === 'STORAGE_SESSION_CHANGED') return;
 		alert(['INVALID_IMPORT_DATA', 'IMPORT_SAVE_FAILED'].includes(err.code) ? err.message : "復号に失敗しました。パスワードを確認してください。");
 	}
 }
@@ -298,13 +306,18 @@ function runNeighborYearUpdate() {
 		lastName: "", firstName: "", lastNameKana: "", firstNameKana: "",
 		address: "", tel: "", email: "", note: ""
 	}));
+	resetPasswordInputs(document.getElementById('tab-neighbor'));
+	const printArea = document.getElementById('print-area');
+	if (printArea) printArea.innerHTML = "";
 	saveNeighborLocal();
 	renderNeighborTable();
 	alert("自治会役員名簿の年度更新が完了しました。新年度の役員情報を入力してください。");
 }
 
 function printNeighborRoster() {
+	const outputIsCurrent = captureStorageOutputGuard();
 	saveNeighborLocal();
+	if (!outputIsCurrent()) return;
 	if (!neighborState.neighborhood || neighborState.neighborhood.length === 0) {
 		alert("自治会役員が登録されていません。");
 		return;
@@ -322,11 +335,14 @@ function printNeighborRoster() {
 		window.print();
 	} finally {
 		document.title = origTitle;
+		if (!outputIsCurrent()) printArea.innerHTML = "";
 	}
 }
 
 function printNeighborTentCards() {
+	const outputIsCurrent = captureStorageOutputGuard();
 	saveNeighborLocal();
+	if (!outputIsCurrent()) return;
 	const validNeighbors = (neighborState.neighborhood || []).filter(n => n.lastName || n.firstName);
 	if (validNeighbors.length === 0) {
 		alert("名札を印刷する役員の氏名が入力されていません。");
@@ -348,6 +364,7 @@ function printNeighborTentCards() {
 		window.print();
 	} finally {
 		document.title = origTitle;
+		if (!outputIsCurrent()) printArea.innerHTML = "";
 	}
 }
 

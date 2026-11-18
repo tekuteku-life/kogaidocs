@@ -319,7 +319,7 @@ class MockCredentials {
 				return {
 					prf: {
 						results: {
-							first: this.prfResult
+							first: new Uint8Array(this.prfResult)
 						}
 					}
 				};
@@ -336,7 +336,7 @@ class MockCredentials {
 				return {
 					prf: {
 						results: {
-							first: this.prfResult
+							first: new Uint8Array(this.prfResult)
 						}
 					}
 				};
@@ -347,6 +347,7 @@ class MockCredentials {
 
 function setupDomEnvironment() {
 	if (typeof global.clearStorageSecurity === 'function') global.clearStorageSecurity();
+	if (typeof global.resetActiveAppMode === 'function') global.resetActiveAppMode();
 	delete global.__kogaiAutoLockListenersBound;
 	const elementsMap = {};
 

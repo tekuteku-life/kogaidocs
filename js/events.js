@@ -150,8 +150,8 @@ const uiEventHandlers = new Map([
 	['updateHataConfig', element => {
 		if (!UI_HATA_FIELDS.includes(element.dataset.field)) return;
 		if (currentDistrict.hata) {
-			if (['startDate', 'endDate', 'holidays', 'specials', 'members'].includes(element.dataset.field)) collectHataScheduleInputs(currentDistrict.hata, { [element.dataset.field]: element.value });
-			else currentDistrict.hata[element.dataset.field] = element.value;
+			if (element.dataset.field === 'orientation') currentDistrict.hata.orientation = element.value;
+			else collectHataScheduleInputs(currentDistrict.hata, { [element.dataset.field]: element.value });
 		}
 		if (element.dataset.field === 'members') { checkHataMemberDuplicates(); renderHataExemptList(); }
 		if (!renderHataInputStatus()) renderHataSchedulePreview();
@@ -234,6 +234,7 @@ for (const [action, load] of [
 	['loadNeighborFileIntoDistrict', event => loadNeighborFileIntoDistrict(event)],
 	['loadTransferFileIntoDistrict', event => loadTransferFileIntoDistrict(event)],
 	['loadHataOfficialFile', event => loadHataOfficialFile(event)], ['loadDistrictTxt', event => loadDistrictTxt(event)],
+	['loadDistrictStudentsTxt', event => loadDistrictStudentsTxt(event)],
 	['loadMultipleDistrictFiles', event => loadMultipleDistrictFiles(event)],
 	['loadTransferFileIntoRep', event => loadTransferFileIntoRep(event)],
 	['loadRepMasterTxt', event => loadRepMasterTxt(event)], ['loadNeighborTxt', event => loadNeighborTxt(event)]

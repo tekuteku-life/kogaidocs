@@ -187,6 +187,7 @@ async function copyTransferEncryptedText() {
 		if (!outputIsCurrent()) return false;
 		const fullText = `BEGIN_DATA:\n${encrypted}\n:END_DATA`;
 		await navigator.clipboard.writeText(fullText);
+		if (!outputIsCurrent()) return false;
 		alert("暗号化された家庭情報データをクリップボードにコピーしました。\nLINEやメール等で指定された提出先へ送信してください。");
 		return true;
 	} catch (e) {
@@ -212,6 +213,9 @@ async function resetTransferForm() {
 	if (p2) p2.value = "";
 
 	renderTransferForm();
+	resetPasswordInputs(document.getElementById('tab-transfer'));
+	const printArea = document.getElementById('print-area');
+	if (printArea) printArea.innerHTML = '';
 	await saveTransferLocal();
 	return true;
 }
@@ -227,6 +231,9 @@ function clearTransferForm() {
 	if (p1) p1.value = "";
 	if (p2) p2.value = "";
 	renderTransferForm();
+	resetPasswordInputs(document.getElementById('tab-transfer'));
+	const printArea = document.getElementById('print-area');
+	if (printArea) printArea.innerHTML = '';
 }
 
 // ローカルストレージへの自動保存

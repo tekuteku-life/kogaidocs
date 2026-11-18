@@ -117,3 +117,81 @@ for (const kind of ['neighbor', 'district']) {
 		assert.strictEqual(ui.element('#neighbor-paste-box').value, '', 'No fallback text after lock');
 	}, { beforeLoad: new Function(`window.__fallbackKind = ${JSON.stringify(kind)};`) });
 }
+
+securityTest('SEC-25/SEC-28: unencrypted guest handoff round-trip succeeds without writing officer plaintext keys, and lock resets visible passwords while preserving #rep-new-district-error', async () => {
+	await ui.mode('transfer');
+	ui.fill('#transfer-address', '南町4-5');
+	ui.fill('#transfer-tel', '09044445555');
+	const collected = await collectBrowserHandoff();
+	assert.strictEqual(collected.mode, 'transfer');
+	assert.strictEqual(collected.models[0].district, '');
+	assert.strictEqual(collected.models[1].districts.length, 0);
+	assert.strictEqual(localStorage.getItem('kogai_district_v2'), null);
+
+	// Open browser handoff dialog before interacting with dialog inputs
+	openBrowserHandoff();
+
+	// Officer handoff into unencrypted browser rejects before confirm
+	let confirms = 0;
+	window.confirm = () => { confirms++; return true; };
+	const officerBundle = await encryptPayload(JSON.stringify({ type: 'kogaidocs-browser-handoff', version: 1, mode: 'district', models: [{ district: '禁止地区', officers: [], students: [], neighborhood: [] }, { districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: {} } }, { district: '', neighborhood: [] }, { children: [], memo: '' }], drafts: {}, repDraft: null }), 'TransferSecret123!');
+	ui.fill('#handoff-input', officerBundle);
+	ui.fill('#handoff-restore-pass', 'TransferSecret123!');
+	assert.strictEqual(await restoreBrowserHandoff(), false);
+	assert.strictEqual(confirms, 0);
+	assert.ok(/STORAGE_ENCRYPTION_REQUIRED|端末暗号化|暗号化/.test(document.getElementById('handoff-status').textContent));
+
+	// Guest handoff into unencrypted browser succeeds and closes dialog cleanly
+	const guestBundle = await encryptPayload(JSON.stringify(collected), 'TransferSecret123!');
+	ui.fill('#handoff-input', guestBundle);
+	ui.fill('#handoff-restore-pass', 'TransferSecret123!');
+	assert.strictEqual(await restoreBrowserHandoff(), true);
+	assert.strictEqual(confirms, 1);
+	assert.strictEqual(localStorage.getItem('kogai_district_v2'), null);
+
+	// Setup encryption & update officer access so district tab becomes accessible; verify hideStorageUnlockModal & runDistrictYearUpdate preserve #rep-new-district-error, while lock resets visible passwords
+	await setupStorageEncryption('MasterHeadless123!', false);
+	updateSecurityBadge('unlocked');
+	updateOfficerAccess();
+	closeStorageSettingsModal();
+	await ui.mode('district');
+	await ui.expand('district');
+	await ui.click('.btn-toggle-pass[data-password-target="d-pass"]');
+	ui.fill('#d-pass', 'VisibleBeforeReset1!');
+	document.getElementById('rep-new-district-error').textContent = '重複テスト';
+	document.getElementById('rep-new-district-error').className = 'pass-feedback-msg pass-msg-ng';
+	hideStorageUnlockModal();
+	window.confirm = () => true;
+	await runDistrictYearUpdate();
+	assert.strictEqual(document.getElementById('d-pass').type, 'password');
+	assert.strictEqual(document.getElementById('d-pass').value, '');
+	assert.strictEqual(document.querySelector('.btn-toggle-pass[data-password-target="d-pass"]').textContent, '👁️');
+	assert.strictEqual(document.getElementById('rep-new-district-error').textContent, '重複テスト');
+	assert.strictEqual(document.getElementById('rep-new-district-error').className, 'pass-feedback-msg pass-msg-ng');
+
+	await ui.click('.btn-toggle-pass[data-password-target="d-pass"]');
+	ui.fill('#d-pass', 'VisibleBeforeLock1!');
+	await ui.click('#storage-security-badge');
+	await ui.click('[data-click="handleImmediateLock"]');
+	assert.strictEqual(document.getElementById('d-pass').type, 'password');
+	assert.strictEqual(document.getElementById('d-pass').value, '');
+	assert.strictEqual(document.querySelector('.btn-toggle-pass[data-password-target="d-pass"]').textContent, '👁️');
+}, { autoSecure: false });
+
+securityTest('SEC-27: locking mid-sequential district print halts remaining prints and clears #print-area', async () => {
+	await ui.mode('district');
+	await ui.expand('district');
+	currentDistrict.district = '1丁目';
+	currentDistrict.students = [{ grade: '1', class: '1', lastName: '田中', firstName: '太郎' }];
+	currentDistrict.neighborhood = [{ role: '会長', lastName: '佐藤', firstName: '一郎' }];
+	document.getElementById('d-print-students').checked = true;
+	document.getElementById('d-print-neighbors').checked = true;
+	let prints = 0;
+	window.print = () => {
+		prints++;
+		if (prints === 1) lockStorage();
+	};
+	await printSingleDistrictSeparately();
+	assert.strictEqual(prints, 1);
+	assert.strictEqual(document.getElementById('print-area').innerHTML, '');
+});

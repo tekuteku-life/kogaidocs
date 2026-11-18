@@ -2,12 +2,26 @@
    印刷HTMLの組み立て（各地区モード ＆ 代表モード）
 ========================================================================= */
 
+function isOfficerPrintBlocked(outputIsCurrent) {
+	return !outputIsCurrent() || (isStorageEncrypted() && !isStorageUnlocked());
+}
+
+function clearOfficerPrintArea() {
+	const area = document.getElementById('print-area');
+	if (area) area.innerHTML = '';
+}
+
 function setRepPrintChecks(flag) {
 	document.querySelectorAll('.rep-print-chk').forEach(el => el.checked = flag);
 }
 
 /* タブ1：自地区の選択印刷 */
 function printSingleDistrictSelected() {
+	const outputIsCurrent = captureStorageOutputGuard();
+	if (isOfficerPrintBlocked(outputIsCurrent)) {
+		clearOfficerPrintArea();
+		return;
+	}
 	saveDistrictLocal();
 	const pStu = document.getElementById('d-print-students')?.checked;
 	const pNei = document.getElementById('d-print-neighbors')?.checked;
@@ -54,11 +68,17 @@ function printSingleDistrictSelected() {
 		window.print();
 	} finally {
 		document.title = origTitle;
+		if (isOfficerPrintBlocked(outputIsCurrent)) clearOfficerPrintArea();
 	}
 }
 
 /* タブ1：自地区の個別PDF保存（選択した帳票ごとに順次印刷ダイアログを起動） */
 function printSingleDistrictSeparately() {
+	const outputIsCurrent = captureStorageOutputGuard();
+	if (isOfficerPrintBlocked(outputIsCurrent)) {
+		clearOfficerPrintArea();
+		return;
+	}
 	saveDistrictLocal();
 	const pStu = document.getElementById('d-print-students')?.checked;
 	const pNei = document.getElementById('d-print-neighbors')?.checked;
@@ -102,18 +122,28 @@ function printSingleDistrictSeparately() {
 
 	const origTitle = document.title;
 	for (const item of printItems) {
+		if (isOfficerPrintBlocked(outputIsCurrent)) {
+			clearOfficerPrintArea();
+			break;
+		}
 		if (area) area.innerHTML = item.html;
 		try {
 			document.title = item.title;
 			window.print();
 		} finally {
 			document.title = origTitle;
+			if (isOfficerPrintBlocked(outputIsCurrent)) clearOfficerPrintArea();
 		}
 	}
 }
 
 /* タブ2：代表モードの選択一括印刷 */
 function executeRepSelectedPrint() {
+	const outputIsCurrent = captureStorageOutputGuard();
+	if (isOfficerPrintBlocked(outputIsCurrent)) {
+		clearOfficerPrintArea();
+		return;
+	}
 	saveRepLocal();
 	const checkedTypes = Array.from(document.querySelectorAll('.rep-print-chk:checked')).map(el => el.value);
 	if (checkedTypes.length === 0) {
@@ -203,6 +233,7 @@ function executeRepSelectedPrint() {
 		window.print();
 	} finally {
 		document.title = origTitle;
+		if (isOfficerPrintBlocked(outputIsCurrent)) clearOfficerPrintArea();
 	}
 }
 

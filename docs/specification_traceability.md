@@ -1,7 +1,7 @@
 # 要件・外部仕様・内部仕様とテストのトレーサビリティ
 
-**作成日**: 2026年10月24日<br>
-**対象**: kogaidocs 2.10.0（過去の検証結果は各記録の対象版による）<br>
+**作成日**: 2026年10月24日（2026年11月18日 2.12.0 追補）<br>
+**対象**: kogaidocs 2.12.0（過去の検証結果は各記録の対象版による）<br>
 **対応文書**: [要件定義書](requirements.md)、[外部仕様書](external_design.md)、[内部仕様書](internal_design.md)
 
 ## 1. 判定方法と適用範囲
@@ -343,3 +343,28 @@ R-05 / E-05 / I-03・I-04 の追加観点は `tests/unit/household-transfer.test
 | I-08 / SW | mode URLは固定index.htmlへ対応し、通常scriptのcredentials includeを匿名化する。未知URL/更新URL/認証ヘッダーは保存しない。 | `sw-security.test.js`。実HTTPは `tests/manual/offline-http.js` に残し未完了を明記する。 |
 
 最終測定と制約は[今回の検証記録](reviews/review70_mobile_encryption_security_verification.md)を参照する。旧記録の平文任意仕様と件数を今回の結果へ流用しない。
+
+## 2.11.1 追加セキュリティアセスメント追跡（SEC-25 〜 SEC-29）
+
+| 要件・仕様・指摘 | 具体的検査観点 | 対象テスト・記録 |
+| :--- | :--- | :--- |
+| R-20 / E-10-06 / I-10 / SEC-25 | 未暗号化端末の家庭情報入力・自治会モードからの引き継ぎ作成（役員モデル・役員下書き除外）とアプリ更新成功、未暗号化先での役員引き継ぎ（`district`/`rep`/`repDraft`/役員下書き）の `STORAGE_ENCRYPTION_REQUIRED` 拒否とゲスト専用引き継ぎ復元（平文役員キー非書込み）。 | `browser-handoff.test.js`、`security-state.test.js`、`headless-security-followup.test.js` |
+| R-20 / E-10-07 / I-10 / SEC-26 | ロック中ワンクリック設定の解除モーダル遷移、新規設定時（`!isStorageEncrypted()`）および解除済み時の双方での `neighbor-pass`/`rep-pass` 非汚染（地区側保存・完了通知抑止含む）、非同期暗号設定・生体認証登録のキャンセル/ロック後無効化、`prfResult` バッファゼロ化、`meta.webauthn` 非null時の型・必須キー検証。 | `security-output-lifecycle.test.js`、`security-crypto.test.js` |
+| R-20 / E-10-08 / I-10 / SEC-27 | ロック後のクリップボード書込成功・拒否後通知/フォールバック抑止、代表切り出し確認パスワード不一致・>2000文字退避、ロック後復号失敗時の再入力プロンプト/再描画/アラート抑止、個別PDF複数印刷中のロック後後続印刷中止と `#print-area` 消去。 | `security-output-lifecycle.test.js`、`headless-security-followup.test.js` |
+| R-20 / E-10-09 / I-10 / SEC-28 | ロック・年度更新・リセット・引き継ぎ復元での `type="text"` → `type="password"`、`🙈` → `👁️`、判定メッセージ・`#hata-line-text`・`#print-area` の完全消去。 | `security-output-lifecycle.test.js`、`security-state.test.js`、`headless-security-followup.test.js` |
+| R-20 / E-10-10 / I-10 / SEC-29 | 旗振りメタ/免除/調整・座席・転入メモの4096文字超過拒否と `maxlength="4096"`、代表モーダル保存の `validateImportData('rep')` 検査、暗号化時データ欠損・他タブ個別キー削除検知、`isNewerVersion` 厳格化・`credentials: 'omit'`、SW `message` 送信元検証。 | `utils.test.js`、`security-state.test.js`、`security-crypto.test.js`、`sw-security.test.js`、`headless-security-followup.test.js` |
+
+詳細アセスメントは [review71](reviews/review71_security_assessment.md)、実装・試験の最終検証記録は [review74](reviews/review74_security_verification.md)、独立ゲートレビューは [review72](reviews/review72_security_design_gate1.md)（Gate 1）・[review73](reviews/review73_security_tests_gate2.md)（Gate 2）・[review75](reviews/review75_security_final_gate3.md)（Gate 3）を参照する。
+
+
+## 8. 次年度名簿作成と長文保存の再検証（2.12.0）
+
+| 要件・仕様 | 実装 | 具体的な検査と実行環境 |
+| --- | --- | --- |
+| R-21 / E-11 / I-11 長文入力・旧保存復旧 | `utils.js`, `state.js`, `events.js`, `hata.js`, `index.html` | `hata-text-recovery.test.js` と `headless-next-year.test.js`：4096/4097文字、有効値保持、全文下書き、実WebCrypto保存・解除・修正・再解除、DOM文字数上限と出力停止。 |
+| R-21 / E-11 / I-11 共有拒否 | `rep.js` | `hata-text-recovery.test.js` と `security-output-lifecycle.test.js`：長文LINE/mailのコピー拒否・API不在で外部起動ゼロ、失敗通知、ロック後通知抑止。OSの実共有は未検証である。 |
+| R-22 / E-11 / I-11 児童限定追加 | `crypto.js`, `district.js`, `events.js`, `index.html` | `next-year-import.test.js` と `headless-next-year.test.js`：役員ファイル通常読込→児童限定追記→暗号化出力・復元、役員等保持、無進級、重複・地区相違の確認、取消・不正・保存失敗・ロック時の原状維持。 |
+
+実施結果と独立レビューの有無は検証記録へ分離して記載する。上記はテスト設計であり、未実行の合格を示さない。
+
+実施した最終結果・未検証境界・独立レビューの有無は [review77](reviews/review77_followup_verification.md) を参照する。

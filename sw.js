@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2.11.0';
+const CACHE_VERSION = '2.12.0';
 const CACHE_SCOPE = self.registration.scope;
 const CACHE_PREFIX = `kogai-cache-${encodeURIComponent(CACHE_SCOPE)}-`;
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;
@@ -77,7 +77,12 @@ self.addEventListener('activate', event => {
 	);
 });
 
+const SCOPE_PREFIX = CACHE_SCOPE.endsWith('/') ? CACHE_SCOPE : `${CACHE_SCOPE}/`;
 self.addEventListener('message', event => {
+	if (event.origin !== SCOPE_ORIGIN || typeof event.source?.url !== 'string') return;
+	let sourceUrl;
+	try { sourceUrl = new URL(event.source.url); } catch (_) { return; }
+	if (sourceUrl.origin !== SCOPE_ORIGIN || (sourceUrl.href !== CACHE_SCOPE && !sourceUrl.href.startsWith(SCOPE_PREFIX))) return;
 	if (event.data && event.data.type === 'SKIP_WAITING') {
 		self.skipWaiting();
 	}
