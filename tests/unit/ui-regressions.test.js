@@ -51,7 +51,8 @@ test('regression: pending encrypted save cannot resurrect data after full deleti
 		return result;
 	};
 	try {
-		const pending = cryptoLib.saveStorageData('kogai_transfer_v2', { private: 'old-data' });
+		// 保存前検証（I-12-02）を通る有効なモデルで、暗号化待ちの保存を再現する。
+		const pending = cryptoLib.saveStorageData('kogai_transfer_v2', { children: [], memo: 'old-data' });
 		const deadline = Date.now() + 2000;
 		while (!release && Date.now() < deadline) await new Promise(resolve => setImmediate(resolve));
 		assert.equal(typeof release, 'function', 'Encrypted save reaches pending phase before deadline');

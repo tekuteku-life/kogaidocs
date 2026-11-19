@@ -181,7 +181,9 @@ test('security core: startup rejects malformed plaintext storage with a visible 
 	navigator.onLine = false;
 	localStorage.setItem(keys[1], JSON.stringify({ districts: 'bad-list' }));
 	await applicationStartup();
-	assert.match(global.__lastAlert, /保存データが不正/);
+	// E-12-05: 読めないモードだけ保存を停止して案内し、他のモードは通常どおり開く。
+	assert.match(global.__lastAlert, /校外代表の保存を停止/);
+	assert.equal(crypt.isStorageWriteSuspended(keys[1]), true);
 	assert.equal(state.currentDistrict.district, '保持地区');
 	assert.equal(localStorage.getItem(keys[1]), '{"districts":"bad-list"}');
 });

@@ -189,6 +189,25 @@ function saveDistrictLocal() {
 	return saveStorageData('kogai_district_v2', currentDistrict);
 }
 
+/**
+ * 構造操作を複製候補として厳格検証し、保存・次回解除できない場合は同一参照のまま変更前へ戻す（SEC-30）。
+ * @returns {boolean} 確定した場合は true
+ */
+function applyStorableChange(storageKey, model, mutate) {
+	const snapshot = JSON.stringify(model);
+	mutate(model);
+	try {
+		validateStorageModel(JSON.parse(JSON.stringify(model)), storageKey);
+		return true;
+	} catch (error) {
+		console.warn('Rolled back a change that could not be stored:', storageKey, error);
+		for (const key of Object.keys(model)) delete model[key];
+		Object.assign(model, JSON.parse(snapshot));
+		alert('端末に保存できる上限を超えるため、この変更を取り消しました。');
+		return false;
+	}
+}
+
 function saveRepLocal() {
 	if (!repState.seatConfig) {
 		repState.seatConfig = { cols: 4, rows: 5, cells: {} };
@@ -225,6 +244,7 @@ if (typeof module !== 'undefined' && module.exports) {
 	global.saveRepLocal = saveRepLocal;
 	global.saveNeighborLocal = saveNeighborLocal;
 	global.saveTransferLocal = saveTransferLocal;
+	global.applyStorableChange = applyStorableChange;
 	// CommonJS試験でもブラウザの共有グローバルと同じモデルを参照する。
 	for (const [name, get, set] of [
 		['currentDistrict', () => currentDistrict, value => { currentDistrict = value; }],

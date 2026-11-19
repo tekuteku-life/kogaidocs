@@ -1158,7 +1158,7 @@ test('district: loadDistrictTxt protects existing hata when incoming has no hata
 			this.onload({ target: { result: `BEGIN_DATA:\n${encText}\n:END_DATA` } });
 		}
 	};
-	document.getElementById('d-file-pass').value = pwd;
+	document.getElementById('d-pass').value = pwd; // QA-09: 実在するパスワード欄を使う
 
 	await districtLib.loadDistrictTxt(file);
 
@@ -1310,7 +1310,10 @@ test('district: saveDistrictLocal synchronizes DOM hata inputs to currentDistric
 	assert.strictEqual(state.currentDistrict.hata.title, '2丁目 登校見守り活動シフト表', 'Should preserve existing hata if DOM not present');
 });
 
-test('district: additional branch coverage booster for panels and transfer loading', async () => {
+test('district: additional branch coverage booster for panels and transfer loading', async t => {
+	// 本テストで差し替えるグローバル関数を、後続テストへ漏らさない。
+	const restoreGlobals = { parseTxtContent: global.parseTxtContent, safePrompt: global.safePrompt, alert: global.alert };
+	t.after(() => Object.assign(global, restoreGlobals));
 	setupDomEnvironment();
 	state.currentDistrict = { district: '3丁目', students: [] };
 

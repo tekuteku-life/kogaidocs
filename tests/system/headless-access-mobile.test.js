@@ -83,8 +83,13 @@ for (const width of [375, 390, 1280]) {
 		ui.fill('#hata-members', Array.from({ length: 120 }, (_, i) => '担当' + String(i).padStart(3, '0')).join('\n'));
 		await ui.click('[data-click="runAutoHataGeneration"]');
 		await ui.click('[data-click="toggleHataSummary"]');
-		await new Promise(resolve => setTimeout(resolve, 400));
 		const panel = ui.element('#hata-summary-accordion');
+		// 固定待機ではなく、開閉アニメーション後に高さが安定したことを条件として待つ。
+		await ui.waitFor(async () => {
+			const height = panel.clientHeight;
+			await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+			return height > 0 && panel.clientHeight === height && getComputedStyle(panel).overflowY === 'auto';
+		}, 'Summary accordion settles open');
 		assert.ok(panel.scrollHeight > panel.clientHeight, 'Large roster overflows summary');
 		assert.strictEqual(getComputedStyle(panel).overflowY, 'auto', 'Expanded summary allows scrolling');
 		panel.scrollTop = panel.scrollHeight;
@@ -121,7 +126,7 @@ browserTest('Privacy: text outside forms cannot be selected or copied; form sele
 
 browserTest('Startup: hanging version fetch does not delay initialization or guest input', async () => {
 	ui.fill('#transfer-address', '無応答でも入力可能');
-	await new Promise(resolve => setTimeout(resolve, 1200));
+	await ui.waitFor(() => window.__versionRequested, 'Background version request starts');
 	assert.ok(window.__versionRequested, 'Background version request starts');
 	assert.strictEqual(ui.element('#transfer-address').value, '無応答でも入力可能', 'Input survives pending request');
 	await ui.mode('neighbor'); assert.ok(ui.visible('#tab-neighbor'), 'Navigation remains usable');

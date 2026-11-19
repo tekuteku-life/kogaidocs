@@ -134,36 +134,46 @@ for (const [name, configFor] of boundaries) {
 		});
 	}
 
-	test(`security date boundary: plaintext restore rejects over-budget ${name} atomically across all four modes`, async () => {
+	test(`security date boundary: plaintext restore repairs over-budget ${name} into drafts and opens all four modes (I-12-05)`, async () => {
 		await fresh();
 		const models = storedModels(configFor(3661));
 		for (const [index, key] of keys.entries()) localStorage.setItem(key, JSON.stringify(models[index]));
-		const beforeModels = modelSnapshot();
-		const beforeDom = domSnapshot();
 		const beforeStorage = { ...localStorage.store };
-		await assert.rejects(app.loadAppDataFromStorage(), { code: 'INVALID_IMPORT_DATA' });
-		assert.equal(modelSnapshot(), beforeModels);
-		assert.equal(domSnapshot(), beforeDom);
-		assert.deepEqual(localStorage.store, beforeStorage);
+		const { repairs } = await app.loadAppDataFromStorage();
+		assert.deepEqual(repairs, ['hata-budget']);
+		assert.equal(state.currentDistrict.district, '未確定の受入地区');
+		assert.equal(state.neighborState.district, '未確定の受入自治会', 'Companion models are restored');
+		const original = configFor(3661);
+		for (const field of ['holidays', 'specials']) {
+			if (original[field] === undefined) continue;
+			assert.equal(state.currentDistrict.hata[field], '', `The over-budget ${field} is no longer effective`);
+			assert.equal(typeof state.currentDistrict.hata.inputDrafts[field], 'string', `${field} (array or string) is kept as a string draft`);
+		}
+		assert.throws(() => utils.validateHataExpansionBudget({ ...state.currentDistrict.hata.inputDrafts }), { code: 'INVALID_IMPORT_DATA' }, 'The draft still holds the full over-budget input');
+		assert.deepEqual(hata.generateHataSchedule(state.currentDistrict.hata), [], 'Nothing over budget is expanded');
+		assert.deepEqual(localStorage.store, beforeStorage, 'Reading never rewrites plaintext originals');
 	});
 
 	for (const format of [1, 2]) {
 		for (const unlock of ['password', 'webauthn']) {
-			test(`security date boundary: format ${format} ${unlock} unlock refuses over-budget ${name} without migration or partial restore`, async () => {
+			test(`security date boundary: format ${format} ${unlock} unlock repairs over-budget ${name} instead of locking the user out`, async () => {
 				await fresh();
 				await encryptedFixture(storedModels(configFor(3661)), format);
-				const beforeModels = modelSnapshot();
-				const beforeDom = domSnapshot();
 				const beforeStorage = { ...localStorage.store };
-				await assert.rejects(async () => {
-					if (unlock === 'password') await crypt.unlockStorageWithPassword(password);
-					else await crypt.unlockStorageWithWebAuthn();
-					await app.loadAppDataFromStorage();
-				}, { code: 'INVALID_IMPORT_DATA' });
-				assert.equal(modelSnapshot(), beforeModels, 'No mode commits despite otherwise valid authenticated companion models');
-				assert.equal(domSnapshot(), beforeDom);
-				assert.deepEqual(localStorage.store, beforeStorage, 'Neither format migration nor password rewrap may commit');
-				assert.equal(crypt.isStorageUnlocked(), false);
+				if (unlock === 'password') await crypt.unlockStorageWithPassword(password);
+				else await crypt.unlockStorageWithWebAuthn();
+				const { repairs } = await app.loadAppDataFromStorage();
+				assert.deepEqual(repairs, ['hata-budget']);
+				assert.equal(crypt.isStorageUnlocked(), true);
+				assert.equal(state.currentDistrict.district, '未確定の受入地区');
+				for (const field of ['holidays', 'specials']) if (configFor(3661)[field] !== undefined) assert.equal(state.currentDistrict.hata[field], '');
+				assert.ok(state.currentDistrict.hata.inputDrafts, 'Over-budget values are kept as drafts');
+				// 認証メタデータは解除時の鍵ラップ移行（PBKDF2 60万回）で更新され得るため、データキーだけを比較する。
+				if (format === 2) assert.deepEqual(keys.map(key => localStorage.getItem(key)), keys.map(key => beforeStorage[key]), 'Current-format originals are unchanged until the next save');
+				else {
+					assert.ok(localStorage.getItem(keys[0]).startsWith('STORAGE_ENC:2:'), 'Legacy format migration re-encrypts the repaired value');
+					assert.equal((await crypt.loadStorageDecrypted(keys[0])).hata.inputDrafts !== undefined, true);
+				}
 			});
 		}
 	}
@@ -194,16 +204,18 @@ for (const period of ['omitted', 'empty']) {
 		});
 	}
 
-	test(`security date boundary: plaintext restore retains all original models, DOM and storage when excessive draft period is ${period}`, async () => {
+	test(`security date boundary: plaintext restore repairs an excessive undated draft (${period}) without rewriting storage`, async () => {
 		await fresh();
 		const models = storedModels(undated(3661));
 		for (const [index, key] of keys.entries()) localStorage.setItem(key, JSON.stringify(models[index]));
-		const beforeModels = modelSnapshot();
-		const beforeDom = domSnapshot();
 		const beforeStorage = { ...localStorage.store };
-		await assert.rejects(app.loadAppDataFromStorage(), { code: 'INVALID_IMPORT_DATA' });
-		assert.equal(modelSnapshot(), beforeModels);
-		assert.equal(domSnapshot(), beforeDom);
+		const { repairs } = await app.loadAppDataFromStorage();
+		assert.deepEqual(repairs, ['hata-budget']);
+		for (const field of ['holidays', 'specials']) {
+			if (undated(3661)[field] === undefined) continue;
+			assert.equal(state.currentDistrict.hata[field], '');
+			assert.equal(typeof state.currentDistrict.hata.inputDrafts[field], 'string');
+		}
 		assert.deepEqual(localStorage.store, beforeStorage);
 	});
 }

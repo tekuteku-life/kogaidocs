@@ -21,6 +21,17 @@ test('rep: renderRepAll executes sub-renders without throwing', () => {
 	assert(tbody.innerHTML.includes("緑が丘"));
 });
 
+test('rep: neighborhood default checks use the partial 会長 match and fall back to the first row only without one', () => {
+	setupDomEnvironment();
+	state.repState.districts = [];
+	rep.upsertRepDistrict({ district: '部分一致地区', officers: [], students: [], neighborhood: [{ role: '書記', lastName: 'A' }, { role: '副会長', lastName: 'B' }, { role: '会長', lastName: 'C' }] }, state.repState, false);
+	assert.deepStrictEqual(state.repState.districts[0].szNeighborChecks, { 1: true, 2: true });
+	rep.upsertRepDistrict({ district: '先頭地区', officers: [], students: [], neighborhood: [{ role: '書記', lastName: 'A' }, { role: '会計', lastName: 'B' }] }, state.repState, false);
+	assert.deepStrictEqual(state.repState.districts[1].szNeighborChecks, { 0: true }, 'Without any 会長 role the first row is the fallback');
+	rep.upsertRepDistrict({ district: '空地区', officers: [], students: [], neighborhood: [] }, state.repState, false);
+	assert.deepStrictEqual(state.repState.districts[2].szNeighborChecks, {}, 'An empty roster checks nobody');
+});
+
 test('rep: upsertRepDistrict handles legacy officer, defaultChecks, and updates', () => {
 	setupDomEnvironment();
 	state.repState.districts = [];
@@ -43,7 +54,8 @@ test('rep: upsertRepDistrict handles legacy officer, defaultChecks, and updates'
 	const saved1 = state.repState.districts[0];
 	assert.strictEqual(saved1.officers.length, 1);
 	assert.strictEqual(saved1.officers[0].lastName, "田中");
-	assert.strictEqual(saved1.szNeighborChecks[0], true); // Fallback to index 0
+	// SPEC-Q1: 現行仕様は「会長」を含む役職（副会長を含む）を部分一致で初期チェックする。
+	assert.deepStrictEqual(saved1.szNeighborChecks, { 0: true }, 'A role containing 会長 is checked by partial match');
 	assert.strictEqual(saved1.students[0].han, "1班");
 	assert.strictEqual(saved1.students[0].isOutOfDistrict, false);
 
@@ -639,7 +651,7 @@ test('rep: exhaustive branch coverage for all edge cases and permutations', asyn
 				officer: null,
 				neighborhood: null,
 				students: [
-					{ lastName: "生徒X", han: "特定班", isOutOfDistrict: false }
+					{ lastName: "生徒X", grade: "1", han: "特定班", isOutOfDistrict: false }
 				]
 			}
 		],
@@ -1350,7 +1362,10 @@ test('rep: additional branch coverage for exportSingleDistrictFromRep edge cases
 	state.repState.districts = origDists;
 });
 
-test('rep: comprehensive branch booster for >95% branch coverage', async () => {
+test('rep: comprehensive branch booster for >95% branch coverage', async t => {
+	// 本テストで差し替えるグローバル関数を、後続テストへ漏らさない。
+	const restoreGlobals = { parseTxtContent: global.parseTxtContent, safePrompt: global.safePrompt, encryptPayload: global.encryptPayload, alert: global.alert };
+	t.after(() => Object.assign(global, restoreGlobals));
 	setupDomEnvironment();
 
 	// 1. upsertRepDistrict: placeholderIdx branch & existingWithNeighbors branch
@@ -1953,7 +1968,10 @@ test('rep: modal officer CRUD operations (add, update, remove) and state synchro
 	rep.closeRepDistrictDetailModalWithoutSaving();
 });
 
-test('rep: additional coverage for placeholder upsert and transfer error alerts', async () => {
+test('rep: additional coverage for placeholder upsert and transfer error alerts', async t => {
+	// 本テストで差し替えるグローバル関数を、後続テストへ漏らさない。
+	const restoreGlobals = { parseTxtContent: global.parseTxtContent, safePrompt: global.safePrompt, alert: global.alert };
+	t.after(() => Object.assign(global, restoreGlobals));
 	setupDomEnvironment();
 	// 1. upsertRepDistrict replaces empty placeholder
 	state.repState = {

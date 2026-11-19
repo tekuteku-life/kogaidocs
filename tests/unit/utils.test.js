@@ -500,7 +500,8 @@ test('utils SEC-29: validateHataConfig, validateImportData, and validateStoredDa
 	for (const key of ['title', 'scheduleTitle', 'metaCreatedDate', 'createdDate', 'scheduleCreatedDate', 'district', 'metaLocation', 'location', 'metaTime', 'time', 'metaHeaderMsg', 'headerMsg', 'metaFooterMsg', 'footerMsg', 'metaContactMsg', 'contactMsg', 'format']) {
 		assert.throws(() => utils.validateHataConfig({ [key]: long4097 }));
 	}
-	assert.throws(() => utils.validateHataConfig({ exemptHouseholds: [long4097] }));
+	assert.doesNotThrow(() => utils.validateHataConfig({ exemptHouseholds: [long4097] }), 'Household keys may reach 8193 characters (I-12-03)');
+	assert.throws(() => utils.validateHataConfig({ exemptHouseholds: ['あ'.repeat(8194)] }));
 	assert.throws(() => utils.validateHataConfig({ manualOverrides: { [long4097]: { person: 'a' } } }));
 	for (const ovrField of ['person', 'note', 'originalPerson']) {
 		assert.throws(() => utils.validateHataConfig({ manualOverrides: { '2026-05-01': { [ovrField]: long4097 } } }));
@@ -523,7 +524,8 @@ test('utils SEC-29: validateHataConfig, validateImportData, and validateStoredDa
 		assert.throws(() => utils.validateImportData({ districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, [labelKey]: long4097, cells: {} } }, 'rep'));
 	}
 	assert.throws(() => utils.validateImportData({ districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: { '0_0': { customText: long4097 } } } }, 'rep'));
-	assert.throws(() => utils.validateImportData({ districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: { '0_0': { refKey: long4097 } } } }, 'rep'));
+	assert.doesNotThrow(() => utils.validateImportData({ districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: { '0_0': { refKey: 'あ'.repeat(4160) } } } }, 'rep'), 'Seat keys may reach 4096 + 64 characters (I-12-03)');
+	assert.throws(() => utils.validateImportData({ districts: [], szExternals: [], seatConfig: { cols: 4, rows: 5, cells: { '0_0': { refKey: 'あ'.repeat(4161) } } } }, 'rep'));
 	assert.throws(() => utils.validateImportData({ isTransferData: true, children: [{ lastName: '太郎', firstName: '翼', grade: '1', class: '1', address: long4097, tel: '09012345678' }], address: '住所', tel: '09012345678' }, 'transfer'));
 	assert.doesNotThrow(() => utils.validateImportData({ isTransferData: true, children: [{ lastName: '太郎', firstName: '翼', grade: '1', class: '1', address: ok4096, tel: '09012345678' }], address: '住所', tel: '09012345678' }, 'transfer'));
 	assert.throws(() => utils.validateStoredData({ children: [], memo: long4097 }, 'kogai_transfer_v2'));

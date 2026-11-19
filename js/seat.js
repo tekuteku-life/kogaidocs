@@ -71,10 +71,36 @@ function swapSeatWindowCorridor() {
 }
 
 function resizeSeatGrid() {
-	repState.seatConfig.cols = Math.max(2, Math.min(10, parseInt(document.getElementById('seat-cols').value, 10) || 4));
-	repState.seatConfig.rows = Math.max(2, Math.min(14, parseInt(document.getElementById('seat-rows').value, 10) || 5));
-	saveRepLocal();
+	const cols = Math.max(2, Math.min(10, parseInt(document.getElementById('seat-cols').value, 10) || 4));
+	const rows = Math.max(2, Math.min(14, parseInt(document.getElementById('seat-rows').value, 10) || 5));
+	// 取消・巻戻し後の設定を参照し直して入力欄を戻す（巻戻しは設定を別オブジェクトへ置き換える）。
+	const restoreInputs = () => {
+		document.getElementById('seat-cols').value = repState.seatConfig.cols;
+		document.getElementById('seat-rows').value = repState.seatConfig.rows;
+	};
+	const outside = cellKey => {
+		const [row, col] = cellKey.split('_').map(Number);
+		return !(row < rows && col < cols);
+	};
+	const cells = repState.seatConfig.cells || {};
+	const assigned = Object.keys(cells).filter(cellKey => outside(cellKey) && (cells[cellKey]?.refKey || cells[cellKey]?.customText)).length;
+	// 範囲外の割当てがある縮小は件数を示して確認し、取消時は元の段・列へ戻す（SEC-30）。
+	if (assigned && !confirm(`座席を縮小すると、範囲外の${assigned}席の割当て・自由記述が削除されます。よろしいですか？`)) {
+		restoreInputs();
+		return false;
+	}
+	const accepted = applyStorableChange('kogai_rep_v2', repState, model => {
+		model.seatConfig.cols = cols;
+		model.seatConfig.rows = rows;
+		for (const cellKey of Object.keys(model.seatConfig.cells || {})) if (outside(cellKey)) delete model.seatConfig.cells[cellKey];
+	});
+	if (!accepted) {
+		restoreInputs();
+		return false;
+	}
+	const saved = saveRepLocal();
 	renderSeatEditor();
+	return saved;
 }
 
 function renderSeatEditor() {

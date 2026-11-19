@@ -268,7 +268,8 @@ test('branch-booster: rep.js, district.js, and seat.js edge cases and branches',
 	const rawIncomplete = {
 		district: "不完全インポート地区",
 		han: "南班",
-		students: [{ grade: "2" }]
+		// QA-03: 氏名のない仮行は取込時に除くため、班の補完は氏名のある行で検査する。
+		students: [{ grade: "2", lastName: "不完全" }]
 	};
 	const encIncomplete = await cryptoLib.encryptPayload(JSON.stringify(rawIncomplete), "Password12345!@#");
 	const incompleteFile = { name: "incomplete.txt", text: async () => `BEGIN_DATA:\n${encIncomplete}\n:END_DATA` };
@@ -2922,7 +2923,7 @@ test('branch-booster: district.js and rep.js 95%+ branch coverage enhancements',
 		district: '班フォールバック地区',
 		hanList: ['自動1班', '自動2班'],
 		officers: [{ role: '役員', lastName: '山田', han: '自動1班' }],
-		students: [{ lastName: '児童', firstName: '太郎' }] // s.han is undefined
+		students: [{ lastName: '児童', firstName: '太郎', grade: '1' }] // s.han is undefined（QA-03: 学年は必須）
 	};
 	const encHanFallback = `BEGIN_DATA:\n${await cryptoLib.encryptPayload(JSON.stringify(dHanFallbackData), 'DistPass123!')}\n:END_DATA`;
 	document.getElementById('d-pass').value = 'DistPass123!';
@@ -3074,7 +3075,7 @@ test('branch-booster: district.js and rep.js 95%+ branch coverage enhancements',
 				officer: { role: '役員', lastName: '旧役員' }, // tests d.officer fallback when d.officers empty
 				officers: [],
 				neighborhood: [{ role: '自治会長', lastName: '混在会長' }],
-				students: [{ lastName: '混在児', isOutOfDistrict: undefined }] // s.han undefined
+				students: [{ lastName: '混在児', grade: '1', isOutOfDistrict: undefined }] // s.han undefined（QA-03: 学年は必須）
 			}
 		],
 		szExternals: [{ role: '来賓', lastName: '来賓氏名' }]
@@ -3103,7 +3104,7 @@ test('branch-booster: district.js and rep.js 95%+ branch coverage enhancements',
 				han: undefined,
 				officer: { role: '役員', lastName: '疎役員' },
 				officers: undefined,
-				students: [{ lastName: '疎児' }]
+				students: [{ lastName: '疎児', grade: '1' }] // QA-03: 学年は必須
 			}
 		]
 	};

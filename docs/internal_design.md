@@ -1,7 +1,7 @@
 # kogaidocs 内部仕様書
 
-**文書版**: 1.7（アプリケーション 2.12.0 対応）<br>
-**改訂日**: 2026年11月18日<br>
+**文書版**: 1.8（アプリケーション 2.12.1 対応）<br>
+**改訂日**: 2026年11月19日<br>
 **文体・規範**: 本文の「する」「である」は要求または仕様を表す。試験済みという意味ではない。
 
 [外部仕様書](external_design.md)の実現方式を定める。過去改修のレビューは[レビュー記録](reviews/)に保持する。
@@ -513,3 +513,101 @@ SEC-23では全ての暗号化ファイル・コピー・共有・代表地区�
 - `exportSingleDistrictFromRep` の退避処理はコピー例外を成功へ変換しない。呼出元の既存エラー処理とセッションガードへ伝播し、外部起動前に中止する。
 - `loadDistrictStudentsTxt` はファイルサイズ検査・復号・地区スキーマ検証後、児童行だけを複製・正規化する。児童0件や別用途フラグは拒否する。既存モデルの複製の `students` だけへ追記し、合成結果の容量・描画予算検査を行う。確認後 `commitImportedModel` と `adoptImportedModel` で保存・採用し、成功時だけ名簿・集計・免除候補を描画する。ロックは無通知中断し、保存失敗と取消では既存モデル・DOM・保存値を変更しない。
 - 通常地区読込の種別推論は `officers` または旧 `officer` のある入力を地区と扱う。明示的な `isNeighborhoodData` は自治会を優先する。これにより `students` 省略の次年度役員ファイルも通常読込できる。
+
+## I-12 保存前検証・取込信頼範囲・他タブ整合（SEC-30 〜 SEC-35、QA-01 〜 QA-11）
+
+### I-12-01 構造操作の候補検証（SEC-30）
+
+- `applyStorableChange(storageKey, model, mutate)`（`js/state.js`）は、`model` の直列化スナップショットを取り、`mutate(model)` 後に修復なしの厳格な `validateStorageModel(model, storageKey)` を実行する。失敗時は `model` の自身のプロパティを削除してスナップショットから同一参照へ復元し、上限超過の通知を1回出して `false` を返す。成功時は `true` を返し、呼出元が保存・描画する。
+- 適用先: `resizeSeatGrid`（下記）、`addCurrentDistrictToRep`（`upsertRepDistrict(..., persist=false)` を候補内で実行）、`addNewRepDistrict`、`addSzExternalRow`、`addStudentRow`、`addOfficer`、`addNeighborhoodRow`、`onHanListInput`。`onHanListInput` の取消時は入力欄を復元後の `hanList` の値へ戻す。
+- 自由記述の1文字ごとの入力は `maxlength` と I-12-02 の保存前検証で守る。
+
+### I-12-02 保存前検証と拒否状態（SEC-30）
+
+- `validateStoredData(data, storageKey, options = {})` と `validateStorageModel(value, storageKey, options = {})` は、`options.repair === true` のときだけ I-12-05 の修復を行う。既定は修復なしの厳格検証であり、I-12-01・I-12-02・`commitImportedModel`・`replaceStoredAppData` は厳格検証を使う。修復を使うのは `activateStorageKey`、`loadAppDataFromStorage`、`validateBrowserHandoff` だけである。
+- `saveStorageDataUnlocked(storageKey, serialized, { validate = false, allowSuspended = false } = {})` は、未暗号化時の `officerPlaintextWriteDenied`、暗号化時の `activeStorageSessionIsCurrent()`、I-12-07 の書込停止、I-12-06 の外部更新照合をすべて通過した後に、`validate` が真なら厳格な `validateStorageModel(JSON.parse(serialized), storageKey)` を実行する。検証対象は解除時に一括検証される4つのデータキーに限る。`saveStorageData` は `{ validate: true }` で呼ぶ。第3引数はオブジェクトだけを受け付け、それ以外（旧シグネチャの真偽値等）は `TypeError` を送出して書き込まない。`commitImportedModel`・`replaceStoredAppData` は検証済み値のため従来どおりとする。`setupStorageEncryptionUnlocked` は冒頭（パスワード検証の後、`generateMasterKey` の前）でメモリ上の4モデルを一度だけ `JSON.stringify` し、その直列化文字列を `JSON.parse` して厳格な `validateStorageModel` で検証する。不合格なら `STORAGE_SAVE_REJECTED`（端末に保存できない内容がある旨）で中止し、鍵生成・WebAuthn登録・書込みを行わない。暗号化には同じ直列化文字列を使い、検証後のメモリ変更を書き込まない。
+- 検証失敗時は書き込まず `false` を返し、`storageSaveRejectedKeys`（`Set`）へ追加する。成功時は当該キーを除く。集合を空にするのは、メモリ上のモデルを既定値へ消去する `clearMemoryAndDomForLock()`（`clearStorageSaveRejections()` を呼ぶ）と `clearStorageSecurity()` だけとする。いずれも空にした後に `reportStorageSaveState([], null)`（存在時のみ）を呼んで警告を隠す（追加キーがないため `alert` は出さない）。`lockStorage()` 単独では集合を変更しない。`commitImportedModel` は書込み成功時に当該キーを、`replaceStoredAppData` は書き込んだ各キーを集合から外し、排他区間を抜けた後に `reportStorageSaveState(keys, null)` を呼ぶ。集合の変化は排他区間内で記録だけ行い、`saveStorageData` は `withStorageLock` を抜けた後に `reportStorageSaveState(keys, addedKey)`（`js/app.js`、存在時のみ）を呼ぶ。排他区間内で `alert` を出さない。
+- `reportStorageSaveState` は、拒否集合が空でなければ `#storage-save-warning`（`role="alert"`）に対象モード名を表示し、新しく追加されたキーについてだけ `alert` する。I-12-07 の停止中のキーがある間は停止の案内も同じ要素に表示し続ける。拒否集合と停止中のキーがともに空のときだけ警告を隠す。拒否集合または停止中のキー（I-12-07）が空でない間は、編集が端末に保存されないため `beforeunload` で離脱確認を求める。`getStorageSaveRejectedKeys()` を `js/crypto.js` から公開する。
+- `performAppUpdate` と `collectBrowserHandoff` は、保存結果が `false` で集合が空でない場合、「端末に保存できない内容があります。直前の変更を元に戻してから再試行してください。」と通知する（空き容量の案内と区別する）。
+
+### I-12-03 派生値の上限（SEC-30）
+
+- `MAX_DERIVED_TEXT_LENGTH = 4096 * 2 + 1` とし、`validateImportData` の `checkRow` は派生値に次の条件で適用する（姓4096文字＋空白＋名4096文字）。他の短文は4096文字のままとする。
+	- `kana`・`childKana`: 正規化で分割しないため、常に `MAX_DERIVED_TEXT_LENGTH` 以下とする。
+	- `name`: `typeof lastName === 'string'`（正規化で分割されない）かつ `lastName` または `firstName` が非空の文字列である行だけ `MAX_DERIVED_TEXT_LENGTH` 以下とし、それ以外の行は4096文字以下とする（`normalizeNameFields` が `lastName` のない `name` を分割して移し、`getFullName` は姓名がともに空なら `name` を返すため）。
+	- `childName`: `typeof childLastName === 'string'` かつ `childLastName` または `childFirstName` が非空の文字列である行だけ `MAX_DERIVED_TEXT_LENGTH` 以下とし、それ以外の行は4096文字以下とする（`normalizeOfficerChildNames` と同じ理由）。
+- `validateHataConfig` の `exemptHouseholds` 要素（`${住所}_${苗字または氏名}`）も `MAX_DERIVED_TEXT_LENGTH` とする。`extractHouseholdsFromStudents` の `targetName` は苗字（4096文字以下）、または姓名から作る氏名か `name`（姓名がともに空の行では4096文字以下）であるため、キーは8193文字を超えない。苗字がなく名だけの行の氏名も名（4096文字以下）である。
+- 座席セル `refKey` は `MAX_SEAT_REF_KEY_LENGTH = 4096 + 64` とする（`NEI_`＋地区名＋`_`＋添字）。4160文字は受理し、4161文字は拒否する。
+
+### I-12-04 座席の段・列変更（SEC-30）
+
+- `resizeSeatGrid()` は入力値を `cols`（2〜10）・`rows`（2〜14）へ正規化した候補で、範囲外かつ `refKey` または `customText` が非空のセル数を数える。1以上なら件数を示して `confirm` し、取消時は DOM を元の段・列へ戻して通知せず終了する。
+- 承認時および非空セルが0件のときは、空セルを含む範囲外セルをすべて削除する。変更は I-12-01 の `applyStorableChange` で行い、描画予算超過時は通知して元の段・列と DOM へ戻す。段・列とセルの更新は同期的に確定し、保存は非同期に行う。
+
+### I-12-05 保存済み不合格値の修復（SEC-30・SEC-31、旧版互換）
+
+- `validateStoredData(data, storageKey, { repair: true, repairs })` は、厳格検証が失敗した場合に限り、複製上で次の修復を行って再検証する。修復した項目は `repairs`（配列）へ `'seat-cells'`・`'seat-grid'`・`'hata-budget'`・`'hata-legacy-text'` として追加する。ファイル取込の `validateImportData` は厳格なまま。旧別名キーの長文復旧（下記）と従来の表示メタ8項目の長文復旧は、厳格検証の前に行う既存の互換処理として修復有無にかかわらず実施する。
+	- 代表: `seatConfig` の段・列が2〜14・2〜10の整数なら範囲外セルを削除する。その上で `validateRepRenderBudget` を満たさない場合は段・列を4×5へ戻して範囲外セルを再削除し、なお超過なら従来どおり拒否する。
+	- 地区の旗振り: 旗振りの展開・文字予算（`validateHataExpansionBudget`・`validateHataTextBudget`・`validateDateExpansion`）が不合格の場合、`startDate`・`endDate`・`holidays`・`specials`・`members`・`format` のうち存在する値を、明示下書きがない項目について `inputDrafts` へ移し、有効値を空文字列にする。この修復は、元の旗振り設定に対して3つの予算検査のいずれかが例外を送出した場合に限る（構造不正は修復しない）。配列形式の `holidays`（`{date, name}`）・`members` は、`validateHataConfig` と同じ形の検査（要素がオブジェクト・`date` が `YYYY-MM-DD`・`name` が4096文字以下の文字列、`members` 要素が文字列）に合格した場合だけ、同じ規則（`${date},${name || '祝日'}` の改行結合、文字列の改行結合）で文字列化してから移す。修復後の再検証に失敗した場合は元の例外を送出する。
+	- 旧別名キー（QA-06）: 4096文字超の `scheduleTitle`→`title`、`metaCreatedDate`/`scheduleCreatedDate`→`createdDate`（この順で先に処理したものを優先）、`metaLocation`→`location`、`metaTime`→`time`、`metaHeaderMsg`→`headerMsg`、`metaFooterMsg`→`footerMsg`、`metaContactMsg`→`contactMsg` は、正式キーが `undefined` かつ同名の明示下書きがない場合だけ下書きへ移す。いずれの場合も超過した別名キーは削除する。4096文字超の `format` は明示下書きがなければ下書きへ移し、有効値を空文字列にする。
+- 修復は読込時の複製だけに行う。保存原本は、次回の正常保存、または `activateStorageKey` の旧形式からの形式移行（修復済み値を再暗号化して書く）まで変更しない。地区の描画予算超過は修復せず拒否する（I-12-01 により新規発生を防ぐ。残余 R-SEC-D）。
+- `activateStorageKey` は解除時の修復結果を、解除後のセッション世代とともに上書きで保持し、直後の `loadAppDataFromStorage` が一度だけ引き継ぐ（旧形式端末では形式移行で修復済み値を書くため、読み直しでは修復が検出されない）。保持した結果は、引き継いだ時点、`lockStorage()`・`clearStorageSecurity()`、および引き継ぎ時に世代が一致しない場合に破棄し、別のセッションへ通知を持ち越さない。`loadAppDataFromStorage` は4キーを `repair: true` で検証し、自身と引き継いだ修復結果の重複を除いた `{ repairs }` を採用後に返す。描画しない。呼出元（`handlePasswordUnlock`・`handleWebAuthnUnlock`・`startUnencryptedSession`）は、`access.guard()`・`assertStorageSession` の確認と描画を終えた後に、`notifyStorageRepairs(repairs)` で `repairs` が空でなければ「保存データの一部を修復して開きました」と修復内容（範囲外の座席を削除／座席表を4列×5段に戻した／旗振りの期間・休日・名簿などを下書きへ移した／長い旧項目を下書きへ移した）を1回 `alert` する。確認前にロック・中断した場合は通知しない。
+
+### I-12-06 他タブ更新（SEC-34）
+
+- `js/crypto.js` は `knownStorageValues`（`Map`）に、各データキーについて自タブが最後に読んだ・書いた暗号文を保持する。`activateStorageKey` の読込時、`saveStorageDataUnlocked` の暗号化書込み後、`writeStorageTransaction` の成功後に更新し、`lockStorage()`・`clearStorageSecurity()` で空にする。
+- 暗号化時の `saveStorageDataUnlocked` は排他区間内で、既知値があるキーの現在値が既知値と異なる場合に `STORAGE_FOREIGN_UPDATE` を送出する。`saveStorageData` は排他区間の外でこれを捕捉し、`handleForeignStorageUpdate()`（`js/app.js`、存在時のみ）を呼んで `false` を返す。`commitImportedModel` は `STORAGE_FOREIGN_UPDATE` を `IMPORT_SAVE_FAILED` へ変換せず、排他区間の外で `handleForeignStorageUpdate()` を呼んで `STORAGE_SESSION_CHANGED` を送出する（取込呼出元は無通知で中止し、ロック理由が表示される）。`replaceStoredAppData` も排他区間内の書込み前に同じ照合を行い、不一致なら `STORAGE_FOREIGN_UPDATE` を送出する。排他区間の外でこれを捕捉し、`handleForeignStorageUpdate()` を呼んで `STORAGE_SESSION_CHANGED` を送出する。`runHandoffTask` は `STORAGE_SESSION_CHANGED` の場合に「引き継ぎに失敗しました」を表示せず状態表示を空にする（ロック理由は解除画面・ゲスト案内に表示される）。
+- `initAutoLockListeners` の `storage` 処理は、暗号化中のデータキーについて有効な接頭辞の新値でも、`isStorageUnlocked()` なら `handleForeignStorageUpdate()` を呼ぶ。不正値・削除は従来どおり `invalidateStorageSecurity()` を伴う。
+- `handleForeignStorageUpdate()` は `storageLockReason` に「別のタブで保存データが更新されました。最新の内容を読み込むため、もう一度解除してください。」を設定して `handleImmediateLock()` を実行する。`showStorageUnlockModal()` は `storageLockReason` があれば `#modal-unlock-error` へ表示する。ゲストモードでは `#guest-storage-notice-reason` へ表示する。`handlePasswordUnlock`・`handleWebAuthnUnlock` の失敗表示は、試行中に `storageLockReason` が設定されていればその理由を優先する。解除成功時に `storageLockReason` を消去する。
+
+### I-12-07 平文起動時の読込失敗（SEC-30）
+
+- `startUnencryptedSession()`（`js/app.js`、起動処理の未暗号化分岐）は、各データキーの平文を `repair: true` で個別に検証し、失敗したキーだけを `suspendStorageWrites(keys)`（`js/crypto.js`）でキー単位に書込停止する。`loadAppDataFromStorage` は停止中のキーを読まず既定値を使い、他のキーは通常どおり読み込む。`isStorageWriteSuspended(key)` を公開する。
+- 個別検証に合格した後でも `loadAppDataFromStorage` が予期しない例外で失敗した場合は、保存値が存在するすべてのデータキーを停止し、既定状態で起動して原本を上書きしない（「安全な初期状態で起動しました」を通知する）。
+- 停止中のキーについて、`saveStorageDataUnlocked` は書き込まず `false` を返す（拒否集合へは入れない）。`#storage-save-warning` に対象モードの保存停止と、全消去または正しいデータの復元の案内を表示し、起動時に1回 `alert` する。
+- `performAppUpdate` は、`officerPlaintextWriteDenied(key)` と同じく `isStorageWriteSuspended(key)` のキーの `false` を失敗として扱わない（アプリ更新を止めない）。
+- `collectBrowserHandoff` は、停止中のキーが1つでもあれば保存前に「保存を停止しているモードがあるため、引き継ぎを作成できません。全消去するか、正しいデータを復元してください。」で中止する（既定モデルが復元先の有効なデータを上書きしないため）。
+- `setupStorageEncryption` は停止中のキーがある場合 `STORAGE_WRITES_SUSPENDED` で拒否し、原本を上書きしない（設定画面は全消去を案内する）。
+- `commitImportedModel(storageKey, model, generation, { replace = false } = {})` は、`replace` が真のときだけ `saveStorageDataUnlocked` へ `{ allowSuspended: true }` を渡して停止中のキーへの書込みを許し、成功後に当該キーの停止を解除する。`replace` が偽で停止中のキーへ書こうとした場合は書き込まず、`code = 'IMPORT_SAVE_FAILED'` の例外（「保存を停止しているため読み込みを中止しました。全消去するか、正しいデータを復元してください。」）を送出する。`replace: true` を渡すのは保存値の全体を置き換える読込（`loadNeighborTxt`・`loadPastedTextToNeighbor`）だけであり、既存モデルへ部分的に合成する取込は停止中のキーへ書き込まない。`replaceStoredAppData` は書き込んだキーの停止を解除する。`clearStorageSecurity()` は全停止を解除する。
+
+### I-12-08 解除失敗の表示（SEC-30）
+
+- `describeUnlockFailure(err, fallback)`（`js/app.js`）は、`err.code === 'INVALID_IMPORT_DATA'` なら「保存データの検証に失敗しました。パスワードは正しい可能性があります。旧版の保存値を修復できなかったため、全消去または正しいデータの復元が必要です。」、`err.message === 'STORAGE_LOCKS_UNAVAILABLE'` なら従来の Web Locks 非対応文言、それ以外は `fallback` を返す。`handlePasswordUnlock` は `fallback` に「パスワードが正しくないか、復号に失敗しました。」、`handleWebAuthnUnlock` は `err.message` または既定文言を渡す。
+
+### I-12-09 期間プリセット（SEC-31）
+
+- `applyHataPeriodPreset(presetKey)` は DOM の開始・終了日を更新した後、`collectHataScheduleInputs(hata, { startDate, endDate })` で採用し、失敗時は `renderHataInputStatus()` で案内する。有効値を直接代入しない。
+- 基準年は現行どおり暦年（`new Date().getFullYear()`）とする。`getPeriodPresetDates('zenki'|'kouki'|'full', baseYear)` は、それぞれ `${y}-04-06〜${y}-09-30`、`${y}-10-01〜${y+1}-03-24`、`${y}-04-06〜${y+1}-03-24` を返す。1〜3月の操作でも当該暦年を基準とする（SPEC-Q4）。
+
+### I-12-10 復号前切出し（SEC-32）
+
+- `extractEncryptedPayload(text)` を `js/crypto.js` に設ける。`text.indexOf('BEGIN_DATA:')` の後方で最初の `':END_DATA'` を `indexOf` で探し、両方ある場合は間の文字列を、ない場合は全体を `trim()` して返す。正規表現を使わない。
+
+### I-12-11 記憶パスワード（SEC-33）
+
+- `parseTxtContent` は `kind` 指定時の検証結果から `savedFilePassword` を削除する。`loadDistrictTxt` は採用前に `currentDistrict.savedFilePassword` が文字列なら候補へ引き継ぐ。`exportDistrictTxt`・`shareDistrictData` は `savedFilePassword` を除いた複製を暗号化する。
+
+### I-12-12 引き継ぎ（SEC-35・QA-01）
+
+- `validateBrowserHandoff` は `rep-new-district-name` を4096文字以下に限る。`addNewRepDistrict` は正規化後4096文字超を `#rep-new-district-error` へ表示して追加しない。
+- `replaceStoredAppData` は `hasNonEmptyOfficerModels(values)` が偽なら暗号化有無にかかわらず `targetIndices = [2, 3]` とし、戻り値に `replacedKeys` を含める。`restoreBrowserHandoff` は確認文の分岐にも同じ `hasNonEmptyOfficerModels(payload.models)` を使い、偽なら地区・代表を保持する旨を表示する。`replacedKeys` に含まれるモデルだけをメモリへ採用する。平文端末での拒否判定（`hasOfficerHandoffData`）は従来どおりとする。
+
+### I-12-13 児童行の取込（QA-02・QA-03）
+
+- `isBlankStudentRow(row)`（`js/utils.js`）は、`lastName`・`firstName`・`lastNameKana`・`firstNameKana`・`name`・`address`・`tel`・`leader` が空白のみで、`isOutOfDistrict` が真でない行を真とする。
+- `parseTxtContent` は種別解決後が `district`（`students`）または `rep`（各地区の `students`）の場合、空行を除き、残る行の `grade` が `/^[1-6]$/` を満たさなければ `code = 'INVALID_IMPORT_GRADE'` の例外（「児童「氏名」の学年「値」は1〜6年ではありません。」）を送出する。`validateStoredData` は変更しない。
+- `loadDistrictTxt`・`loadDistrictStudentsTxt`・代表の地区・マスター読込は、`INVALID_IMPORT_GRADE` の場合にその文言を通知する（`importFailureMessage(err, fallback)`）。
+- `loadDistrictStudentsTxt` は既存児童から空行を除いてから追記する。
+- 家庭情報の検証（`validateImportData(..., 'transfer')`）は版にかかわらず、児童の `grade` が存在して空でなければ `/^[1-6]$/` を要求し、違反は `INVALID_IMPORT_GRADE`（「家庭情報の児童「氏名」の学年「値」は1〜6年ではありません。」）とする。版1の空学年は従来どおり統合時に `'1'` とする。
+- `loadTransferFileIntoDistrict`・`loadPastedTransferTextIntoDistrict`・`loadTransferFileIntoRep`・`loadPastedTransferTextIntoRep` は `INVALID_IMPORT_GRADE` の場合、パスワード再入力を求めずにその文言を通知する。
+
+### I-12-14 共有・コピー（QA-04・QA-08）
+
+- `shareDistrictData` の2000文字超 `line`/`email` は、API不在・書込例外時に `outputIsCurrent()` を確認し、現行なら失敗を通知して `false` を返す。外部起動しない。`exportSingleDistrictFromRep` の `copy` はAPI不在時に通知して `false` を返す。
+
+### I-12-15 出力日付・注記・自動生成・死にコード（QA-05・QA-07・QA-09・QA-11）
+
+- `formatLocalDateStamp(date = new Date())` を `js/utils.js` に設け、ローカルの年・月・日から `YYYY-MM-DD` を返す。出力ファイル名・見出しの日付に使用する。
+- `generateHataSchedule` と `validateHataTextBudget` は、休日行の注記を `parts.slice(1).join(',')`（空なら既定）、特別枠の注記を `parts.slice(2).join(',')`（空なら既定）として同じ計算で扱う。
+- `runAutoHataGeneration()` はスケジュール生成の例外を捕捉し、「旗振りシフトを生成できませんでした：{例外の文言}」を通知してプレビューを再描画し、中止する。名簿・既存の下書き・保存値は変更しない。
+- `loadDistrictTxt` の `#d-file-pass` 参照を削除する。

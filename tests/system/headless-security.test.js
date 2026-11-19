@@ -66,6 +66,13 @@ function securityTest(name, fn, options = {}) {
 
 securityTest('Security stored XSS: plaintext seat dimensions cannot become print markup on startup', async () => {
 	assert.ok(Number.isInteger(repState.seatConfig.cols) && repState.seatConfig.cols >= 2 && repState.seatConfig.cols <= 10, 'Invalid saved dimensions never enter application state');
+	// E-12-05: 読めない保存値のモードは保存を停止し、上書きせずに案内する。暗号化設定の前に全消去する。
+	assert.ok(isStorageWriteSuspended('kogai_rep_v2'), 'The unreadable representative data is protected from overwriting');
+	assert.ok(ui.visible('#storage-save-warning') && ui.element('#storage-save-warning').textContent.includes('校外代表'), 'The suspension is shown');
+	security.noAttackDOM();
+	await clearStorageSecurity();
+	assert.ok(!ui.visible('#storage-save-warning'), 'Clearing all data resumes saving');
+	window.__autoSecure = true; // 全消去後に通常の暗号化設定へ進む。
 	await ui.mode('rep');
 	await ui.expand('rep');
 	ui.capturePrints();
@@ -78,7 +85,7 @@ securityTest('Security stored XSS: plaintext seat dimensions cannot become print
 	localStorage.setItem('kogai_rep_v2', JSON.stringify({ districts: [], szExternals: [], seatConfig: {
 		cols: '2, 1fr);"><img data-security-attack src=x onerror="window.__securityExecuted=1"><div style="x:', rows: 2, cells: {}
 	} }));
-} });
+}, autoSecure: false });
 
 for (const encrypted of [false, true]) {
 	securityTest(`Security storage schema: ${encrypted ? 're-keyed encryption' : 'required encryption'} malformed columns preserve live state and DOM`, async () => {

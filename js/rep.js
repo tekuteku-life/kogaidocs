@@ -154,6 +154,7 @@ async function loadMultipleDistrictFiles(e) {
 	if (!files.length) return;
 	const pass = document.getElementById('rep-pass').value;
 	let ok = 0, ng = 0, saveFailures = 0;
+	const gradeFailures = [];
 	for (const f of files) {
 		try {
 			assertStorageSession(generation);
@@ -169,10 +170,11 @@ async function loadMultipleDistrictFiles(e) {
 			}
 			ng++;
 			if (err.code === 'IMPORT_SAVE_FAILED') saveFailures++;
+			if (err.code === 'INVALID_IMPORT_GRADE') gradeFailures.push(err.message);
 		}
 	}
 	renderRepAll();
-	alert(`${ok}件のファイルを読み込みました。` + (ng ? `\n（${ng}件はパスワード不一致等で失敗）` : "") + (saveFailures ? `\n${saveFailures}件は端末への保存に失敗しました。空き容量を確認して再試行してください。` : ""));
+	alert(`${ok}件のファイルを読み込みました。` + (ng ? `\n（${ng}件はパスワード不一致等で失敗）` : "") + (saveFailures ? `\n${saveFailures}件は端末への保存に失敗しました。空き容量を確認して再試行してください。` : "") + gradeFailures.map(message => `\n${message}`).join(''));
 	e.target.value = "";
 }
 
@@ -197,14 +199,16 @@ async function loadPastedTextToRep() {
 		}
 	} catch (err) {
 		if (err.message === 'STORAGE_SESSION_CHANGED') return;
-		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "復号に失敗しました。パスワードを確認してください。");
+		alert(importFailureMessage(err, "復号に失敗しました。パスワードを確認してください。"));
 	}
 }
 
 function addCurrentDistrictToRep() {
 	saveDistrictLocal();
 	if (!currentDistrict.district) { alert("タブ①の地区名が未入力です。"); return; }
-	upsertRepDistrict(currentDistrict);
+	// 代表の座席表示量を超える追加は確定しない（SEC-30）。
+	if (!applyStorableChange('kogai_rep_v2', repState, model => upsertRepDistrict(currentDistrict, model, false))) return;
+	saveRepLocal();
 	renderRepAll();
 }
 
@@ -265,7 +269,7 @@ async function exportRepMasterTxt() {
 
 	const encoded = await encryptPayload(JSON.stringify(repState), pass);
 	if (!outputIsCurrent()) return false;
-	const dateStr = new Date().toISOString().slice(0,10);
+	const dateStr = formatLocalDateStamp();
 	const content = [
 		`--- 校外委員会 代表統合マスターデータ (出力日:${dateStr}) ---`,
 		`BEGIN_DATA:`,
@@ -290,7 +294,7 @@ async function loadRepMasterTxt(e) {
 		}
 	} catch (err) {
 		if (err.message === 'STORAGE_SESSION_CHANGED') { e.target.value = ""; return; }
-		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "読み込みに失敗しました。パスワードを確認してください。");
+		alert(importFailureMessage(err, "読み込みに失敗しました。パスワードを確認してください。"));
 	}
 	e.target.value = "";
 }
@@ -503,6 +507,12 @@ function confirmAddRepDistrict() {
 		return;
 	}
 
+	if (dName.length > MAX_REP_DISTRICT_NAME_LENGTH) {
+		showAddDistrictNameTooLong();
+		if (input && typeof input.focus === 'function') input.focus();
+		return;
+	}
+
 	closeAddDistrictModal();
 	addNewRepDistrict(dName);
 
@@ -514,6 +524,16 @@ function confirmAddRepDistrict() {
 	}
 }
 
+const MAX_REP_DISTRICT_NAME_LENGTH = 4096;
+
+function showAddDistrictNameTooLong() {
+	const errorEl = document.getElementById('rep-new-district-error');
+	if (errorEl) {
+		errorEl.textContent = `地区名は${MAX_REP_DISTRICT_NAME_LENGTH}文字以内で入力してください。`;
+		errorEl.style.display = 'block';
+	}
+}
+
 function addNewRepDistrict(directName) {
 	if (typeof directName !== 'string') {
 		openAddDistrictModal();
@@ -522,6 +542,11 @@ function addNewRepDistrict(directName) {
 
 	const dName = directName.replace(/[\r\n\t]/g, '').trim();
 	if (!dName) return;
+	// 引き継ぎ下書き等からの長い地区名で解除不能な値を作らない（SEC-35）。
+	if (dName.length > MAX_REP_DISTRICT_NAME_LENGTH) {
+		showAddDistrictNameTooLong();
+		return false;
+	}
 
 	if (repState.districts && repState.districts.some(d => d.district === dName)) {
 		alert("地区「" + dName + "」は既に存在します。");
@@ -557,7 +582,7 @@ function addNewRepDistrict(directName) {
 	};
 
 	if (!repState.districts) repState.districts = [];
-	repState.districts.push(newDist);
+	if (!applyStorableChange('kogai_rep_v2', repState, model => model.districts.push(newDist))) return false;
 	renderRepDistrictsTable();
 	if (typeof renderSzNeighborhoodSelector === 'function') renderSzNeighborhoodSelector();
 	saveRepLocal();
@@ -917,7 +942,7 @@ function updateSzEx(idx, key, val) {
 }
 
 function addSzExternalRow() {
-	repState.szExternals.push({
+	const accepted = applyStorableChange('kogai_rep_v2', repState, model => model.szExternals.push({
 		attend: true,
 		category: "役所・警察・関係機関",
 		org: "",
@@ -928,7 +953,8 @@ function addSzExternalRow() {
 		firstNameKana: "",
 		name: "",
 		contact: ""
-	});
+	}));
+	if (!accepted) return;
 	saveRepLocal();
 	renderSzExternalTable();
 	renderSeatEditor();
@@ -1038,7 +1064,7 @@ async function loadTransferFileIntoRep(e) {
 		try {
 			data = await parseTxtContent(text, pass, generation, importKind);
 		} catch (err) {
-			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
+			if (['INVALID_IMPORT_DATA', 'INVALID_IMPORT_GRADE'].includes(err.code) || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) { if (e.target) e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass, generation, importKind);
@@ -1046,7 +1072,7 @@ async function loadTransferFileIntoRep(e) {
 		await integrateTransferDataIntoRep(data, pass, generation);
 	} catch (err) {
 		if (err.message === 'STORAGE_SESSION_CHANGED') { e.target.value = ""; return; }
-		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの読み込みに失敗しました。パスワードをご確認ください。");
+		alert(importFailureMessage(err, "転入児童データの読み込みに失敗しました。パスワードをご確認ください。"));
 	}
 	if (e.target) e.target.value = "";
 }
@@ -1063,7 +1089,7 @@ async function loadPastedTransferTextIntoRep(text) {
 		try {
 			data = await parseTxtContent(raw, pass, generation, importKind);
 		} catch (err) {
-			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
+			if (['INVALID_IMPORT_DATA', 'INVALID_IMPORT_GRADE'].includes(err.code) || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass, generation, importKind);
@@ -1073,7 +1099,7 @@ async function loadPastedTransferTextIntoRep(text) {
 		if (box) box.value = "";
 	} catch (err) {
 		if (err.message === 'STORAGE_SESSION_CHANGED') return;
-		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの復号に失敗しました。パスワードをご確認ください。");
+		alert(importFailureMessage(err, "転入児童データの復号に失敗しました。パスワードをご確認ください。"));
 	}
 }
 
@@ -1136,7 +1162,7 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 	try {
 		const encoded = await encryptPayload(JSON.stringify(singleDistrict), pass);
 		if (!outputIsCurrent()) return false;
-		const dateStr = new Date().toISOString().slice(0, 10);
+		const dateStr = formatLocalDateStamp();
 		const hanPart = singleDistrict.han ? `_${singleDistrict.han}` : "";
 		const fileName = `校外地区データ_${singleDistrict.district}${hanPart}_${dateStr}.txt`;
 		const content = [
@@ -1163,6 +1189,8 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 				alert(`「${singleDistrict.district}」の暗号化データをクリップボードにコピーしました。`);
 				return true;
 			}
+			// API不在でも何も起きないように見せない（QA-08）。
+			if (outputIsCurrent()) alert("このブラウザではクリップボードを利用できません。ファイルに保存して送信してください。");
 			return false;
 		}
 

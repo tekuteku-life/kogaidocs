@@ -507,6 +507,10 @@ const MAX_IMPORT_DEPTH = 20;
 const MAX_IMPORT_ARRAY_ITEMS = 10000;
 const MAX_IMPORT_NODES = 100000;
 const MAX_DATE_EXPANSION_DAYS = 3660;
+// 姓4096文字＋空白＋名4096文字、住所4096文字＋'_'＋苗字4096文字の派生値（I-12-03）。
+const MAX_DERIVED_TEXT_LENGTH = 4096 * 2 + 1;
+// 'NEI_'＋地区名4096文字＋'_'＋添字の座席キー（I-12-03）。
+const MAX_SEAT_REF_KEY_LENGTH = 4096 + 64;
 const RESERVED_IMPORT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function utf8ByteLength(value) {
@@ -624,7 +628,8 @@ function validateHataTextBudget(config) {
 			size(line);
 			const parts = line.split(',');
 			if (field === 'specials') longestPerson = Math.max(longestPerson, size(parts[1]));
-			longestNote = Math.max(longestNote, size(parts[field === 'holidays' ? 1 : 2]));
+			// 生成時と同じく、注記は区切り以降のカンマを含めて再結合する（QA-07）。
+			longestNote = Math.max(longestNote, size(parts.slice(field === 'holidays' ? 1 : 2).join(',')));
 		}
 	}
 	for (const row of Object.values(config.manualOverrides || {})) {
@@ -702,7 +707,7 @@ function validateHataConfig(config) {
 	}
 	requireImportShape(config.dedup === undefined || typeof config.dedup === 'boolean');
 	if (config.weekdays !== undefined) requireImportShape(Array.isArray(config.weekdays) && config.weekdays.every(day => Number.isInteger(day) && day >= 0 && day <= 6));
-	if (config.exemptHouseholds !== undefined) requireImportShape(Array.isArray(config.exemptHouseholds) && config.exemptHouseholds.every(key => typeof key === 'string' && key.length <= 4096));
+	if (config.exemptHouseholds !== undefined) requireImportShape(Array.isArray(config.exemptHouseholds) && config.exemptHouseholds.every(key => typeof key === 'string' && key.length <= MAX_DERIVED_TEXT_LENGTH));
 	for (const key of ['metaOrientation', 'orientation']) requireImportShape(config[key] === undefined || ['landscape', 'portrait'].includes(config[key]));
 	for (const key of ['metaLayoutColumns', 'layoutColumns']) requireImportShape(config[key] === undefined || /^[1-6]$/.test(String(config[key])));
 	if (config.manualOverrides !== undefined) {
@@ -770,10 +775,18 @@ function isNeighborhoodImportData(data) {
 function validateImportData(data, kind) {
 	const isObject = isImportObject;
 	const requireValid = requireImportShape;
-	const textFields = ['district', 'han', 'name', 'kana', 'lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'role', 'address', 'tel', 'email', 'note', 'org', 'category', 'contact', 'childName', 'childKana', 'childLastName', 'childFirstName', 'childLastNameKana', 'childFirstNameKana', 'grade', 'class', 'className', 'leader', 'childGrade', 'childClass', 'id'];
+	const textFields = ['district', 'han', 'lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'role', 'address', 'tel', 'email', 'note', 'org', 'category', 'contact', 'childLastName', 'childFirstName', 'childLastNameKana', 'childFirstNameKana', 'grade', 'class', 'className', 'leader', 'childGrade', 'childClass', 'id'];
+	const filled = value => typeof value === 'string' && value !== '';
+	// 正規化で分割されない派生値だけ姓名の合計長を許す（normalizeNameFields・normalizeOfficerChildNames）。
+	const derivedLimit = (row, field) => {
+		if (field === 'kana' || field === 'childKana') return MAX_DERIVED_TEXT_LENGTH;
+		const [last, first] = field === 'name' ? ['lastName', 'firstName'] : ['childLastName', 'childFirstName'];
+		return typeof row[last] === 'string' && (filled(row[last]) || filled(row[first])) ? MAX_DERIVED_TEXT_LENGTH : 4096;
+	};
 	const checkRow = row => {
 		requireValid(isObject(row));
 		for (const key of textFields) requireValid(row[key] == null || (typeof row[key] === 'string' && row[key].length <= 4096));
+		for (const key of ['name', 'kana', 'childName', 'childKana']) requireValid(row[key] == null || (typeof row[key] === 'string' && row[key].length <= derivedLimit(row, key)));
 		requireValid(row.isOutOfDistrict === undefined || typeof row.isOutOfDistrict === 'boolean');
 	};
 	const list = (value, optional = true) => {
@@ -811,7 +824,7 @@ function validateImportData(data, kind) {
 				requireValid(/^\d+_\d+$/.test(cellKey));
 				const [row, col] = cellKey.split('_').map(Number);
 				requireValid(row >= 0 && row < cfg.rows && col >= 0 && col < cfg.cols);
-				requireValid(isObject(cell) && (cell.refKey == null || (typeof cell.refKey === 'string' && cell.refKey.length <= 4096)) && (cell.customText == null || (typeof cell.customText === 'string' && cell.customText.length <= 4096)));
+				requireValid(isObject(cell) && (cell.refKey == null || (typeof cell.refKey === 'string' && cell.refKey.length <= MAX_SEAT_REF_KEY_LENGTH)) && (cell.customText == null || (typeof cell.customText === 'string' && cell.customText.length <= 4096)));
 			});
 			cfg.cells = cfg.cells || {};
 		}
@@ -819,6 +832,10 @@ function validateImportData(data, kind) {
 		requireValid(clean.isTransferData === true);
 		const children = list(clean.children || clean.students, false);
 		requireValid(children.length > 0);
+		// 版にかかわらず学年は1〜6年に限る。版1の空欄は統合時に1年とする（QA-03）。
+		children.forEach(child => {
+			if (child.grade != null && child.grade !== '' && !/^[1-6]$/.test(child.grade)) throw importGradeError('家庭情報の児童', child);
+		});
 		if (clean.version === 2) {
 			for (const field of ['address', 'tel']) requireValid(typeof clean[field] === 'string' && clean[field].trim() !== '');
 			children.forEach(child => requireValid(/^[1-6]$/.test(child.grade) && typeof child.className === 'string' && child.className.trim() !== ''));
@@ -849,20 +866,110 @@ function validateImportData(data, kind) {
 	return clean;
 }
 
-function validateStoredData(data, storageKey) {
-	if (storageKey === 'kogai_district_v2' && isImportObject(data?.hata)) {
-		const overlong = Object.keys(HATA_META_INPUT_IDS).filter(field => typeof data.hata[field] === 'string' && data.hata[field].length > MAX_HATA_TEXT_LENGTH);
-		if (overlong.length) {
-			validateImportStructure(data);
-			data = JSON.parse(JSON.stringify(data));
-			requireImportShape(data.hata.inputDrafts === undefined || isImportObject(data.hata.inputDrafts));
-			const drafts = { ...data.hata.inputDrafts };
-			for (const field of overlong) {
-				if (!Object.hasOwn(drafts, field)) drafts[field] = data.hata[field];
-				data.hata[field] = '';
-			}
-			data.hata.inputDrafts = drafts;
+const HATA_LEGACY_ALIASES = [
+	['scheduleTitle', 'title'], ['metaCreatedDate', 'createdDate'], ['scheduleCreatedDate', 'createdDate'],
+	['metaLocation', 'location'], ['metaTime', 'time'], ['metaHeaderMsg', 'headerMsg'],
+	['metaFooterMsg', 'footerMsg'], ['metaContactMsg', 'contactMsg']
+];
+const HATA_REPAIRABLE_INPUTS = ['startDate', 'endDate', 'holidays', 'specials', 'members', 'format'];
+
+/** 旧版の長文（表示メタ・旧別名・書式）を複製上で下書きへ移す。修復有無に関係しない互換処理である。 */
+function recoverLegacyHataText(data) {
+	const hata = data.hata;
+	const overlong = value => typeof value === 'string' && value.length > MAX_HATA_TEXT_LENGTH;
+	const fields = [...Object.keys(HATA_META_INPUT_IDS), 'format'].filter(field => overlong(hata[field]));
+	const aliases = HATA_LEGACY_ALIASES.filter(([alias]) => overlong(hata[alias]));
+	if (!fields.length && !aliases.length) return { data, recovered: false };
+	validateImportStructure(data);
+	const clone = JSON.parse(JSON.stringify(data));
+	requireImportShape(clone.hata.inputDrafts === undefined || isImportObject(clone.hata.inputDrafts));
+	const drafts = { ...clone.hata.inputDrafts };
+	for (const field of fields) {
+		if (!Object.hasOwn(drafts, field)) drafts[field] = clone.hata[field];
+		clone.hata[field] = '';
+	}
+	// 正式キーがあれば描画は旧別名を参照しないため、下書きへ移さず削除だけ行う。作成日は metaCreatedDate を優先する。
+	for (const [alias, canonical] of aliases) {
+		if (clone.hata[canonical] === undefined && !Object.hasOwn(drafts, canonical)) drafts[canonical] = clone.hata[alias];
+		delete clone.hata[alias];
+	}
+	if (Object.keys(drafts).length) clone.hata.inputDrafts = drafts;
+	return { data: clone, recovered: true };
+}
+
+function seatCellsOutside(cfg) {
+	if (!isImportObject(cfg) || !isImportObject(cfg.cells)) return 0;
+	const cols = Number(cfg.cols ?? 4), rows = Number(cfg.rows ?? 5);
+	if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || cols > 10 || rows < 2 || rows > 14) return 0;
+	let removed = 0;
+	for (const cellKey of Object.keys(cfg.cells)) {
+		const match = /^(\d+)_(\d+)$/.exec(cellKey);
+		if (match && Number(match[1]) < rows && Number(match[2]) < cols) continue;
+		if (!match) continue;
+		delete cfg.cells[cellKey];
+		removed++;
+	}
+	return removed;
+}
+
+/** 旧版で保存された不合格値を複製上で修復する（I-12-05）。ファイル取込には使わない。 */
+function repairStoredModel(data, kind, repairs) {
+	if (!isImportObject(data)) return null;
+	const clone = JSON.parse(JSON.stringify(data));
+	if (kind === 'rep' && isImportObject(clone.seatConfig)) {
+		const cfg = clone.seatConfig;
+		if (seatCellsOutside(cfg)) repairs.push('seat-cells');
+		try {
+			validateImportData(clone, 'rep');
+			return clone;
+		} catch (_) {}
+		const cols = Number(cfg.cols ?? 4), rows = Number(cfg.rows ?? 5);
+		if (Number.isInteger(cols) && Number.isInteger(rows) && cols >= 2 && cols <= 10 && rows >= 2 && rows <= 14 && (cols !== 4 || rows !== 5)) {
+			cfg.cols = 4;
+			cfg.rows = 5;
+			if (seatCellsOutside(cfg) && !repairs.includes('seat-cells')) repairs.push('seat-cells');
+			repairs.push('seat-grid');
 		}
+		return clone;
+	}
+	if (kind === 'district' && isImportObject(clone.hata)) {
+		const hata = clone.hata;
+		if (hata.inputDrafts !== undefined && !isImportObject(hata.inputDrafts)) return null;
+		// 展開・文字・日付の予算超過だけを修復し、構造不正は修復しない（Gate 3）。
+		try {
+			validateHataExpansionBudget(hata);
+			validateDateExpansion(hata.startDate, hata.endDate);
+			validateHataTextBudget(hata);
+			return null;
+		} catch (_) {}
+		if (Array.isArray(hata.holidays) && !hata.holidays.every(holiday => isImportObject(holiday) && typeof holiday.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(holiday.date) && (holiday.name === undefined || (typeof holiday.name === 'string' && holiday.name.length <= MAX_HATA_TEXT_LENGTH)))) return null;
+		if (Array.isArray(hata.members) && !hata.members.every(member => typeof member === 'string')) return null;
+		const drafts = { ...hata.inputDrafts };
+		let moved = false;
+		for (const field of HATA_REPAIRABLE_INPUTS) {
+			if (!Object.hasOwn(hata, field) || hata[field] === '' || Object.hasOwn(drafts, field)) continue;
+			let value = hata[field];
+			if (field === 'holidays' && Array.isArray(value)) value = value.map(holiday => `${holiday.date},${holiday.name || '祝日'}`).join('\n');
+			else if (field === 'members' && Array.isArray(value)) value = value.join('\n');
+			if (typeof value !== 'string') return null;
+			drafts[field] = value;
+			hata[field] = '';
+			moved = true;
+		}
+		if (!moved) return null;
+		hata.inputDrafts = drafts;
+		repairs.push('hata-budget');
+		return clone;
+	}
+	return null;
+}
+
+function validateStoredData(data, storageKey, options = {}) {
+	let legacyRecovered = false;
+	if (storageKey === 'kogai_district_v2' && isImportObject(data?.hata)) {
+		const recovery = recoverLegacyHataText(data);
+		data = recovery.data;
+		legacyRecovered = recovery.recovered;
 	}
 	if (storageKey === 'kogai_transfer_v2') {
 		validateImportStructure(data);
@@ -879,7 +986,53 @@ function validateStoredData(data, storageKey) {
 		return clean;
 	}
 	const kind = storageKey === 'kogai_rep_v2' ? 'rep' : storageKey === 'kogai_neighbor_v2' ? 'neighbor' : 'district';
-	return validateImportData(data, kind);
+	const report = items => { if (options.repair && Array.isArray(options.repairs)) options.repairs.push(...items); };
+	try {
+		const clean = validateImportData(data, kind);
+		report(legacyRecovered ? ['hata-legacy-text'] : []);
+		return clean;
+	} catch (error) {
+		if (!options.repair) throw error;
+		const repairs = legacyRecovered ? ['hata-legacy-text'] : [];
+		const repaired = repairStoredModel(data, kind, repairs);
+		if (!repaired) throw error;
+		let clean;
+		try { clean = validateImportData(repaired, kind); } catch (_) { throw error; }
+		report(repairs);
+		return clean;
+	}
+}
+
+function importGradeError(prefix, row) {
+	const name = [row.lastName, row.firstName].map(value => String(value || '').trim()).filter(Boolean).join(' ') || String(row.name || '').trim() || '氏名未入力';
+	const error = new Error(`${prefix}「${name}」の学年「${row.grade ?? ''}」は1〜6年ではありません。`);
+	error.code = 'INVALID_IMPORT_GRADE';
+	return error;
+}
+
+/** 氏名・ふりがな・住所・電話・班長が空白のみで学区外でもない仮行を判定する（QA-02・QA-03）。 */
+function isBlankStudentRow(row) {
+	return !!row && row.isOutOfDistrict !== true && ['lastName', 'firstName', 'lastNameKana', 'firstNameKana', 'name', 'address', 'tel', 'leader'].every(field => String(row[field] ?? '').trim() === '');
+}
+
+/** ファイルから取り込む地区の児童行から仮行を除き、学年を1〜6年に限る。 */
+function normalizeImportedStudents(district) {
+	if (!Array.isArray(district.students)) return district;
+	district.students = district.students.filter(row => !isBlankStudentRow(row));
+	for (const row of district.students) {
+		if (!/^[1-6]$/.test(String(row.grade ?? ''))) throw importGradeError('児童', row);
+	}
+	return district;
+}
+
+/** 利用者が対処できる取込失敗だけ固有の文言を示し、それ以外は呼出元の既定文言を使う。 */
+function importFailureMessage(error, fallback) {
+	return error && ['IMPORT_SAVE_FAILED', 'INVALID_IMPORT_GRADE'].includes(error.code) ? error.message : fallback;
+}
+
+/** 出力ファイル名・出力日に端末ローカルの日付を使う（QA-05）。 */
+function formatLocalDateStamp(date = new Date()) {
+	return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 /**
@@ -915,6 +1068,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		HATA_META_INPUT_IDS, collectHataScheduleInputs, validateHataTextBudget, validateHataScheduleOutput, requireHataOutputSize,
 		validateImportStructure,
 		validateStoredData,
+		isBlankStudentRow, normalizeImportedStudents, importFailureMessage, formatLocalDateStamp,
 		validateDateExpansion,
 		validateHataExpansionBudget,
 		readImportFile,
