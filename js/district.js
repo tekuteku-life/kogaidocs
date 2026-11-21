@@ -34,8 +34,15 @@ function renderDistrictForm() {
 
 function onHanListInput(val) {
 	const rawList = val.split(/[,、，\s\n]+/).map(s => s.trim()).filter(Boolean);
-	currentDistrict.hanList = Array.from(new Set(rawList));
-	currentDistrict.han = currentDistrict.hanList[0] || "";
+	const accepted = applyStorableChange('kogai_district_v2', currentDistrict, model => {
+		model.hanList = Array.from(new Set(rawList));
+		model.han = model.hanList[0] || "";
+	});
+	if (!accepted) {
+		const listEl = document.getElementById('d-han-list');
+		if (listEl) listEl.value = (currentDistrict.hanList || []).join(', ');
+		return;
+	}
 	const dHanEl = document.getElementById('d-han');
 	if (dHanEl) dHanEl.value = currentDistrict.han;
 	saveDistrictLocal();
@@ -149,12 +156,13 @@ function renderOfficersList() {
 
 function addOfficer() {
 	saveDistrictLocal();
-	currentDistrict.officers.push({
+	const accepted = applyStorableChange('kogai_district_v2', currentDistrict, model => model.officers.push({
 		lastName: "", firstName: "", lastNameKana: "", firstNameKana: "",
 		role: "校外委員", han: "", tel: "", email: "", address: "",
 		childGrade: "", childClass: "", childLastName: "", childFirstName: "",
 		childLastNameKana: "", childFirstNameKana: ""
-	});
+	}));
+	if (!accepted) return;
 	renderOfficersList();
 	saveDistrictLocal();
 }
@@ -274,7 +282,8 @@ function removeN(idx) {
 }
 
 function addNeighborhoodRow() {
-	currentDistrict.neighborhood.push({ role: "", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "" });
+	const accepted = applyStorableChange('kogai_district_v2', currentDistrict, model => model.neighborhood.push({ role: "", lastName: "", firstName: "", lastNameKana: "", firstNameKana: "", address: "", tel: "" }));
+	if (!accepted) return;
 	renderNeighborhoodTable();
 	saveDistrictLocal();
 }
@@ -313,7 +322,7 @@ function addStudentRow() {
 		defaultHan = hanList[0] || currentDistrict.han || "";
 	}
 
-	currentDistrict.students.push({
+	const accepted = applyStorableChange('kogai_district_v2', currentDistrict, model => model.students.push({
 		grade: "1",
 		class: "",
 		han: defaultHan,
@@ -325,7 +334,8 @@ function addStudentRow() {
 		tel: "",
 		leader: "",
 		isOutOfDistrict: false
-	});
+	}));
+	if (!accepted) return;
 	renderStudentsTable();
 	saveDistrictLocal();
 	renderHataExemptList();
@@ -471,6 +481,24 @@ function validateDistrictPasswords() {
 	}
 }
 
+/** 端末ローカルの記憶パスワードを除いた提出用の直列化（SEC-33）。 */
+function serializeDistrictForOutput() {
+	const { savedFilePassword, ...output } = currentDistrict;
+	return JSON.stringify(output);
+}
+
+/** 長文共有の退避に成功した場合だけ外部アプリを起動させる（QA-04）。 */
+async function copyLongDistrictShare(content, outputIsCurrent) {
+	try {
+		if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') throw new Error('CLIPBOARD_UNAVAILABLE');
+		await navigator.clipboard.writeText(content);
+	} catch (_) {
+		if (outputIsCurrent()) alert("暗号化データをクリップボードへ退避できなかったため、送信を中止しました。ファイル保存をご利用ください。");
+		return false;
+	}
+	return outputIsCurrent();
+}
+
 async function exportDistrictTxt() {
 	const outputIsCurrent = captureStorageOutputGuard();
 	saveDistrictLocal();
@@ -493,9 +521,9 @@ async function exportDistrictTxt() {
 	const hataSnapshot = JSON.stringify(currentDistrict.hata);
 	const outputDistrict = currentDistrict.district;
 	const outputHan = currentDistrict.han;
-	const encoded = await encryptPayload(JSON.stringify(currentDistrict), pass);
+	const encoded = await encryptPayload(serializeDistrictForOutput(), pass);
 	if (!outputIsCurrent()) return false;
-	const dateStr = new Date().toISOString().slice(0,10);
+	const dateStr = formatLocalDateStamp();
 	const hanPart = outputHan ? `_${outputHan}` : "";
 	const content = [
 		`--- 校外委員会 地区データ (${outputDistrict}${outputHan ? ' ' + outputHan : ''} / 出力日:${dateStr}) ---`,
@@ -532,9 +560,9 @@ async function shareDistrictData(channel) {
 
 	const outputDistrict = currentDistrict.district;
 	const outputHan = currentDistrict.han;
-	const encoded = await encryptPayload(JSON.stringify(currentDistrict), pass);
+	const encoded = await encryptPayload(serializeDistrictForOutput(), pass);
 	if (!outputIsCurrent()) return false;
-	const dateStr = new Date().toISOString().slice(0, 10);
+	const dateStr = formatLocalDateStamp();
 	const hanPart = outputHan ? `_${outputHan}` : "";
 	const fileName = `校外地区データ_${outputDistrict}${hanPart}_${dateStr}.txt`;
 	const content = [
@@ -595,14 +623,7 @@ async function shareDistrictData(channel) {
 	if (channel === 'line') {
 		// [A-1] 暗号文長が 2,000文字 を超える場合はクリップボードに退避し、定型文のみで起動
 		if (content.length > 2000) {
-			if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-				try {
-					await navigator.clipboard.writeText(content);
-					if (!outputIsCurrent()) return false;
-				} catch (e) {
-					if (!outputIsCurrent()) return false;
-				}
-			}
+			if (!(await copyLongDistrictShare(content, outputIsCurrent))) return false;
 			const lineGuidance = "校外委員会地区データを送信します。クリップボードにコピーされた暗号化テキストをここに貼り付けてください";
 			window.open('https://line.me/R/msg/text/?' + encodeURIComponent(lineGuidance), '_blank', 'noopener,noreferrer');
 		} else {
@@ -615,14 +636,7 @@ async function shareDistrictData(channel) {
 		const subject = `【校外委員会】地区データ提出_${outputDistrict}${hanPart}`;
 		// [A-1] 暗号文長が 2,000文字 を超える場合はクリップボードに退避し、定型文のみで起動
 		if (content.length > 2000) {
-			if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-				try {
-					await navigator.clipboard.writeText(content);
-					if (!outputIsCurrent()) return false;
-				} catch (e) {
-					if (!outputIsCurrent()) return false;
-				}
-			}
+			if (!(await copyLongDistrictShare(content, outputIsCurrent))) return false;
 			const emailGuidance = "校外委員会地区データを送信します。クリップボードにコピーされた暗号化テキストをここに貼り付けてください";
 			window.open('mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(emailGuidance), '_blank', 'noopener,noreferrer');
 		} else {
@@ -637,7 +651,7 @@ async function loadDistrictTxt(e) {
 	const importKind = 'districtOrNeighbor';
 	const file = (e && e.target && e.target.files) ? e.target.files[0] : (e && e.files ? e.files[0] : e);
 	if (!file) return;
-	const pass = document.getElementById('d-pass')?.value || document.getElementById('d-file-pass')?.value || '';
+	const pass = document.getElementById('d-pass')?.value || '';
 	try {
 		assertStorageSession(generation);
 		const rawText = await readImportFile(file);
@@ -692,6 +706,9 @@ async function loadDistrictTxt(e) {
 
 		data.hanList = data.hanList || getDistrictHanList(data);
 		data.han = data.han || data.hanList[0] || '';
+		// ファイル内の記憶パスワードは採用せず、端末で同意済みの記憶だけを引き継ぐ（SEC-33）。
+		delete data.savedFilePassword;
+		if (typeof currentDistrict.savedFilePassword === 'string') data.savedFilePassword = currentDistrict.savedFilePassword;
 		currentDistrict = adoptImportedModel(await commitImportedModel('kogai_district_v2', data, generation));
 		renderDistrictForm();
 		clearDistrictOutputDom();
@@ -705,7 +722,7 @@ async function loadDistrictTxt(e) {
 			return;
 		}
 		console.error("Failed to load district file:", err);
-		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "読み込みに失敗しました。パスワードを確認してください。");
+		alert(importFailureMessage(err, "読み込みに失敗しました。パスワードを確認してください。"));
 		if (e && e.target) e.target.value = "";
 	}
 }
@@ -737,7 +754,8 @@ async function loadDistrictStudentsTxt(event) {
 			if (student.han === undefined) student.han = data.han || '';
 			if (student.isOutOfDistrict === undefined) student.isOutOfDistrict = false;
 		});
-		const existing = candidate.students || [];
+		// 再起動時に補われた空の仮行を残さない（QA-02）。
+		const existing = (candidate.students || []).filter(row => !isBlankStudentRow(row));
 		const identity = row => JSON.stringify([row.lastName, row.firstName, row.grade]);
 		const identities = new Set(existing.map(identity));
 		const duplicates = students.some(student => {
@@ -758,7 +776,7 @@ async function loadDistrictStudentsTxt(event) {
 		return true;
 	} catch (error) {
 		if (error.message === 'STORAGE_SESSION_CHANGED' || generation !== getStorageSessionGeneration() || !isStorageUnlocked()) return false;
-		alert(error.code === 'IMPORT_SAVE_FAILED' ? error.message : '児童名簿の追加に失敗しました。地区形式のファイル・児童の有無・パスワード・入力上限を確認してください。');
+		alert(importFailureMessage(error, '児童名簿の追加に失敗しました。地区形式のファイル・児童の有無・パスワード・入力上限を確認してください。'));
 		return false;
 	} finally {
 		input.value = '';
@@ -922,7 +940,7 @@ async function loadTransferFileIntoDistrict(e) {
 		try {
 			data = await parseTxtContent(text, pass, generation, importKind);
 		} catch (err) {
-			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
+			if (['INVALID_IMPORT_DATA', 'INVALID_IMPORT_GRADE'].includes(err.code) || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) { if (e.target) e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass, generation, importKind);
@@ -933,7 +951,7 @@ async function loadTransferFileIntoDistrict(e) {
 			e.target.value = "";
 			return;
 		}
-		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの読み込みに失敗しました。パスワードをご確認ください。");
+		alert(importFailureMessage(err, "転入児童データの読み込みに失敗しました。パスワードをご確認ください。"));
 	}
 	if (e.target) e.target.value = "";
 }
@@ -950,7 +968,7 @@ async function loadPastedTransferTextIntoDistrict(text) {
 		try {
 			data = await parseTxtContent(raw, pass, generation, importKind);
 		} catch (err) {
-			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
+			if (['INVALID_IMPORT_DATA', 'INVALID_IMPORT_GRADE'].includes(err.code) || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass, generation, importKind);
@@ -960,7 +978,7 @@ async function loadPastedTransferTextIntoDistrict(text) {
 		if (box) box.value = "";
 	} catch (err) {
 		if (err.message === 'STORAGE_SESSION_CHANGED') return;
-		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの復号に失敗しました。パスワードをご確認ください。");
+		alert(importFailureMessage(err, "転入児童データの復号に失敗しました。パスワードをご確認ください。"));
 	}
 }
 

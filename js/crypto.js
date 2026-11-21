@@ -26,6 +26,81 @@ const PAYLOAD_PREFIX = 'ENC:2:';
 const LEGACY_PAYLOAD_PREFIX = 'ENC:';
 const WEBAUTHN_USER_ID = new Uint8Array([107, 111, 103, 97, 105, 100, 111, 99, 115]); // "kogaidocs"
 
+// 保存前検証で拒否中のキー、平文起動で読めずに書込を停止したキー、自タブが最後に読んだ・書いた暗号文（SEC-30・SEC-34）。
+const storageSaveRejectedKeys = new Set();
+const suspendedStorageKeys = new Set();
+const knownStorageValues = new Map();
+let pendingStorageSaveReport = null;
+// 解除時の修復結果。解除後の世代と結び付け、直後の読込が一度だけ引き継ぐ（I-12-05）。
+let activationRepairs = { generation: -1, repairs: [] };
+
+function takeActivationRepairs() {
+	const held = activationRepairs;
+	activationRepairs = { generation: -1, repairs: [] };
+	return held.generation === storageSessionGeneration ? held.repairs : [];
+}
+
+function getStorageSaveRejectedKeys() { return [...storageSaveRejectedKeys]; }
+function getSuspendedStorageKeys() { return [...suspendedStorageKeys]; }
+function isStorageWriteSuspended(storageKey) { return suspendedStorageKeys.has(storageKey); }
+
+function markStorageSaveState(storageKey, rejected) {
+	if (rejected) {
+		if (storageSaveRejectedKeys.has(storageKey)) return;
+		storageSaveRejectedKeys.add(storageKey);
+		pendingStorageSaveReport = { addedKey: storageKey };
+	} else if (storageSaveRejectedKeys.delete(storageKey) && !pendingStorageSaveReport) {
+		pendingStorageSaveReport = { addedKey: null };
+	}
+}
+
+/** 拒否状態の変化を、排他区間を抜けた後に画面へ伝える。 */
+function flushStorageSaveReport(force = false) {
+	const pending = pendingStorageSaveReport;
+	pendingStorageSaveReport = null;
+	if ((pending || force) && typeof reportStorageSaveState === 'function') reportStorageSaveState(getStorageSaveRejectedKeys(), pending ? pending.addedKey : null);
+}
+
+/** メモリ上の不合格値を既定値へ消去したときだけ拒否状態を解除する。 */
+function clearStorageSaveRejections() {
+	storageSaveRejectedKeys.clear();
+	pendingStorageSaveReport = null;
+	flushStorageSaveReport(true);
+}
+
+function suspendStorageWrites(keys) {
+	for (const key of keys) suspendedStorageKeys.add(key);
+	flushStorageSaveReport(true);
+}
+
+function resumeStorageWrites(keys) {
+	let changed = false;
+	for (const key of keys) changed = suspendedStorageKeys.delete(key) || changed;
+	if (changed && !pendingStorageSaveReport) pendingStorageSaveReport = { addedKey: null };
+}
+
+function rememberKnownStorageValue(storageKey, value) {
+	if (STORAGE_DATA_KEYS.includes(storageKey)) knownStorageValues.set(storageKey, value);
+}
+
+/** 排他区間内で、他タブが自タブの知らない暗号文を書いていないかを確認する。 */
+function assertNoForeignStorageUpdate(storageKey) {
+	if (!knownStorageValues.has(storageKey) || localStorage.getItem(storageKey) === knownStorageValues.get(storageKey)) return;
+	const error = new Error('STORAGE_FOREIGN_UPDATE');
+	error.code = 'STORAGE_FOREIGN_UPDATE';
+	throw error;
+}
+
+function notifyForeignStorageUpdate() {
+	if (typeof handleForeignStorageUpdate === 'function') handleForeignStorageUpdate();
+}
+
+function storageError(code, message) {
+	const error = new Error(`${message} (${code})`);
+	error.code = code;
+	return error;
+}
+
 function storageLocksAvailable() {
 	return typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function';
 }
@@ -118,14 +193,24 @@ function base64ToUint8(b64) {
 	return bytes;
 }
 
+/** 見出し付きテキストから暗号文を線形時間で切り出す（SEC-32: 正規表現の二乗時間を避ける）。 */
+function extractEncryptedPayload(text) {
+	const start = text.indexOf('BEGIN_DATA:');
+	if (start >= 0) {
+		const bodyStart = start + 'BEGIN_DATA:'.length;
+		const end = text.indexOf(':END_DATA', bodyStart);
+		if (end >= 0) return text.slice(bodyStart, end).trim();
+	}
+	return text.trim();
+}
+
 /**
  * 読み込んだ.txtファイルの内容からJSONデータを抽出・復号します
  */
 async function parseTxtContent(text, password, generation = getStorageSessionGeneration(), kind) {
 	assertStorageSession(generation);
 	if (new TextEncoder().encode(String(text)).byteLength > 8 * 1024 * 1024) throw new Error('ファイルサイズが上限を超えています。');
-	const match = text.match(/BEGIN_DATA:\s*([\s\S]+?)\s*:END_DATA/);
-	const payload = match ? match[1].trim() : text.trim();
+	const payload = extractEncryptedPayload(String(text));
 	let jsonStr;
 	try {
 		jsonStr = await decryptPayload(payload, password);
@@ -144,7 +229,16 @@ async function parseTxtContent(text, password, generation = getStorageSessionGen
 			: kind === 'auto' && data?.districts !== undefined ? 'rep'
 				: isNeighborhoodImportData(data) ? 'neighbor' : 'district';
 	}
-	return validateImportData(data, kind);
+	const clean = validateImportData(data, kind);
+	if (kind === 'district' || kind === 'rep') {
+		// 端末ローカルの記憶パスワードはファイルから採用しない（SEC-33）。空の仮行を除き学年を検査する（QA-03）。
+		delete clean.savedFilePassword;
+		for (const district of kind === 'rep' ? clean.districts : [clean]) {
+			delete district.savedFilePassword;
+			normalizeImportedStudents(district);
+		}
+	}
+	return clean;
 }
 
 function getStorageSessionGeneration() {
@@ -523,8 +617,8 @@ function assertStorageContext(generation, authSnapshot) {
 	}
 }
 
-function validateStorageModel(value, storageKey) {
-	if (typeof validateStoredData === 'function') return validateStoredData(value, storageKey);
+function validateStorageModel(value, storageKey, options = {}) {
+	if (typeof validateStoredData === 'function') return validateStoredData(value, storageKey, options);
 	const kind = storageKey.includes('_rep_') ? 'rep' : storageKey.includes('_neighbor_') ? 'neighbor' : 'district';
 	return validateImportData(value, kind);
 }
@@ -560,17 +654,22 @@ function writeStorageTransaction(entries) {
 		}
 		throw error;
 	}
+	for (const [key, value] of entries) rememberKnownStorageValue(key, value);
 }
 
 async function activateStorageKey(masterKey, meta, authSnapshot, generation, password, guard = () => {}) {
 	guard();
 	assertStorageContext(generation, authSnapshot);
 	const values = [];
+	const raws = [];
+	const repairs = [];
 	for (const key of STORAGE_DATA_KEYS) {
 		const raw = localStorage.getItem(key);
 		if (!raw || !raw.startsWith(LEGACY_STORAGE_PREFIX)) throw new Error('STORAGE_DATA_MISSING');
 		const value = await decryptStorageValue(raw, masterKey, key, meta.storageFormat);
-		values.push(validateStorageModel(value, key));
+		// 旧版の保存値は複製上で修復して受け入れる（I-12-05）。形式移行時は修復済み値を書く。
+		values.push(validateStorageModel(value, key, { repair: true, repairs }));
+		raws.push(raw);
 		assertStorageContext(generation, authSnapshot);
 	}
 	const encoded = [];
@@ -612,6 +711,8 @@ async function activateStorageKey(masterKey, meta, authSnapshot, generation, pas
 	activeStorageKey = masterKey;
 	activeStorageAuthSnapshot = committedAuth;
 	storageSecurityInvalidated = false;
+	STORAGE_DATA_KEYS.forEach((key, index) => rememberKnownStorageValue(key, encoded.length ? encoded[index] : raws[index]));
+	activationRepairs = { generation: storageSessionGeneration, repairs: [...new Set(repairs)] };
 	return values;
 }
 
@@ -625,6 +726,19 @@ async function setupStorageEncryptionUnlocked(password, enableBiometric = false,
 	if (isStorageEncrypted() && !activeStorageSessionIsCurrent()) throw new Error('STORAGE_LOCKED');
 	const check = validatePassword(password);
 	if (!check.valid) throw new Error(check.message);
+	if (suspendedStorageKeys.size) throw storageError('STORAGE_WRITES_SUSPENDED', '保存を停止しているモードがあるため、端末暗号化を設定できません。全消去してから再試行してください。');
+	// 鍵生成・認証器登録より前に一度だけ直列化し、その内容を検証・暗号化の双方に使う（I-12-02）。
+	const serialized = [
+		typeof currentDistrict === 'undefined' ? { district: '', officers: [], neighborhood: [], students: [] } : currentDistrict,
+		typeof repState === 'undefined' ? { districts: [], szExternals: [] } : repState,
+		typeof neighborState === 'undefined' ? { district: '', neighborhood: [] } : neighborState,
+		typeof transferState === 'undefined' ? { children: [], memo: '' } : transferState
+	].map(model => JSON.stringify(model));
+	try {
+		serialized.forEach((text, index) => validateStorageModel(JSON.parse(text), STORAGE_DATA_KEYS[index]));
+	} catch (_) {
+		throw storageError('STORAGE_SAVE_REJECTED', '端末に保存できない内容があります。直前の変更を元に戻してから再試行してください。');
+	}
 
 	const masterKey = await generateMasterKey();
 	let rawMasterKey;
@@ -654,18 +768,13 @@ async function setupStorageEncryptionUnlocked(password, enableBiometric = false,
 		password: passwordMeta,
 		webauthn: webauthnMeta
 	};
-	const data = [
-		typeof currentDistrict === 'undefined' ? { district: '', officers: [], neighborhood: [], students: [] } : currentDistrict,
-		typeof repState === 'undefined' ? { districts: [], szExternals: [] } : repState,
-		typeof neighborState === 'undefined' ? { district: '', neighborhood: [] } : neighborState,
-		typeof transferState === 'undefined' ? { children: [], memo: '' } : transferState
-	];
 	const encoded = [];
-	for (let i = 0; i < data.length; i++) encoded.push(await encryptStorageValue(JSON.stringify(data[i]), masterKey, STORAGE_DATA_KEYS[i]));
+	for (let i = 0; i < serialized.length; i++) encoded.push(await encryptStorageValue(serialized[i], masterKey, STORAGE_DATA_KEYS[i]));
 	assertStorageContext(generation, authSnapshot);
 	guard();
 	const metaRaw = JSON.stringify(meta);
 	writeStorageTransaction([...STORAGE_DATA_KEYS.map((key, index) => [key, encoded[index]]), [STORAGE_AUTH_KEY, metaRaw]]);
+	STORAGE_DATA_KEYS.forEach(key => markStorageSaveState(key, false));
 	storageSessionGeneration++;
 	activeStorageKey = masterKey;
 	activeStorageAuthSnapshot = metaRaw;
@@ -674,7 +783,11 @@ async function setupStorageEncryptionUnlocked(password, enableBiometric = false,
 }
 
 async function setupStorageEncryption(password, enableBiometric = false, guard) {
-	return withStorageLock('exclusive', () => setupStorageEncryptionUnlocked(password, enableBiometric, guard), true);
+	try {
+		return await withStorageLock('exclusive', () => setupStorageEncryptionUnlocked(password, enableBiometric, guard), true);
+	} finally {
+		flushStorageSaveReport();
+	}
 }
 
 /**
@@ -759,6 +872,8 @@ function lockStorage() {
 	storageSessionGeneration++;
 	activeStorageKey = null;
 	activeStorageAuthSnapshot = null;
+	knownStorageValues.clear();
+	activationRepairs = { generation: -1, repairs: [] };
 }
 
 /**
@@ -769,25 +884,40 @@ function clearStorageSecurityUnlocked() {
 	localStorage.removeItem(STORAGE_AUTH_KEY);
 	STORAGE_DATA_KEYS.forEach(key => localStorage.removeItem(key));
 	storageSecurityInvalidated = false;
+	suspendedStorageKeys.clear();
+	storageSaveRejectedKeys.clear();
+	pendingStorageSaveReport = { addedKey: null };
 }
 
 async function clearStorageSecurity() {
-	return withStorageLock('exclusive', clearStorageSecurityUnlocked);
+	try {
+		return await withStorageLock('exclusive', clearStorageSecurityUnlocked);
+	} finally {
+		flushStorageSaveReport();
+	}
 }
 
 /**
  * データをローカルストレージへ保存します（暗号化設定時は自動的にAES-GCMで暗号化）
  */
-async function saveStorageDataUnlocked(storageKey, serialized) {
+async function saveStorageDataUnlocked(storageKey, serialized, options = {}) {
+	// 旧シグネチャの真偽値で保存前検証を黙って飛ばさない（I-12-02）。
+	if (options === null || typeof options !== 'object') throw new TypeError('saveStorageDataUnlocked options must be an object');
 	if (!isStorageEncrypted()) {
 		if (officerPlaintextWriteDenied(storageKey)) return false;
+		if (suspendedStorageKeys.has(storageKey) && !options.allowSuspended) return false;
+		if (options.validate && !acceptStorageSerialized(storageKey, serialized)) return false;
 		localStorage.setItem(storageKey, serialized);
+		markStorageSaveState(storageKey, false);
 		return true;
 	}
 	if (!activeStorageSessionIsCurrent()) {
 		console.warn("Storage is encrypted but currently locked. Cannot write to:", storageKey);
 		return false;
 	}
+	if (suspendedStorageKeys.has(storageKey) && !options.allowSuspended) return false;
+	assertNoForeignStorageUpdate(storageKey);
+	if (options.validate && !acceptStorageSerialized(storageKey, serialized)) return false;
 	const generation = getStorageSessionGeneration();
 	const authSnapshot = activeStorageAuthSnapshot;
 	const key = activeStorageKey;
@@ -795,6 +925,8 @@ async function saveStorageDataUnlocked(storageKey, serialized) {
 		const encoded = await encryptStorageValue(serialized, key, storageKey);
 		assertStorageContext(generation, authSnapshot);
 		localStorage.setItem(storageKey, encoded);
+		rememberKnownStorageValue(storageKey, encoded);
+		markStorageSaveState(storageKey, false);
 		return true;
 	} catch (err) {
 		console.error("saveStorageData failed:", err);
@@ -803,35 +935,78 @@ async function saveStorageDataUnlocked(storageKey, serialized) {
 	}
 }
 
+/** 解除時と同じ厳格検証に合格した値だけを保存させる（SEC-30）。 */
+function acceptStorageSerialized(storageKey, serialized) {
+	// 解除時に一括検証されるのは4つのデータキーだけである。
+	if (!STORAGE_DATA_KEYS.includes(storageKey)) return true;
+	try {
+		validateStorageModel(JSON.parse(serialized), storageKey);
+		return true;
+	} catch (error) {
+		console.error('Refused to store a value that unlock-time validation rejects:', storageKey, error);
+		markStorageSaveState(storageKey, true);
+		return false;
+	}
+}
+
 async function saveStorageData(storageKey, dataObj) {
 	const requestGeneration = getStorageSessionGeneration();
 	const serialized = JSON.stringify(dataObj);
-	return withStorageLock('exclusive', () => {
-		if (requestGeneration !== getStorageSessionGeneration()) return false;
-		return saveStorageDataUnlocked(storageKey, serialized);
-	});
+	try {
+		return await withStorageLock('exclusive', () => {
+			if (requestGeneration !== getStorageSessionGeneration()) return false;
+			return saveStorageDataUnlocked(storageKey, serialized, { validate: true });
+		});
+	} catch (error) {
+		if (error && error.code === 'STORAGE_FOREIGN_UPDATE') {
+			flushStorageSaveReport();
+			notifyForeignStorageUpdate();
+			return false;
+		}
+		throw error;
+	} finally {
+		flushStorageSaveReport();
+	}
 }
 
 /** 取込候補を検証・保存してから呼出元へ返す。本状態とDOMは保存完了前に変更しない。 */
-async function commitImportedModel(storageKey, model, generation = getStorageSessionGeneration()) {
+async function commitImportedModel(storageKey, model, generation = getStorageSessionGeneration(), options = {}) {
 	assertStorageSession(generation);
 	const clean = validateStorageModel(model, storageKey);
-	return withStorageLock('exclusive', async () => {
-		assertStorageSession(generation);
-		if (!isStorageEncrypted()) delete clean.savedFilePassword;
-		let saved;
-		try { saved = await saveStorageDataUnlocked(storageKey, JSON.stringify(clean)); }
-		catch (_) {
-			const failure = new Error('端末への保存に失敗したため、読み込みを中止しました。空き容量を確認して再試行してください。');
-			failure.code = 'IMPORT_SAVE_FAILED';
-			throw failure;
+	try {
+		return await withStorageLock('exclusive', async () => {
+			assertStorageSession(generation);
+			if (!isStorageEncrypted()) delete clean.savedFilePassword;
+			if (suspendedStorageKeys.has(storageKey) && !options.replace) {
+				const suspended = new Error('保存を停止しているため読み込みを中止しました。全消去するか、正しいデータを復元してください。');
+				suspended.code = 'IMPORT_SAVE_FAILED';
+				throw suspended;
+			}
+			let saved;
+			try { saved = await saveStorageDataUnlocked(storageKey, JSON.stringify(clean), { allowSuspended: !!options.replace }); }
+			catch (error) {
+				if (error && error.code === 'STORAGE_FOREIGN_UPDATE') throw error;
+				const failure = new Error('端末への保存に失敗したため、読み込みを中止しました。空き容量を確認して再試行してください。');
+				failure.code = 'IMPORT_SAVE_FAILED';
+				throw failure;
+			}
+			if (saved === false) throw new Error('STORAGE_SESSION_CHANGED');
+			assertStorageSession(generation);
+			if (options.replace) resumeStorageWrites([storageKey]);
+			// 復号/保存待ちの古い取込・自動保存に今回の確定結果を上書きさせない。
+			storageSessionGeneration++;
+			return { model: clean, generation: getStorageSessionGeneration() };
+		});
+	} catch (error) {
+		if (error && error.code === 'STORAGE_FOREIGN_UPDATE') {
+			flushStorageSaveReport();
+			notifyForeignStorageUpdate();
+			throw new Error('STORAGE_SESSION_CHANGED');
 		}
-		if (saved === false) throw new Error('STORAGE_SESSION_CHANGED');
-		assertStorageSession(generation);
-		// 復号/保存待ちの古い取込・自動保存に今回の確定結果を上書きさせない。
-		storageSessionGeneration++;
-		return { model: clean, generation: getStorageSessionGeneration() };
-	});
+		throw error;
+	} finally {
+		flushStorageSaveReport();
+	}
 }
 
 function adoptImportedModel(result) {
@@ -959,29 +1134,47 @@ function hasNonEmptyOfficerModels(models) {
 async function replaceStoredAppData(models, guard = () => {}) {
 	const generation = getStorageSessionGeneration();
 	const values = STORAGE_DATA_KEYS.map((key, index) => validateStorageModel(models[index], key));
-	return withStorageLock('exclusive', async () => {
-		assertStorageSession(generation);
-		guard();
-		const authSnapshot = localStorage.getItem(STORAGE_AUTH_KEY);
-		const encrypted = isStorageEncrypted();
-		const plaintextOfficerDenied = officerPlaintextWriteDenied('kogai_district_v2');
-		if (plaintextOfficerDenied && (hasNonEmptyOfficerModels(models) || hasNonEmptyOfficerModels(values))) {
-			throw new Error('STORAGE_ENCRYPTION_REQUIRED');
+	try {
+		return await withStorageLock('exclusive', async () => {
+			assertStorageSession(generation);
+			guard();
+			const authSnapshot = localStorage.getItem(STORAGE_AUTH_KEY);
+			const encrypted = isStorageEncrypted();
+			const plaintextOfficerDenied = officerPlaintextWriteDenied('kogai_district_v2');
+			const officerModels = hasNonEmptyOfficerModels(models) || hasNonEmptyOfficerModels(values);
+			if (plaintextOfficerDenied && officerModels) {
+				throw new Error('STORAGE_ENCRYPTION_REQUIRED');
+			}
+			// 役員の名簿データを含まない引き継ぎは、復元先の地区・代表を保持する（QA-01）。
+			const targetIndices = officerModels ? [0, 1, 2, 3] : [2, 3];
+			const replacedKeys = targetIndices.map(index => STORAGE_DATA_KEYS[index]);
+			if (encrypted) replacedKeys.forEach(assertNoForeignStorageUpdate);
+			const key = activeStorageKey;
+			const entries = [];
+			for (const index of targetIndices) {
+				const serialized = JSON.stringify(values[index]);
+				const encoded = encrypted ? await encryptStorageValue(serialized, key, STORAGE_DATA_KEYS[index]) : serialized;
+				assertStorageContext(generation, authSnapshot);
+				entries.push([STORAGE_DATA_KEYS[index], encoded]);
+			}
+			guard();
+			if (encrypted) replacedKeys.forEach(assertNoForeignStorageUpdate);
+			writeStorageTransaction(entries);
+			replacedKeys.forEach(storageKey => markStorageSaveState(storageKey, false));
+			resumeStorageWrites(replacedKeys);
+			storageSessionGeneration++;
+			return { models: values, generation: getStorageSessionGeneration(), replacedKeys };
+		});
+	} catch (error) {
+		if (error && error.code === 'STORAGE_FOREIGN_UPDATE') {
+			flushStorageSaveReport();
+			notifyForeignStorageUpdate();
+			throw new Error('STORAGE_SESSION_CHANGED');
 		}
-		const targetIndices = plaintextOfficerDenied ? [2, 3] : [0, 1, 2, 3];
-		const key = activeStorageKey;
-		const entries = [];
-		for (const index of targetIndices) {
-			const serialized = JSON.stringify(values[index]);
-			const encoded = encrypted ? await encryptStorageValue(serialized, key, STORAGE_DATA_KEYS[index]) : serialized;
-			assertStorageContext(generation, authSnapshot);
-			entries.push([STORAGE_DATA_KEYS[index], encoded]);
-		}
-		guard();
-		writeStorageTransaction(entries);
-		storageSessionGeneration++;
-		return { models: values, generation: getStorageSessionGeneration() };
-	});
+		throw error;
+	} finally {
+		flushStorageSaveReport();
+	}
 }
 
 /**
@@ -1027,7 +1220,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		WEBAUTHN_USER_ID,
 		deriveKey,
 		requireOfficerStorageEncryption, officerPlaintextWriteDenied,
-		hasOfficerData, hasNonEmptyOfficerModels,
+		hasOfficerData, hasNonEmptyOfficerModels, isDefaultHolidayValue,
 		encryptPayload,
 		decryptPayload,
 		uint8ToBase64,
@@ -1051,6 +1244,9 @@ if (typeof module !== 'undefined' && module.exports) {
 		saveStorageData,
 		loadStorageDecrypted,
 		replaceStoredAppData,
+		validateStorageModel, extractEncryptedPayload,
+		getStorageSaveRejectedKeys, getSuspendedStorageKeys, isStorageWriteSuspended,
+		suspendStorageWrites, clearStorageSaveRejections, saveStorageDataUnlocked, takeActivationRepairs,
 		get activeStorageKey() { return activeStorageKey; },
 		set activeStorageKey(v) { activeStorageKey = v; }
 	};

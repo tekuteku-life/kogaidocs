@@ -55,11 +55,14 @@ function validateBrowserHandoff(value) {
 	requireImportShape(isImportObject(value) && value.type === 'kogaidocs-browser-handoff' && value.version === 1);
 	requireImportShape(['district', 'rep', 'neighbor', 'transfer'].includes(value.mode));
 	requireImportShape(Array.isArray(value.models) && value.models.length === 4 && isImportObject(value.drafts));
-	const models = value.models.map((model, index) => validateStoredData(model, HANDOFF_KEYS[index]));
+	// 引き継ぎ元の端末保存値と同じく、旧版の不合格値は修復して受け入れる（I-12-05）。
+	const models = value.models.map((model, index) => validateStoredData(model, HANDOFF_KEYS[index], { repair: true }));
 	models.forEach(model => { delete model.savedFilePassword; });
 	const drafts = {};
 	for (const [id, text] of Object.entries(value.drafts)) {
 		requireImportShape(HANDOFF_DRAFT_IDS.includes(id) && typeof text === 'string');
+		// 地区追加の地区名は maxlength を迂回させない（SEC-35）。
+		if (id === 'rep-new-district-name') requireImportShape(text.length <= 4096);
 		drafts[id] = text;
 	}
 	let repDraft = null;
@@ -89,8 +92,15 @@ async function collectBrowserHandoff() {
 	if (plaintextOfficerDenied && ['district', 'rep'].includes(activeMode)) {
 		throw new Error('端末暗号化が未設定のため、役員データの引き継ぎはできません。 (STORAGE_ENCRYPTION_REQUIRED)');
 	}
+	// 停止中キーの既定モデルで復元先の有効なデータを上書きしない（I-12-07）。
+	if (typeof getSuspendedStorageKeys === 'function' && getSuspendedStorageKeys().length) {
+		throw new Error('保存を停止しているモードがあるため、引き継ぎを作成できません。全消去するか、正しいデータを復元してください。');
+	}
 	const saved = await Promise.all([saveDistrictLocal(), saveRepLocal(), saveNeighborLocal(), saveTransferLocal()]);
 	if (saved.some((result, index) => result === false && !(typeof officerPlaintextWriteDenied === 'function' && officerPlaintextWriteDenied(HANDOFF_KEYS[index])))) {
+		if (typeof getStorageSaveRejectedKeys === 'function' && getStorageSaveRejectedKeys().length) {
+			throw new Error('端末に保存できない内容があります。直前の変更を元に戻してから再試行してください。');
+		}
 		throw new Error('入力の保存に失敗しました。引き継ぎを中止します。');
 	}
 	assertStorageSession(generation);
@@ -144,10 +154,11 @@ async function runHandoffTask(task) {
 	try {
 		ensure();
 		document.getElementById('handoff-status').textContent = '処理中です。';
-		const outcome = await task(ensure);
-		return outcome === undefined ? true : outcome;
+		await task(ensure);
+		return true;
 	} catch (error) {
-		if (epoch === handoffEpoch) document.getElementById('handoff-status').textContent = '引き継ぎに失敗しました：' + error.message;
+		// 他タブ更新等によるロックでは失敗表示を出さず、ロック理由の表示に委ねる（I-12-06）。
+		if (epoch === handoffEpoch) document.getElementById('handoff-status').textContent = error.message === 'STORAGE_SESSION_CHANGED' ? '' : '引き継ぎに失敗しました：' + error.message;
 		return false;
 	} finally {
 		if (epoch === handoffEpoch) {
@@ -207,14 +218,21 @@ async function restoreBrowserHandoff() {
 			if (typeof officerPlaintextWriteDenied === 'function' && officerPlaintextWriteDenied('kogai_district_v2') && hasOfficerHandoffData(payload)) {
 				throw new Error('端末暗号化が未設定のため、役員データの引き継ぎはできません。 (STORAGE_ENCRYPTION_REQUIRED)');
 			}
-			if (!confirm('このブラウザの地区・代表・自治会・転入者データを引き継ぎデータで置き換えますか？')) {
+			// 置換対象と同じ判定で確認文を決める（QA-01）。
+			const replacesOfficers = hasNonEmptyOfficerModels(payload.models);
+			const question = replacesOfficers
+				? 'このブラウザの地区・代表・自治会・転入者データを引き継ぎデータで置き換えますか？'
+				: 'このブラウザの自治会・転入者データを引き継ぎデータで置き換えますか？\n（役員の名簿データを含まない引き継ぎのため、地区・代表データは保持します）';
+			if (!confirm(question)) {
 				document.getElementById('handoff-status').textContent = '復元を取り消しました。';
 				return;
 			}
 			const result = await replaceStoredAppData(payload.models, ensure);
 			ensure(result.generation);
-			[currentDistrict, repState, neighborState, transferState] = result.models;
-			if (typeof state !== 'undefined') [state.currentDistrict, state.repState, state.neighborState, state.transferState] = result.models;
+			const adopted = [currentDistrict, repState, neighborState, transferState]
+				.map((current, index) => result.replacedKeys.includes(HANDOFF_KEYS[index]) ? result.models[index] : current);
+			[currentDistrict, repState, neighborState, transferState] = adopted;
+			if (typeof state !== 'undefined') [state.currentDistrict, state.repState, state.neighborState, state.transferState] = adopted;
 			renderDistrictForm(); renderRepAll(); renderNeighborForm(); renderTransferForm();
 			switchTab(payload.mode);
 			setAllCardsCollapse(false, 'tab-' + payload.mode);

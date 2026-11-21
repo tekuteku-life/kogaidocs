@@ -169,7 +169,7 @@ async function exportNeighborTxt() {
 
 	const encoded = await encryptPayload(JSON.stringify(payload), pass);
 	if (!outputIsCurrent()) return false;
-	const dateStr = new Date().toISOString().slice(0, 10);
+	const dateStr = formatLocalDateStamp();
 	const content = [
 		`--- 校外委員会 自治会役員データ (${distName} / 出力日:${dateStr}) ---`,
 		`BEGIN_DATA:`,
@@ -250,7 +250,8 @@ async function loadNeighborTxt(e) {
 
 		const candidate = { ...neighborState, district: data.district, neighborhood: data.neighborhood };
 		candidate.neighborhood.forEach(normalizeNameFields);
-		neighborState = adoptImportedModel(await commitImportedModel('kogai_neighbor_v2', candidate, generation));
+		// 自治会ファイルは保存値の全体を置き換えるため、読めずに停止中のキーも復旧できる（I-12-07）。
+		neighborState = adoptImportedModel(await commitImportedModel('kogai_neighbor_v2', candidate, generation, { replace: true }));
 		renderNeighborForm();
 		alert(`自治会役員データ「${neighborState.district}」（${neighborState.neighborhood.length}名）を読み込みました。`);
 	} catch (err) {
@@ -288,7 +289,8 @@ async function loadPastedTextToNeighbor() {
 
 		const candidate = { ...neighborState, district: data.district, neighborhood: data.neighborhood };
 		candidate.neighborhood.forEach(normalizeNameFields);
-		neighborState = adoptImportedModel(await commitImportedModel('kogai_neighbor_v2', candidate, generation));
+		// 自治会ファイルは保存値の全体を置き換えるため、読めずに停止中のキーも復旧できる（I-12-07）。
+		neighborState = adoptImportedModel(await commitImportedModel('kogai_neighbor_v2', candidate, generation, { replace: true }));
 		renderNeighborForm();
 		box.value = "";
 		alert(`自治会役員データ「${neighborState.district}」（${neighborState.neighborhood.length}名）を読み込みました。`);

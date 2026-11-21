@@ -552,7 +552,7 @@ test('hata: ultimate branch coverage booster', () => {
 	state.currentDistrict = {
 		students: null
 	};
-	hata.buildHataMembersText(state.currentDistrict.students, '{苗字} {名前} {学年} {班}', true);
+	assert.strictEqual(hata.buildHataMembersText(state.currentDistrict.students, '{苗字} {名前} {学年} {班}', true), '');
 
 	state.currentDistrict = {
 		district: 'テスト地区',
@@ -578,6 +578,10 @@ test('hata: ultimate branch coverage booster', () => {
 	};
 	const sched1 = hata.generateHataSchedule(edgeConfig);
 	assert.strictEqual(sched1.length, 2);
+	assert.deepStrictEqual(sched1.map(row => [row.date, row.type, row.person, row.note]), [
+		['2026-08-03', 'holiday', '-', '祝日'],
+		['2026-08-04', 'special', '', '特別枠']
+	], 'Blank holiday/special notes fall back to defaults and a non-string roster assigns nobody');
 
 	const edgeConfig2 = {
 		startDate: '2026-08-03',
@@ -654,7 +658,8 @@ test('hata: ultimate branch coverage booster', () => {
 		students: null
 	};
 	hata.renderHataCard();
-	assert.ok(document.getElementById('hata-title'));
+	assert.strictEqual(document.getElementById('hata-title').value, '');
+	assert.strictEqual(document.getElementById('hata-location').value, '');
 
 	// 8. renderHataExemptList with displayName in exemptHouseholds and toggleHataExempt false
 	state.currentDistrict = {
@@ -672,12 +677,19 @@ test('hata: ultimate branch coverage booster', () => {
 	// 9. renderHataSchedulePreview with mobile screen width (<768)
 	window.innerWidth = 400;
 	hata.renderHataSchedulePreview();
+	assert.ok(document.getElementById('hata-schedule-preview').innerHTML.includes('シフトがまだ生成されていません'), 'Without a period the mobile preview shows the empty-state guidance');
 
 	// 10. printHataSchedule with hata-print-area present
 	const printArea = document.createElement('div');
 	printArea.id = 'hata-print-area';
 	document.body.appendChild(printArea);
-	hata.printHataSchedule();
+	const originalPrint = global.print;
+	let printed = 0;
+	global.print = () => { printed++; };
+	try {
+		hata.printHataSchedule();
+	} finally { global.print = originalPrint; }
+	assert.strictEqual(printed, 1, 'Printing with an empty period still opens the print dialog exactly once');
 });
 
 test('hata: expandDateOrRange correctly expands tilde ranges and single dates (A-3, T-4)', () => {
@@ -1016,7 +1028,16 @@ test('hata: precision branch booster to achieve 100% line and >95% branch covera
 			members: '高橋'
 		}
 	};
-	hata.printHataSchedule();
+	{
+		const originalPrint = global.print;
+		let printed = 0;
+		global.print = () => { printed++; };
+		try {
+			hata.printHataSchedule();
+		} finally { global.print = originalPrint; }
+		assert.strictEqual(printed, 1, 'An empty schedule is generated automatically before printing');
+		assert.ok(document.getElementById('hata-schedule-preview').innerHTML.includes('高橋'));
+	}
 
 	// 12. renderHataCard & renderHataExemptList & toggleHataExempt & applyHataPeriodPreset
 	state.currentDistrict = {};

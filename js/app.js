@@ -2,13 +2,91 @@
    アプリケーション初期化・タブ切替・PWA・セキュリティUI
 ========================================================================= */
 
-const CURRENT_APP_VERSION = "2.12.0";
+const CURRENT_APP_VERSION = "2.12.1";
 let deferredInstallPrompt = null;
 let pwaInstallationCompleted = false;
 let activeAppMode = null;
 let appAccessInitialized = false;
 let storageAccessEpoch = 0;
 let storageAccessBusy = false;
+// 他タブ更新などでロックした理由。解除画面・ゲスト案内に表示し、解除成功で消去する（I-12-06）。
+let storageLockReason = '';
+const FOREIGN_STORAGE_UPDATE_REASON = '別のタブで保存データが更新されました。最新の内容を読み込むため、もう一度解除してください。';
+const STORAGE_MODE_LABELS = { kogai_district_v2: '地区役員', kogai_rep_v2: '校外代表', kogai_neighbor_v2: '自治会', kogai_transfer_v2: '家庭情報入力' };
+const STORAGE_REPAIR_LABELS = {
+	'seat-cells': '範囲外の座席を削除しました',
+	'seat-grid': '座席表を4列×5段に戻しました',
+	'hata-budget': '旗振りの期間・休日・名簿などを下書きへ移しました',
+	'hata-legacy-text': '長い旧項目を下書きへ移しました'
+};
+const storageUnloadGuardWindows = new WeakSet();
+
+const storageModeNames = keys => keys.map(key => STORAGE_MODE_LABELS[key] || key).join('・');
+
+function hasUnsavedStorageState() {
+	return getStorageSaveRejectedKeys().length > 0 || getSuspendedStorageKeys().length > 0;
+}
+
+/** 旗振りの未保存変更と、端末へ保存できない（拒否・停止中の）編集を、1つの離脱確認で扱う。 */
+function guardUnsavedChangesOnUnload(event) {
+	const hataUnsaved = typeof hataHasUnsavedChanges !== 'undefined' && hataHasUnsavedChanges;
+	if (!hataUnsaved && !hasUnsavedStorageState()) return;
+	event.preventDefault();
+	event.returnValue = '';
+}
+
+function installUnloadGuard() {
+	if (typeof window === 'undefined' || !window.addEventListener || storageUnloadGuardWindows.has(window)) return;
+	window.addEventListener('beforeunload', guardUnsavedChangesOnUnload);
+	storageUnloadGuardWindows.add(window);
+}
+
+/** 保存拒否・保存停止の状態を常時表示し、新たに拒否したモードだけ通知する（I-12-02・I-12-07）。 */
+function reportStorageSaveState(rejectedKeys, addedKey) {
+	installUnloadGuard();
+	const suspended = getSuspendedStorageKeys();
+	const messages = [];
+	if (rejectedKeys.length) messages.push(`端末に保存できない内容があります（${storageModeNames(rejectedKeys)}）。直前の変更を元に戻してください。`);
+	if (suspended.length) messages.push(`保存データを読み込めないため、${storageModeNames(suspended)}の保存を停止しています。上書きを防ぐため、全消去するか、正しいデータを復元してください。`);
+	const warning = document.getElementById('storage-save-warning');
+	if (warning) {
+		warning.textContent = messages.join(' ');
+		warning.hidden = messages.length === 0;
+	}
+	if (addedKey) alert(`端末に保存できない内容があります（${storageModeNames([addedKey])}）。直前の変更を元に戻してください。この変更は保存されていません。`);
+}
+
+/** 解除失敗を、保存データの検証失敗・Web Locks 非対応・その他（呼出元の既定文言）に分けて表示する（I-12-08）。 */
+function describeUnlockFailure(err, fallback) {
+	if (err && err.code === 'INVALID_IMPORT_DATA') return '保存データの検証に失敗しました。パスワードは正しい可能性があります。旧版の保存値を修復できなかったため、全消去または正しいデータの復元が必要です。';
+	if (err && err.message === 'STORAGE_LOCKS_UNAVAILABLE') return 'このブラウザは端末暗号化に必要なWeb Locks APIに対応していません。対応ブラウザをご利用ください。';
+	return fallback;
+}
+
+function renderStorageLockReason() {
+	const errEl = document.getElementById('modal-unlock-error');
+	if (errEl && storageLockReason) errEl.textContent = storageLockReason;
+	const guestReason = document.getElementById('guest-storage-notice-reason');
+	if (guestReason) guestReason.textContent = storageLockReason;
+}
+
+/** 他タブが保存データを更新したとき、古いメモリで上書きせずロックする（SEC-34）。 */
+function handleForeignStorageUpdate() {
+	storageLockReason = FOREIGN_STORAGE_UPDATE_REASON;
+	handleImmediateLock();
+	renderStorageLockReason();
+}
+
+function notifyStorageRepairs(repairs) {
+	const labels = [...new Set(repairs || [])].map(item => STORAGE_REPAIR_LABELS[item]).filter(Boolean);
+	if (labels.length) alert('保存データの一部を修復して開きました。\n' + labels.map(label => '・' + label).join('\n'));
+}
+
+function clearStorageLockReason() {
+	storageLockReason = '';
+	const guestReason = document.getElementById('guest-storage-notice-reason');
+	if (guestReason) guestReason.textContent = '';
+}
 
 function getActiveAppMode() {
 	return activeAppMode;
@@ -315,7 +393,7 @@ function showStorageUnlockModal() {
 	}
 
 	const errEl = document.getElementById('modal-unlock-error');
-	if (errEl) errEl.textContent = "";
+	if (errEl) errEl.textContent = storageLockReason || "";
 
 	const passInput = document.getElementById('modal-unlock-pass');
 	if (passInput) {
@@ -345,10 +423,11 @@ async function handleWebAuthnUnlock(silent = false) {
 	if (errEl) errEl.textContent = "";
 
 	const access = beginStorageAccess();
+	storageLockReason = '';
 	try {
 		await unlockStorageWithWebAuthn(access.guard);
 		const generation = getStorageSessionGeneration();
-		await loadAppDataFromStorage(access.guard);
+		const { repairs } = await loadAppDataFromStorage(access.guard);
 		access.guard();
 		assertStorageSession(generation);
 		renderDistrictForm();
@@ -366,6 +445,8 @@ async function handleWebAuthnUnlock(silent = false) {
 		setAllCardsCollapse(true, 'tab-neighbor');
 		setAllCardsCollapse(true, 'tab-transfer');
 		resetAutoLockTimer();
+		clearStorageLockReason();
+		notifyStorageRepairs(repairs);
 	} catch (err) {
 		if (!access.current()) return;
 		storageAccessBusy = false;
@@ -376,7 +457,7 @@ async function handleWebAuthnUnlock(silent = false) {
 		if (appAccessInitialized) updateOfficerAccess();
 		showStorageUnlockModal();
 		if (!silent && errEl) {
-			errEl.textContent = err.message || "生体認証に失敗しました。パスワードで解除してください。";
+			errEl.textContent = storageLockReason || describeUnlockFailure(err, err.message || "生体認証に失敗しました。パスワードで解除してください。");
 		}
 	}
 }
@@ -396,10 +477,11 @@ async function handlePasswordUnlock() {
 	}
 
 	const access = beginStorageAccess();
+	storageLockReason = '';
 	try {
 		await unlockStorageWithPassword(password, access.guard);
 		const generation = getStorageSessionGeneration();
-		await loadAppDataFromStorage(access.guard);
+		const { repairs } = await loadAppDataFromStorage(access.guard);
 		access.guard();
 		assertStorageSession(generation);
 		renderDistrictForm();
@@ -416,6 +498,8 @@ async function handlePasswordUnlock() {
 		setAllCardsCollapse(true, 'tab-neighbor');
 		setAllCardsCollapse(true, 'tab-transfer');
 		resetAutoLockTimer();
+		clearStorageLockReason();
+		notifyStorageRepairs(repairs);
 	} catch (err) {
 		if (!access.current()) return;
 		storageAccessBusy = false;
@@ -425,11 +509,7 @@ async function handlePasswordUnlock() {
 		updateSecurityBadge('locked');
 		if (appAccessInitialized) updateOfficerAccess();
 		showStorageUnlockModal();
-		if (errEl) {
-			errEl.textContent = err && err.message === 'STORAGE_LOCKS_UNAVAILABLE'
-				? "このブラウザは端末暗号化に必要なWeb Locks APIに対応していません。対応ブラウザをご利用ください。"
-				: "パスワードが正しくないか、復号に失敗しました。";
-		}
+		if (errEl) errEl.textContent = storageLockReason || describeUnlockFailure(err, "パスワードが正しくないか、復号に失敗しました。");
 	}
 }
 
@@ -675,6 +755,8 @@ async function handleAddOrUpdateBiometric() {
  * ロック時にメモリ内データとDOMを初期化して画面からの情報漏洩を防ぎます
  */
 function clearMemoryAndDomForLock() {
+	// メモリ上の不合格値を既定値へ消去するため、保存拒否の状態も解除する（I-12-02）。
+	if (typeof clearStorageSaveRejections === 'function') clearStorageSaveRejections();
 	if (typeof currentDistrict !== 'undefined') {
 		currentDistrict.district = "";
 		currentDistrict.han = "";
@@ -795,7 +877,10 @@ function initAutoLockListeners() {
 		if (event.oldValue === event.newValue) return;
 		const meta = getStorageAuthMeta();
 		const validPrefix = meta && meta.storageFormat === 2 ? 'STORAGE_ENC:2:' : 'STORAGE_ENC:';
-		if (typeof event.newValue === 'string' && event.newValue.startsWith(validPrefix)) return;
+		if (typeof event.newValue === 'string' && event.newValue.startsWith(validPrefix)) {
+			if (isStorageUnlocked()) handleForeignStorageUpdate();
+			return;
+		}
 		invalidateStorageSecurity();
 		handleImmediateLock();
 	}, { capture: true });
@@ -900,8 +985,11 @@ async function loadAppDataFromStorage(guard = () => {}) {
 	const generation = getStorageSessionGeneration();
 	const keys = ['kogai_district_v2', 'kogai_rep_v2', 'kogai_neighbor_v2', 'kogai_transfer_v2'];
 	const current = [currentDistrict, repState, neighborState, transferState];
-	const loaded = await Promise.all(keys.map(key => loadStorageDecrypted(key)));
-	const next = loaded.map((value, index) => validateStoredData(value === null ? current[index] : value, keys[index]));
+	const inherited = typeof takeActivationRepairs === 'function' ? takeActivationRepairs() : [];
+	const repairs = [];
+	// 平文起動で読めずに停止中のキーは読まず、既定値を使う（I-12-07）。
+	const loaded = await Promise.all(keys.map(key => typeof isStorageWriteSuspended === 'function' && isStorageWriteSuspended(key) ? null : loadStorageDecrypted(key)));
+	const next = loaded.map((value, index) => validateStoredData(value === null ? current[index] : value, keys[index], { repair: true, repairs }));
 
 	const district = next[0];
 	if (!district.officers.length) district.officers = [district.officer || {}];
@@ -963,6 +1051,37 @@ async function loadAppDataFromStorage(guard = () => {}) {
 		state.neighborState = neighborState;
 		state.transferState = transferState;
 	}
+	return { repairs: [...new Set([...inherited, ...repairs])] };
+}
+
+/** 未暗号化起動で、読めない保存値のキーだけ書込を止め、他のモードは通常どおり開く（I-12-07）。 */
+async function startUnencryptedSession() {
+	const unreadable = STORAGE_DATA_KEYS.filter(key => {
+		const raw = localStorage.getItem(key);
+		if (raw === null) return false;
+		try {
+			validateStoredData(JSON.parse(raw), key, { repair: true });
+			return false;
+		} catch (_) {
+			return true;
+		}
+	});
+	if (unreadable.length) suspendStorageWrites(unreadable);
+	let repairs = [];
+	try {
+		({ repairs } = await loadAppDataFromStorage());
+	} catch (error) {
+		console.warn('Stored application data was rejected:', error);
+		// 予期しない失敗でも、既定状態の自動保存で保存済みの原本を上書きしない（I-12-07）。
+		suspendStorageWrites(STORAGE_DATA_KEYS.filter(key => localStorage.getItem(key) !== null));
+		alert('端末内の保存データが不正なため、安全な初期状態で起動しました。');
+	}
+	renderDistrictForm();
+	renderRepAll();
+	if (typeof renderNeighborForm === 'function') renderNeighborForm();
+	if (typeof renderTransferForm === 'function') renderTransferForm();
+	if (unreadable.length) alert(`保存データを読み込めないため、${storageModeNames(unreadable)}の保存を停止しました。上書きを防ぐため、全消去するか、正しいデータを復元してください。`);
+	notifyStorageRepairs(repairs);
 }
 
 const UPDATE_ATTEMPT_TTL_MS = 60 * 60 * 1000; // 1時間
@@ -1115,12 +1234,15 @@ async function performAppUpdate(targetVersion = null) {
 		if (getStorageSessionGeneration() !== generationBefore || isStorageEncrypted() !== encryptedBefore) {
 			throw new Error('STORAGE_SESSION_CHANGED');
 		}
-		if (results.some((result, index) => result === false && !officerPlaintextWriteDenied(entries[index][0]))) {
-			throw new Error('STORAGE_SAVE_REJECTED');
+		// 平文の役員書込拒否と、読めずに停止中のキーは更新を止めない（I-12-07）。
+		if (results.some((result, index) => result === false && !officerPlaintextWriteDenied(entries[index][0]) && !isStorageWriteSuspended(entries[index][0]))) {
+			throw new Error(getStorageSaveRejectedKeys().length ? 'STORAGE_SAVE_REJECTED' : 'STORAGE_SAVE_FAILED');
 		}
 	} catch (e) {
 		console.warn("Failed to persist data before update:", e);
-		alert("更新前のデータ保存に失敗しました。空き容量と暗号化状態を確認してください。");
+		alert(e && e.message === 'STORAGE_SAVE_REJECTED'
+			? "端末に保存できない内容があります。直前の変更を元に戻してから再試行してください。"
+			: "更新前のデータ保存に失敗しました。空き容量と暗号化状態を確認してください。");
 		return false;
 	}
 	if (targetVersion) recordUpdateAttemptInfo(targetVersion);
@@ -1183,12 +1305,7 @@ window.addEventListener('appinstalled', () => {
 	deferredInstallPrompt = null;
 	updatePwaInstallButton();
 });
-window.addEventListener('beforeunload', event => {
-	if (typeof hataHasUnsavedChanges !== 'undefined' && hataHasUnsavedChanges) {
-		event.preventDefault();
-		event.returnValue = '';
-	}
-});
+installUnloadGuard();
 window.addEventListener('DOMContentLoaded', async () => {
 	updatePwaInstallButton();
 	if (typeof initializeBrowserHandoff === 'function') initializeBrowserHandoff();
@@ -1210,16 +1327,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
 	} else {
 		updateSecurityBadge('unencrypted');
-		try {
-			await loadAppDataFromStorage();
-		} catch (error) {
-			console.warn('Stored application data was rejected:', error);
-			alert('端末内の保存データが不正なため、安全な初期状態で起動しました。');
-		}
-		renderDistrictForm();
-		renderRepAll();
-		if (typeof renderNeighborForm === 'function') renderNeighborForm();
-		if (typeof renderTransferForm === 'function') renderTransferForm();
+		await startUnencryptedSession();
 		setAllCardsCollapse(true, 'tab-district');
 		setAllCardsCollapse(true, 'tab-rep');
 		setAllCardsCollapse(true, 'tab-neighbor');
@@ -1273,7 +1381,8 @@ if (typeof module !== 'undefined' && module.exports) {
 		resetAutoLockTimer,
 		initAutoLockListeners,
 		quickSetupEncryptionFromCard,
-		loadAppDataFromStorage,
+		loadAppDataFromStorage, startUnencryptedSession,
+		reportStorageSaveState, describeUnlockFailure, handleForeignStorageUpdate, notifyStorageRepairs,
 		checkAppVersion,
 		performAppUpdate,
 		UPDATE_ATTEMPT_TTL_MS,

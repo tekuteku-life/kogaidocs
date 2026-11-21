@@ -52,8 +52,7 @@ test('Mechanical Static Analysis: Syntax, DOM element ID consistency, and listen
 			'summaryContainer',
 			'summaryAccordion',
 			'accordionArrow',
-			'hata-members',
-			'd-file-pass'
+			'hata-members'
 		]);
 
 		const jsFiles = fs.readdirSync(path.join(rootDir, 'js')).filter(f => f.endsWith('.js'));

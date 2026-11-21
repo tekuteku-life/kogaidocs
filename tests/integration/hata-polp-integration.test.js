@@ -93,7 +93,7 @@ test('integration: Pattern F - Hatafurotto PoLP boundary defense & round-trip di
 			this.onload({ target: { result: `BEGIN_DATA:\n${exportedCiphertext}\n:END_DATA` } });
 		}
 	};
-	document.getElementById('d-file-pass').value = pwd;
+	document.getElementById('d-pass').value = pwd; // QA-09: 実在するパスワード欄を使う
 
 	await districtLib.loadDistrictTxt(file);
 

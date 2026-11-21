@@ -285,11 +285,21 @@ test('security: plaintext restore rejects a non-string saved password before com
 	assert.equal(JSON.stringify(localStorage.store), beforeStorage);
 });
 
+/** 旧版（保存前検証なし）で保存済みの値を再現する。現行版では saveStorageData が拒否する（I-12-02）。 */
+async function saveLegacyStorageValue(key, value) {
+	assert.equal(await cryptoLib.saveStorageData(key, value), false, 'Current versions refuse to store the invalid value');
+	const strict = global.validateStoredData;
+	global.validateStoredData = model => model;
+	try {
+		assert.equal(await cryptoLib.saveStorageData(key, value), true);
+	} finally { global.validateStoredData = strict; }
+}
+
 test('security: encrypted restore rejects a non-string saved password before committing any model', async () => {
 	fresh();
 	const password = 'SavedPasswordType1!';
 	await cryptoLib.setupStorageEncryption(password, false);
-	await cryptoLib.saveStorageData('kogai_district_v2', invalidSavedPasswordDistrict());
+	await saveLegacyStorageValue('kogai_district_v2', invalidSavedPasswordDistrict());
 	const beforeModel = JSON.stringify([state.currentDistrict, state.repState, state.neighborState, state.transferState]);
 	const beforeStorage = JSON.stringify(localStorage.store);
 	await assert.rejects(app.loadAppDataFromStorage());
@@ -331,7 +341,7 @@ for (const field of ['scheduleCreatedDate', 'district']) {
 			const password = 'HataAliasType1!';
 			if (encrypted) {
 				await cryptoLib.setupStorageEncryption(password, false);
-				await cryptoLib.saveStorageData('kogai_district_v2', invalidHataDistrict());
+				await saveLegacyStorageValue('kogai_district_v2', invalidHataDistrict());
 			} else localStorage.setItem('kogai_district_v2', JSON.stringify(invalidHataDistrict()));
 			const beforeModel = JSON.stringify([state.currentDistrict, state.repState, state.neighborState, state.transferState]);
 			const beforeStorage = JSON.stringify(localStorage.store);
@@ -667,21 +677,24 @@ test('security SEC-29: saveAndCloseRepDistrictDetailModal preserves modal & draf
 	window.dispatchEvent({ type: 'storage', key: 'kogai_district_v2', oldValue: '{}', newValue: null, storageArea: localStorage });
 	assert.equal(cryptoLib.isStorageEncrypted(), false);
 
-	// Valid STORAGE_ENC:2: foreign write while unlocked must NOT falsely lock; same oldValue/newValue and legacy STORAGE_ENC: with v1 metadata also behave accurately
+	// SEC-34 (I-12-06): identical values are ignored, while a valid STORAGE_ENC:2: foreign write locks without resetting security
 	fresh();
 	await cryptoLib.setupStorageEncryption('WatchDataKeys123!', false);
 	app.initAutoLockListeners();
 	const validVal = localStorage.getItem('kogai_district_v2');
-	window.dispatchEvent({ type: 'storage', key: 'kogai_district_v2', oldValue: validVal, newValue: 'STORAGE_ENC:2:updated-from-other-tab', storageArea: localStorage });
 	window.dispatchEvent({ type: 'storage', key: 'kogai_district_v2', oldValue: validVal, newValue: validVal, storageArea: localStorage });
 	assert.equal(cryptoLib.isStorageUnlocked(), true);
-	// Legacy (non-v2) metadata permits STORAGE_ENC: prefix without triggering handleImmediateLock()
+	window.dispatchEvent({ type: 'storage', key: 'kogai_district_v2', oldValue: validVal, newValue: 'STORAGE_ENC:2:updated-from-other-tab', storageArea: localStorage });
+	assert.equal(cryptoLib.isStorageUnlocked(), false, 'A valid foreign write locks this tab');
+	assert.equal(cryptoLib.isStorageEncrypted(), true, 'A valid foreign write never resets security');
+	// Legacy (non-v2) metadata treats STORAGE_ENC: as a valid foreign write: lock, but keep security
+	await cryptoLib.unlockStorageWithPassword('WatchDataKeys123!');
 	const legacyMeta = JSON.parse(localStorage.getItem(cryptoLib.STORAGE_AUTH_KEY));
 	delete legacyMeta.storageFormat;
 	localStorage.setItem(cryptoLib.STORAGE_AUTH_KEY, JSON.stringify(legacyMeta));
-	document.getElementById('storage-lock-modal').style.display = 'none';
 	window.dispatchEvent({ type: 'storage', key: 'kogai_district_v2', oldValue: validVal, newValue: 'STORAGE_ENC:v1payload', storageArea: localStorage });
-	assert.notEqual(document.getElementById('storage-lock-modal').style.display, 'flex');
+	assert.equal(cryptoLib.isStorageUnlocked(), false);
+	assert.equal(cryptoLib.isStorageEncrypted(), true);
 	// Null auth metadata alongside encrypted ciphertext also falls back to STORAGE_ENC: check before locking invalid values
 	localStorage.removeItem(cryptoLib.STORAGE_AUTH_KEY);
 	window.dispatchEvent({ type: 'storage', key: 'kogai_district_v2', oldValue: validVal, newValue: '{"plain":1}', storageArea: localStorage });

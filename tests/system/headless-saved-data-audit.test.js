@@ -89,7 +89,8 @@ for (const encrypted of [false, true]) {
 		await savedAudit.flush();
 		if (window.__savedEncrypted) await savedAudit.encrypt();
 		const models = savedAudit.models(), dom = ui.element('#d-name').value;
-		const bad = JSON.parse(JSON.stringify(currentDistrict)); bad.hata.members = Array.from({ length: 10001 }, (_, i) => `担当${i}`).join('\n');
+		// 旗振りの予算超過は I-12-05 で修復されるため、修復できない型不正（役員行が null）で拒否を検査する。
+		const bad = JSON.parse(JSON.stringify(currentDistrict)); bad.officers = [null];
 		if (isStorageEncrypted()) {
 			const meta = getStorageAuthMeta();
 			const key = await unwrapKeyWithPassword(meta.password, sessionStorage.getItem('__uiDatabasePassword') || savedAudit.password);
@@ -110,7 +111,7 @@ savedTest('Saved-data UI: hostile format, exemption attributes and unfinished in
 	await savedAudit.positive();
 	const attack = `SAVED_PRIVATE_58019 \"'><img data-saved-attack src="https://saved-audit.invalid/collect" onerror="window.__savedExecuted=1"> {氏名}`;
 	const config = { title: '攻撃文字列の保持', members: attack, format: '{氏名} / {住所}', holidays: '', specials: '', startDate: '2026-11-09', endDate: '2026-11-13', weekdays: [1, 2, 3, 4, 5], inputDrafts: { holidays: attack, format: attack } };
-	const data = { district: '攻撃検査地区', students: [{ lastName: '{地区}', firstName: attack, address: '1-2' }], officers: [], neighborhood: [], hata: config };
+	const data = { district: '攻撃検査地区', students: [{ lastName: '{地区}', firstName: attack, address: '1-2', grade: '1' }], officers: [], neighborhood: [], hata: config };
 	ui.fill('#d-pass', savedAudit.password); ui.fill('#d-pass-confirm', savedAudit.password);
 	await savedAudit.file('loadDistrictTxt', '#d-file-in', await encryptPayload(JSON.stringify(data), savedAudit.password));
 	assert.strictEqual(ui.element('#hata-format').value, attack, 'Unfinished format remains literal in its input');

@@ -104,11 +104,19 @@ for (const endpoint of ['startDate', 'endDate']) {
 			]) assert.throws(validate, { code: 'INVALID_IMPORT_DATA' });
 		});
 		for (const route of ['file', 'paste', 'plaintext', 'encrypted']) {
-			test(`security lifecycle: ${route} refuses isolated ${endpoint}=${value} before model, DOM or storage replacement`, async () => {
+			test(route === 'file' || route === 'paste'
+				? `security lifecycle: ${route} refuses isolated ${endpoint}=${value} before model, DOM or storage replacement`
+				: `security lifecycle: ${route} refuses to store isolated ${endpoint}=${value}, and a legacy stored value is repaired into a draft on load (I-12-05)`, async () => {
 				await fresh();
 				const invalid = createMockDistrict({ district: '拒否する地区', hata: config });
 				if (route === 'encrypted') await crypt.setupStorageEncryption(password, false);
-				if (route === 'plaintext' || route === 'encrypted') await crypt.saveStorageData(keys[0], invalid);
+				if (route === 'plaintext' || route === 'encrypted') {
+					assert.equal(await crypt.saveStorageData(keys[0], invalid), false, 'Strict save-time validation refuses the invalid date (I-12-02)');
+					// 旧版で保存済みの値を再現するため、検証を経ずに書き込む。
+					const strict = global.validateStoredData;
+					global.validateStoredData = value => value;
+					try { assert.equal(await crypt.saveStorageData(keys[0], invalid), true); } finally { global.validateStoredData = strict; }
+				}
 				document.getElementById('d-pass').value = password;
 				const content = (route === 'file' || route === 'paste') ? await crypt.encryptPayload(JSON.stringify(invalid), password) : null;
 				const before = snapshot(), beforeDOM = domSnapshot(), beforeStorage = { ...localStorage.store };
@@ -120,17 +128,24 @@ for (const endpoint of ['startDate', 'endDate']) {
 					document.getElementById('d-paste-box').value = content;
 					await district.loadPastedTextToDistrict();
 					assert.equal(document.getElementById('d-paste-box').value, content);
-				} else await assert.rejects(app.loadAppDataFromStorage(), { code: 'INVALID_IMPORT_DATA' });
+				} else {
+					// 端末保存値は I-12-05 により修復して開く。日付は有効値から外して下書きへ移す。
+					const { repairs } = await app.loadAppDataFromStorage();
+					assert.deepEqual(repairs, ['hata-budget']);
+					assert.equal(state.currentDistrict.district, '拒否する地区');
+					assert.equal(state.currentDistrict.hata[endpoint], '', 'The invalid date is no longer effective');
+					assert.equal(state.currentDistrict.hata.inputDrafts[endpoint], value, 'The invalid date is kept as a draft');
+					assert.deepEqual(localStorage.store, beforeStorage, 'Reading never rewrites the original');
+					if (route === 'encrypted') {
+						crypt.lockStorage();
+						assert.equal(await crypt.unlockStorageWithPassword(password), true, 'Repaired contents can activate the key');
+					}
+					return;
+				}
 				assert.equal(snapshot(), before, 'All four authoritative models remain unchanged');
 				assert.equal(domSnapshot(), beforeDOM, 'Existing DOM is not partially redrawn');
 				assert.deepEqual(localStorage.store, beforeStorage, 'Source storage is never overwritten on rejection');
 				if (content) assert.match(global.__lastAlert, /失敗|フォーマット/);
-				if (route === 'encrypted') {
-					crypt.lockStorage();
-					await assert.rejects(crypt.unlockStorageWithPassword(password), { code: 'INVALID_IMPORT_DATA' });
-					assert.equal(crypt.isStorageUnlocked(), false, 'Invalid authenticated contents cannot activate a key');
-					assert.deepEqual(localStorage.store, beforeStorage);
-				}
 			});
 		}
 	}

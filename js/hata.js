@@ -253,7 +253,7 @@ function expandDateOrRange(datePart) {
  * 期間プリセットの日程を算出します（前期・後期・通年）
  */
 function getPeriodPresetDates(presetKey, baseYear) {
-	const yr = typeof baseYear === 'number' ? baseYear : new Date().getFullYear();
+	const yr = Number.isInteger(baseYear) ? baseYear : getFiscalYear();
 	if (presetKey === 'zenki') {
 		return {
 			startDate: `${yr}-04-06`,
@@ -296,7 +296,8 @@ function generateHataSchedule(config) {
 		config.holidays.split('\n').forEach(line => {
 			const parts = line.split(',');
 			if (parts[0] && parts[0].trim()) {
-				const reason = (parts[1] || '祝日').trim();
+				// 2列目以降のカンマは注記の一部として保持する（QA-07）。
+				const reason = parts.slice(1).join(',').trim() || '祝日';
 				const dates = expandDateOrRange(parts[0].trim());
 				expandedHolidays += dates.length;
 				assertHataExpansionSize(expandedHolidays);
@@ -321,7 +322,7 @@ function generateHataSchedule(config) {
 				expandedSpecials += dates.length;
 				assertHataExpansionSize(expandedSpecials);
 				const fixedPerson = parts[1] || '';
-				const label = parts[2] || '特別枠';
+				const label = parts.slice(2).join(',') || '特別枠';
 				dates.forEach(dKey => {
 					specialMap.set(dKey, {
 						fixedPerson,
@@ -898,16 +899,26 @@ function toggleHataExempt(householdKey, isExempt, memberName = householdKey) {
  * 期間プリセット（前期・後期・通年）を適用します
  */
 function applyHataPeriodPreset(presetKey) {
-	const yr = new Date().getFullYear();
+	// 基準年は操作日の年度（4月1日切替）とする（SPEC-Q4・I-13-03）。
+	const yr = getFiscalYear();
 	const dates = getPeriodPresetDates(presetKey, yr);
 	if (!currentDistrict.hata) currentDistrict.hata = {};
-	currentDistrict.hata.startDate = dates.startDate;
-	currentDistrict.hata.endDate = dates.endDate;
-	markHataDirty();
+	const h = currentDistrict.hata;
+	const candidate = { startDate: dates.startDate, endDate: dates.endDate };
+	const hasHolidays = Array.isArray(h.holidays) ? h.holidays.length > 0 : (typeof h.holidays === 'string' && h.holidays !== '');
+	// 自動生成のままの休日は、プリセットの年度の祝日一覧へ合わせる。編集・下書き・空欄は変更しない。
+	if (hasHolidays && h.inputDrafts?.holidays === undefined && yr >= 2000 && yr <= 2099 && isDefaultHolidayValue(h)) {
+		candidate.holidays = generateJapaneseHolidays(yr, Math.min(yr + 1, 2099)).map(x => `${x.date},${x.name}`).join('\n');
+		const holiEl = document.getElementById('hata-holidays');
+		if (holiEl) holiEl.value = candidate.holidays;
+	}
 	const startEl = document.getElementById('hata-start-date');
 	if (startEl) startEl.value = dates.startDate;
 	const endEl = document.getElementById('hata-end-date');
 	if (endEl) endEl.value = dates.endDate;
+	// 手入力と同じ上限検査を通し、超過時は有効期間を変えず下書きとして保持する（SEC-31）。
+	if (!collectHataScheduleInputs(h, candidate)) renderHataInputStatus();
+	markHataDirty();
 	saveDistrictLocal();
 }
 
@@ -937,7 +948,20 @@ function syncHataMembersFromStudents() {
 function runAutoHataGeneration() {
 	if (!currentDistrict.hata || !ensureHataInputsReady()) return;
 	const members = currentDistrict.hata.members ?? extractHouseholdsFromStudents(currentDistrict.students || []).map(household => household.displayName).join('\n');
-	const schedule = generateHataSchedule({ ...currentDistrict.hata, members });
+	let schedule;
+	try {
+		schedule = generateHataSchedule({ ...currentDistrict.hata, members });
+	} catch (error) {
+		// 名簿・下書き・保存値を変えずに中止する（QA-11）。
+		alert('旗振りシフトを生成できませんでした：' + error.message);
+		renderHataSchedulePreview([]);
+		return;
+	}
+	// 生成に使った名簿を入力欄にも反映し、次の通常保存が空の入力欄で上書きしないようにする。
+	if (currentDistrict.hata.members === undefined) {
+		const memEl = document.getElementById('hata-members');
+		if (memEl) memEl.value = members;
+	}
 	currentDistrict.hata.members = members;
 	renderHataSchedulePreview(schedule);
 	saveDistrictLocal();
@@ -1027,7 +1051,7 @@ function markHataSaved(expectedSettings) {
 }
 function getHataFilenameDate(config) {
 	const parts = (config?.createdDate || '').match(/\d+/g);
-	return parts && parts.length >= 3 ? parts[0] + parts[1].padStart(2, '0') + parts[2].padStart(2, '0') : new Date().toISOString().slice(0, 10).replace(/-/g, '');
+	return parts && parts.length >= 3 ? parts[0] + parts[1].padStart(2, '0') + parts[2].padStart(2, '0') : formatLocalDateStamp().replace(/-/g, '');
 }
 
 function renderHataInputStatus() {

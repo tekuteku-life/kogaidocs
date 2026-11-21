@@ -50,35 +50,55 @@ function upsertRepDistrict(d, target = repState, persist = true) {
 
 	// 自治会役員データの保護:
 	// 代表側にすでに有効な自治会役員が存在し、提出データ側の neighborhood が空の場合は代表側の自治会役員を保護
-	const incomingHasNeighbors = (d.neighborhood || []).some(n => n.lastName || n.firstName || n.role);
+	// 役職または氏名（旧形式の name を含む）のある行があれば名簿とみなす。どちらも前後の空白を除いて比べる（E-13-01・E-13-02・I-13-02）。
+	const hasRosterRow = n => !!n && (getFullName(n) !== '' || String(n.role ?? '').trim() !== '');
+	const incomingHasNeighbors = (d.neighborhood || []).some(hasRosterRow);
+	const replaced = existingIdx >= 0 ? target.districts[existingIdx] : null;
+	let copiedFrom = null;
 	if (!incomingHasNeighbors) {
 		const existingWithNeighbors = target.districts.find(x =>
 			x.district === d.district &&
-			(x.neighborhood || []).some(n => n.lastName || n.firstName || n.role)
+			(x.neighborhood || []).some(hasRosterRow)
 		);
 		if (existingWithNeighbors) {
 			d.neighborhood = JSON.parse(JSON.stringify(existingWithNeighbors.neighborhood));
+			copiedFrom = existingWithNeighbors;
 		}
 	}
 
-	// 自治会役員の初期チェック（役職に「会長」が含まれる人をデフォルトON、いなければ先頭をON）
-	const defaultChecks = {};
-	(d.neighborhood || []).forEach((n, idx) => {
-		if (n.role && n.role.includes("会長")) defaultChecks[idx] = true;
-	});
-	if (Object.keys(defaultChecks).length === 0 && (d.neighborhood || []).length > 0) {
-		defaultChecks[0] = true;
+	// 自治会役員の出席（SPEC-Q1・Q2、I-13-02）: 差替え前の代表名簿、なければ置換対象の名簿と本人単位で照合する。
+	const group = findNeighborGroup(previous, d.district);
+	let checks;
+	if (incomingHasNeighbors) {
+		checks = resolveImportedNeighborChecks(d.neighborhood, [group, replaced && neighborCheckCandidate(replaced)]);
+	} else if (copiedFrom && copiedFrom === replaced) {
+		// 名簿のない再取込で自エントリの名簿を写した場合は、名簿差替えではないため出席を変更しない。
+		checks = replaced.szNeighborChecks ? JSON.parse(JSON.stringify(replaced.szNeighborChecks)) : undefined;
+	} else if (copiedFrom) {
+		checks = resolveImportedNeighborChecks(d.neighborhood, [group, neighborCheckCandidate(copiedFrom)], { chairmanDefaults: false });
+	} else {
+		checks = {};
 	}
 
 	const wrapped = {
 		...JSON.parse(JSON.stringify(d)),
-		selectedForPrint: existingIdx >= 0 ? target.districts[existingIdx].selectedForPrint : true,
-		szNeighborChecks: existingIdx >= 0 ? (target.districts[existingIdx].szNeighborChecks || defaultChecks) : defaultChecks
+		selectedForPrint: replaced ? replaced.selectedForPrint : true,
+		szNeighborChecks: checks
 	};
+	if (checks === undefined) delete wrapped.szNeighborChecks;
 
 	if (existingIdx >= 0) target.districts[existingIdx] = wrapped;
 	else target.districts.push(wrapped);
-	reconcileSeatState(previous, {}, target);
+	// 置き換えない同名エントリは、差替え前の代表組・取込後の名簿と本人単位で作り直し、代表の入替えや印刷対象の選び方で出席が変わらないようにする。
+	// 名簿のない取込でも、別のエントリの名簿を写した場合は代表の名簿が縮んで代表が入れ替わることがあるため、同じく作り直す。
+	if (incomingHasNeighbors || (copiedFrom && copiedFrom !== replaced)) {
+		const name = (d.district || '').trim();
+		const imported = neighborCheckCandidate(wrapped);
+		target.districts.forEach(entry => {
+			if (entry !== wrapped && (entry.district || '').trim() === name) alignNeighborChecksToGroup(entry, [group, imported], { clearDuplicatesOf: incomingHasNeighbors ? imported.identities : [] });
+		});
+	}
+	reconcileSeatState(previous, {}, target, { neighborChecksResolved: true });
 	if (persist) saveRepLocal();
 }
 
@@ -89,19 +109,13 @@ function mergeNeighborDataIntoRep(data, target = repState, persist = true) {
 	const dName = (data.district || "").trim() || "未設定地区";
 	nList.forEach(normalizeNameFields);
 
-	const defaultChecks = {};
-	nList.forEach((n, idx) => {
-		if (n.role && n.role.includes("会長")) defaultChecks[idx] = true;
-	});
-	if (Object.keys(defaultChecks).length === 0 && nList.length > 0) {
-		defaultChecks[0] = true;
-	}
-
 	const matching = target.districts.filter(x => (x.district || "").trim() === dName);
 	if (matching.length > 0) {
+		// 差替え前の代表名簿（なければ各エントリの名簿）と本人単位で1回だけ照合し、同名の全エントリへ適用する（I-13-02）。
+		const checks = resolveImportedNeighborChecks(nList, [findNeighborGroup(previous, dName), ...matching.map(neighborCheckCandidate)]);
 		matching.forEach(d => {
 			d.neighborhood = JSON.parse(JSON.stringify(nList));
-			d.szNeighborChecks = { ...defaultChecks, ...(d.szNeighborChecks || {}) };
+			d.szNeighborChecks = { ...checks };
 		});
 	} else {
 		target.districts.push({
@@ -112,10 +126,10 @@ function mergeNeighborDataIntoRep(data, target = repState, persist = true) {
 			neighborhood: JSON.parse(JSON.stringify(nList)),
 			students: [],
 			selectedForPrint: true,
-			szNeighborChecks: defaultChecks
+			szNeighborChecks: defaultNeighborChecks(nList)
 		});
 	}
-	reconcileSeatState(previous, {}, target);
+	reconcileSeatState(previous, {}, target, { neighborChecksResolved: true });
 	if (persist) saveRepLocal();
 }
 
@@ -154,6 +168,7 @@ async function loadMultipleDistrictFiles(e) {
 	if (!files.length) return;
 	const pass = document.getElementById('rep-pass').value;
 	let ok = 0, ng = 0, saveFailures = 0;
+	const gradeFailures = [];
 	for (const f of files) {
 		try {
 			assertStorageSession(generation);
@@ -169,10 +184,11 @@ async function loadMultipleDistrictFiles(e) {
 			}
 			ng++;
 			if (err.code === 'IMPORT_SAVE_FAILED') saveFailures++;
+			if (err.code === 'INVALID_IMPORT_GRADE') gradeFailures.push(err.message);
 		}
 	}
 	renderRepAll();
-	alert(`${ok}件のファイルを読み込みました。` + (ng ? `\n（${ng}件はパスワード不一致等で失敗）` : "") + (saveFailures ? `\n${saveFailures}件は端末への保存に失敗しました。空き容量を確認して再試行してください。` : ""));
+	alert(`${ok}件のファイルを読み込みました。` + (ng ? `\n（${ng}件はパスワード不一致等で失敗）` : "") + (saveFailures ? `\n${saveFailures}件は端末への保存に失敗しました。空き容量を確認して再試行してください。` : "") + gradeFailures.map(message => `\n${message}`).join(''));
 	e.target.value = "";
 }
 
@@ -197,14 +213,16 @@ async function loadPastedTextToRep() {
 		}
 	} catch (err) {
 		if (err.message === 'STORAGE_SESSION_CHANGED') return;
-		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "復号に失敗しました。パスワードを確認してください。");
+		alert(importFailureMessage(err, "復号に失敗しました。パスワードを確認してください。"));
 	}
 }
 
 function addCurrentDistrictToRep() {
 	saveDistrictLocal();
 	if (!currentDistrict.district) { alert("タブ①の地区名が未入力です。"); return; }
-	upsertRepDistrict(currentDistrict);
+	// 代表の座席表示量を超える追加は確定しない（SEC-30）。
+	if (!applyStorableChange('kogai_rep_v2', repState, model => upsertRepDistrict(currentDistrict, model, false))) return;
+	saveRepLocal();
 	renderRepAll();
 }
 
@@ -265,7 +283,7 @@ async function exportRepMasterTxt() {
 
 	const encoded = await encryptPayload(JSON.stringify(repState), pass);
 	if (!outputIsCurrent()) return false;
-	const dateStr = new Date().toISOString().slice(0,10);
+	const dateStr = formatLocalDateStamp();
 	const content = [
 		`--- 校外委員会 代表統合マスターデータ (出力日:${dateStr}) ---`,
 		`BEGIN_DATA:`,
@@ -290,7 +308,7 @@ async function loadRepMasterTxt(e) {
 		}
 	} catch (err) {
 		if (err.message === 'STORAGE_SESSION_CHANGED') { e.target.value = ""; return; }
-		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "読み込みに失敗しました。パスワードを確認してください。");
+		alert(importFailureMessage(err, "読み込みに失敗しました。パスワードを確認してください。"));
 	}
 	e.target.value = "";
 }
@@ -433,6 +451,20 @@ function saveAndCloseRepDistrictDetailModal() {
 	}
 
 	const edited = candidateDistrict;
+	if (oldNeighborSource === modalDistrictIndex && newNeighborSource !== modalDistrictIndex) {
+		// 座席候補のエントリが替わる編集では、編集した行の候補に編集後の所属・本人も加えて照合する（I-13-02）。
+		const rows = edited.neighborhood || [];
+		const { identities, unique } = neighborIdentityFlags(rows);
+		const prefix = `NEI_${original.district}_`;
+		previous.participants.forEach(person => {
+			const rest = person.key.startsWith(prefix) ? person.key.slice(prefix.length) : '';
+			if (!/^\d+$/.test(rest)) return;
+			const newIndex = modalNeighborIndexes.indexOf(Number(rest));
+			// 削除した行と編集後の名簿で重複する行は、編集前の所属・本人だけで照合する。
+			if (newIndex < 0 || !unique[newIndex]) return;
+			person.edited = { org: `${original.district} ${rows[newIndex].role}`, name: getFullName(rows[newIndex]), identity: identities[newIndex] };
+		});
+	}
 	const oldGroup = previous.neighbors.find(group => group.district === original.district);
 	if (oldGroup && oldGroup.sourceIndex === modalDistrictIndex) {
 		oldGroup.identities = edited.neighborhood.map(neighborIdentity);
@@ -503,6 +535,12 @@ function confirmAddRepDistrict() {
 		return;
 	}
 
+	if (dName.length > MAX_REP_DISTRICT_NAME_LENGTH) {
+		showAddDistrictNameTooLong();
+		if (input && typeof input.focus === 'function') input.focus();
+		return;
+	}
+
 	closeAddDistrictModal();
 	addNewRepDistrict(dName);
 
@@ -514,6 +552,16 @@ function confirmAddRepDistrict() {
 	}
 }
 
+const MAX_REP_DISTRICT_NAME_LENGTH = 4096;
+
+function showAddDistrictNameTooLong() {
+	const errorEl = document.getElementById('rep-new-district-error');
+	if (errorEl) {
+		errorEl.textContent = `地区名は${MAX_REP_DISTRICT_NAME_LENGTH}文字以内で入力してください。`;
+		errorEl.style.display = 'block';
+	}
+}
+
 function addNewRepDistrict(directName) {
 	if (typeof directName !== 'string') {
 		openAddDistrictModal();
@@ -522,6 +570,11 @@ function addNewRepDistrict(directName) {
 
 	const dName = directName.replace(/[\r\n\t]/g, '').trim();
 	if (!dName) return;
+	// 引き継ぎ下書き等からの長い地区名で解除不能な値を作らない（SEC-35）。
+	if (dName.length > MAX_REP_DISTRICT_NAME_LENGTH) {
+		showAddDistrictNameTooLong();
+		return false;
+	}
 
 	if (repState.districts && repState.districts.some(d => d.district === dName)) {
 		alert("地区「" + dName + "」は既に存在します。");
@@ -557,7 +610,7 @@ function addNewRepDistrict(directName) {
 	};
 
 	if (!repState.districts) repState.districts = [];
-	repState.districts.push(newDist);
+	if (!applyStorableChange('kogai_rep_v2', repState, model => model.districts.push(newDist))) return false;
 	renderRepDistrictsTable();
 	if (typeof renderSzNeighborhoodSelector === 'function') renderSzNeighborhoodSelector();
 	saveRepLocal();
@@ -848,12 +901,26 @@ function toggleSzNeighbor(dIdx, nIdx, flag) {
 	const targetDist = repState.districts[dIdx];
 	if (!targetDist) return;
 	const distName = (targetDist.district || '').trim();
-	// 同一地区名の全エントリに対してチェック状態を同期する
-	repState.districts.forEach((d, idx) => {
-		if (idx === dIdx || (distName && (d.district || '').trim() === distName)) {
-			if (!d.szNeighborChecks) d.szNeighborChecks = {};
-			d.szNeighborChecks[nIdx] = flag;
+	if (!targetDist.szNeighborChecks) targetDist.szNeighborChecks = {};
+	targetDist.szNeighborChecks[nIdx] = flag;
+	// 同じ地区名の他のエントリへの同期（E-03-06・I-13-02）。名簿（行の内容と並び）が同じエントリは従来どおり同じ行番号へ、
+	// 名簿の異なるエントリは操作した本人と同じ内容の行（双方の名簿内で一意）だけへ同期し、別の本人や氏名のない枠を出席にしない。
+	const own = (targetDist.neighborhood || []).map(neighborIdentity);
+	const ownRoster = JSON.stringify(own);
+	const identity = own[nIdx];
+	const identifiable = identity !== undefined && own.filter(value => value === identity).length === 1;
+	if (distName) repState.districts.forEach((d, idx) => {
+		if (idx === dIdx || (d.district || '').trim() !== distName) return;
+		const identities = (d.neighborhood || []).map(neighborIdentity);
+		let target = null;
+		if (JSON.stringify(identities) === ownRoster) target = nIdx;
+		else if (identifiable) {
+			const matches = identities.reduce((list, value, i) => (value === identity ? [...list, i] : list), []);
+			if (matches.length === 1) target = matches[0];
 		}
+		if (target === null) return;
+		if (!d.szNeighborChecks) d.szNeighborChecks = {};
+		d.szNeighborChecks[target] = flag;
 	});
 	saveRepLocal();
 	renderSeatEditor();
@@ -917,7 +984,7 @@ function updateSzEx(idx, key, val) {
 }
 
 function addSzExternalRow() {
-	repState.szExternals.push({
+	const accepted = applyStorableChange('kogai_rep_v2', repState, model => model.szExternals.push({
 		attend: true,
 		category: "役所・警察・関係機関",
 		org: "",
@@ -928,7 +995,8 @@ function addSzExternalRow() {
 		firstNameKana: "",
 		name: "",
 		contact: ""
-	});
+	}));
+	if (!accepted) return;
 	saveRepLocal();
 	renderSzExternalTable();
 	renderSeatEditor();
@@ -1038,7 +1106,7 @@ async function loadTransferFileIntoRep(e) {
 		try {
 			data = await parseTxtContent(text, pass, generation, importKind);
 		} catch (err) {
-			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
+			if (['INVALID_IMPORT_DATA', 'INVALID_IMPORT_GRADE'].includes(err.code) || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) { if (e.target) e.target.value = ""; return; }
 			data = await parseTxtContent(text, promptPass, generation, importKind);
@@ -1046,7 +1114,7 @@ async function loadTransferFileIntoRep(e) {
 		await integrateTransferDataIntoRep(data, pass, generation);
 	} catch (err) {
 		if (err.message === 'STORAGE_SESSION_CHANGED') { e.target.value = ""; return; }
-		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの読み込みに失敗しました。パスワードをご確認ください。");
+		alert(importFailureMessage(err, "転入児童データの読み込みに失敗しました。パスワードをご確認ください。"));
 	}
 	if (e.target) e.target.value = "";
 }
@@ -1063,7 +1131,7 @@ async function loadPastedTransferTextIntoRep(text) {
 		try {
 			data = await parseTxtContent(raw, pass, generation, importKind);
 		} catch (err) {
-			if (err.code === 'INVALID_IMPORT_DATA' || err.message === 'STORAGE_SESSION_CHANGED') throw err;
+			if (['INVALID_IMPORT_DATA', 'INVALID_IMPORT_GRADE'].includes(err.code) || err.message === 'STORAGE_SESSION_CHANGED') throw err;
 			const promptPass = safePrompt("転入児童データの復号パスワードを入力してください：");
 			if (!promptPass) return;
 			data = await parseTxtContent(raw, promptPass, generation, importKind);
@@ -1073,7 +1141,7 @@ async function loadPastedTransferTextIntoRep(text) {
 		if (box) box.value = "";
 	} catch (err) {
 		if (err.message === 'STORAGE_SESSION_CHANGED') return;
-		alert(err.code === 'IMPORT_SAVE_FAILED' ? err.message : "転入児童データの復号に失敗しました。パスワードをご確認ください。");
+		alert(importFailureMessage(err, "転入児童データの復号に失敗しました。パスワードをご確認ください。"));
 	}
 }
 
@@ -1136,7 +1204,7 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 	try {
 		const encoded = await encryptPayload(JSON.stringify(singleDistrict), pass);
 		if (!outputIsCurrent()) return false;
-		const dateStr = new Date().toISOString().slice(0, 10);
+		const dateStr = formatLocalDateStamp();
 		const hanPart = singleDistrict.han ? `_${singleDistrict.han}` : "";
 		const fileName = `校外地区データ_${singleDistrict.district}${hanPart}_${dateStr}.txt`;
 		const content = [
@@ -1163,6 +1231,8 @@ async function exportSingleDistrictFromRep(index, explicitPass, explicitMode = '
 				alert(`「${singleDistrict.district}」の暗号化データをクリップボードにコピーしました。`);
 				return true;
 			}
+			// API不在でも何も起きないように見せない（QA-08）。
+			if (outputIsCurrent()) alert("このブラウザではクリップボードを利用できません。ファイルに保存して送信してください。");
 			return false;
 		}
 
