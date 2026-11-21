@@ -1220,7 +1220,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		WEBAUTHN_USER_ID,
 		deriveKey,
 		requireOfficerStorageEncryption, officerPlaintextWriteDenied,
-		hasOfficerData, hasNonEmptyOfficerModels,
+		hasOfficerData, hasNonEmptyOfficerModels, isDefaultHolidayValue,
 		encryptPayload,
 		decryptPayload,
 		uint8ToBase64,

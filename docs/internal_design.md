@@ -1,7 +1,7 @@
 # kogaidocs 内部仕様書
 
-**文書版**: 1.8（アプリケーション 2.12.1 対応）<br>
-**改訂日**: 2026年11月19日<br>
+**文書版**: 1.9（アプリケーション 2.12.1 対応）<br>
+**改訂日**: 2026年11月21日<br>
 **文体・規範**: 本文の「する」「である」は要求または仕様を表す。試験済みという意味ではない。
 
 [外部仕様書](external_design.md)の実現方式を定める。過去改修のレビューは[レビュー記録](reviews/)に保持する。
@@ -284,7 +284,7 @@ sequenceDiagram
 - **ロック時の破棄範囲**: 地区旗振り設定・生成済み当番表、代表外部関係者・座席設定、自治会・転入者、代表地区編集の複製とDOM、印刷DOM、全パスワード・確認・復号入力欄、貼付テキストを消去する。表示切替でtext型となったパスワードも対象である。既存暗号文は保持し、正しい解除により再描画する。解除成功後のパスワード欄も消去する。ロック・全消去・暗号化設定確定で処理世代を更新し、開始世代が異なる読込・復号・JSON読込・解除・保存は状態更新・DOM描画・ストレージ書込みを行わない。ファイル読込開始前の世代を完了後まで引き継ぎ、ロック後の処理開始自体も拒否する。初回暗号化・簡易設定・解除成功直後から15分の自動ロックを開始する。
 - **旗振り復元**: 非空の休日を含め全設定をDOMへ反映した後にプレビュー・保存を行う。当番名簿の編集・児童名簿の明示反映後は免除候補も再描画する。休日の空文字はユーザーによる除外解除として保持する。公式JSONの空ファイル・構文・ネストした設定型を検証し、不正時は元設定・DOM・保存値を保持して通知する。休日配列は各要素の日付・理由を検証し、日付・理由の改行区切りテキストへ正規化して復元・保存する。読込成功・失敗ともファイル入力を空に戻して同一ファイルの再選択を可能とする。当番membersは独立した編集名簿として保持し、公式JSONのmembersも当番名簿へ取り込む。児童名簿の行へは取り込まない。
 - **引用符・コード注入対策**: 世帯キーをイベント属性のJavaScript文字列へ連結しない。DOMのdata属性へHTMLエスケープして格納し、固定ハンドラーからその値を受け取る。
-- **座席参照**: 既存の `OFF_地区index_役員index`、`EXT_index`、`NEI_地区名_index` の保存形式を維持する。削除時は対象本人の割当を解除し、後続インデックスを繰り下げて別人への割当変化を防ぐ。詳細モーダルでは校外・自治会双方の元行対応表を下書きとともに保持し、氏名・役職・連絡先の通常編集でも本人の出席・座席を維持し、保存時のみ本状態と座席へ適用する。キャンセル時は本状態を変更しない。自治会出席チェックも同じ対応表で維持する。地区・名簿・印刷対象の変更後は集約・出席者・座席候補を同期して再描画する。外部ファイルによる名簿置換時は同一人物の継続を確認できない割当を解除する。同一地区名の複数班では、変更前後に選ばれる自治会代表名簿を比較し、氏名・役職・連絡先で同一人物を一意に確認できる場合のみ参照を継続する。比較が曖昧な場合は座席参照・出席チェックを解除する。
+- **座席参照**: 既存の `OFF_地区index_役員index`、`EXT_index`、`NEI_地区名_index` の保存形式を維持する。削除時は対象本人の割当を解除し、後続インデックスを繰り下げて別人への割当変化を防ぐ。詳細モーダルでは校外・自治会双方の元行対応表を下書きとともに保持し、氏名・役職・連絡先の通常編集でも本人の出席・座席を維持し、保存時のみ本状態と座席へ適用する。キャンセル時は本状態を変更しない。自治会出席チェックも同じ対応表で維持する。地区・名簿・印刷対象の変更後は集約・出席者・座席候補を同期して再描画する。外部ファイルによる名簿置換時は同一人物の継続を確認できない割当を解除する。同一地区名の複数班の出席チェックは、取込以外の経路では、変更前後に選ばれる自治会代表名簿を比較し、氏名・役職・連絡先で同一人物を一意に確認できる場合のみ継続し、比較が曖昧な場合は解除する。地区・自治会データの取込（`upsertRepDistrict`・`mergeNeighborDataIntoRep` を通るすべての取込。名簿のない地区ファイル・自地区データを含む）の出席チェックは I-13-02 だけに従う（比較元との照合、比較元がない場合の初期チェック、同名エントリの作り直し、名簿のない取込の各場合を含め、場合分けは I-13-02 による）。座席参照は、取込・地区詳細モーダルの保存・印刷対象の切替（一括を含む）・地区の削除・外部関係者の行削除など `reconcileSeatState` を通るすべての経路で、代表名簿の比較ではなく I-13-02 の照合による（自治会役員は所属と本人の識別子（氏名・役職・電話・住所）で照合し、変更前後の座席候補のエントリでそれぞれ一意な同じ本人の出席者にだけ引き継ぐ。地区詳細モーダルで編集した行の扱いは I-13-02 による）。
 - **貼付復元**: 地区の貼付復元はファイル復元と同じ復号・上書き確認・hata保護経路を使用し、成功時のみ入力テキストを消去する。
 - **受入スキーマ**: 認証済み暗号文でも内容を信頼しない。各取込経路の種別・文字列項目・名簿配列・行オブジェクト・座席設定を、状態を変更する前に検証する。不正な型・必須構造欠落は旧状態・DOM・保存値を保持して拒否する。地区名が文字列である旧形式と省略・nullの任意配列は空配列へ正規化する。転入データは少なくとも氏名・住所・電話番号を持つ児童配列を要求する。代表集約へ保存パスワードを引き渡さない。
 - **旧形式役員**: 単一 `officer` にも `officers` の各行と同じ文字列項目の型検証を適用する。旧形式の `childName`・`kana`・`childKana` と分割済み子ふりがなも検証対象である。正常な旧形式は既存の姓名・子氏名分割と役員配列への正規化を維持する。不正な班・氏名・役職等は地区復元と代表マスター復元の双方で状態置換前に拒否する。
@@ -576,8 +576,8 @@ SEC-23では全ての暗号化ファイル・コピー・共有・代表地区�
 
 ### I-12-09 期間プリセット（SEC-31）
 
-- `applyHataPeriodPreset(presetKey)` は DOM の開始・終了日を更新した後、`collectHataScheduleInputs(hata, { startDate, endDate })` で採用し、失敗時は `renderHataInputStatus()` で案内する。有効値を直接代入しない。
-- 基準年は現行どおり暦年（`new Date().getFullYear()`）とする。`getPeriodPresetDates('zenki'|'kouki'|'full', baseYear)` は、それぞれ `${y}-04-06〜${y}-09-30`、`${y}-10-01〜${y+1}-03-24`、`${y}-04-06〜${y+1}-03-24` を返す。1〜3月の操作でも当該暦年を基準とする（SPEC-Q4）。
+- `applyHataPeriodPreset(presetKey)` は DOM の開始・終了日を更新した後、`collectHataScheduleInputs(hata, { startDate, endDate })`（I-13-03 の休日置換え時は `holidays` を含む）で採用し、失敗時は `renderHataInputStatus()` で案内する。有効値を直接代入しない。
+- 基準年は I-13-03 の `getFiscalYear()` とする。`getPeriodPresetDates('zenki'|'kouki'|'full', baseYear)` は、それぞれ `${y}-04-06〜${y}-09-30`、`${y}-10-01〜${y+1}-03-24`、`${y}-04-06〜${y+1}-03-24` を返す（SPEC-Q4 は I-13-03 で確定）。
 
 ### I-12-10 復号前切出し（SEC-32）
 
@@ -611,3 +611,40 @@ SEC-23では全ての暗号化ファイル・コピー・共有・代表地区�
 - `generateHataSchedule` と `validateHataTextBudget` は、休日行の注記を `parts.slice(1).join(',')`（空なら既定）、特別枠の注記を `parts.slice(2).join(',')`（空なら既定）として同じ計算で扱う。
 - `runAutoHataGeneration()` はスケジュール生成の例外を捕捉し、「旗振りシフトを生成できませんでした：{例外の文言}」を通知してプレビューを再描画し、中止する。名簿・既存の下書き・保存値は変更しない。
 - `loadDistrictTxt` の `#d-file-pass` 参照を削除する。
+
+## I-13 出席初期チェックと期間プリセットの基準年（R-24、SPEC-Q1・Q2・Q4）
+
+### I-13-01 会長の判定と新しい名簿の初期チェック（SPEC-Q1）
+
+- `js/seat.js` に `NEIGHBOR_CHAIRMAN_ROLES = ['会長', '自治会長', '町内会長', '町会長']` と `isNeighborChairman(row)` を設ける。`row` がオブジェクトで `row.role` が文字列のとき、`row.role.trim()` が `NEIGHBOR_CHAIRMAN_ROLES` のいずれかと一致すれば真とする。それ以外（`null`・非文字列の `role`・部分一致・「区長」等）は偽とする。
+- `defaultNeighborChecks(rows)` を同じく設ける。配列でなければ `{}` を返す。`neighborIdentity(row)` が `rows` 内で一意な行だけを対象とし、`isNeighborChairman(row) && getFullName(row) !== ''` の対象行の添字を `true` とする新しいオブジェクトを返す。該当がなく、かつ `isNeighborChairman(row) && getFullName(row) !== ''` の行が（重複行を含めて）1件もなければ、`getFullName(row) !== ''` の最初の対象行の添字だけを `true` とし、それもなければ `{}` を返す。氏名のある会長が重複行だけの場合は `{}` を返す。
+- `upsertRepDistrict` と `mergeNeighborDataIntoRep` の初期チェック算出は `defaultNeighborChecks` を使い、`includes('会長')` による部分一致を削除する。
+
+### I-13-02 名簿差替え時の会長チェック（SPEC-Q2）
+
+- `js/seat.js` に `neighborCheckCandidate(entry)` を設け、`{ identities: (entry?.neighborhood || []).map(neighborIdentity), checks: { ...(entry?.szNeighborChecks || {}) } }` を返す（`captureSeatState` と同じ形）。
+- `resolveImportedNeighborChecks(rows, candidates, options = {})` を同じく設ける。`rows` が配列でなければ `{}` を返す。`candidates` は候補 `{ identities, checks }` の配列（配列でなければ空とみなし、オブジェクトでない要素は飛ばす）で、`identities` のうち氏名部分（`JSON.parse(identity)[0]`）が空でないものを1件以上持つ最初の候補を比較元とする。
+	- 比較元がなく `options.chairmanDefaults !== false` なら `defaultNeighborChecks(rows)` を返す（E-13-01）。`options.chairmanDefaults === false` なら `{}` を返す。
+	- 比較元がある場合、`getFullName(row) === ''` の行と、識別子が `rows` 内で一意でない行にはキーを作らない。それ以外の行は、識別子が比較元でちょうど1件に一致すれば「引き継ぎ元あり」とし、比較元の `checks` にその添字の所有キーがあれば値を引き継ぎ、なければキーを作らない。ただし、比較元が `candidates` の先頭の要素（差替え前の代表組。先頭が `null` やオブジェクトでない場合を含め、先頭以外が比較元になった場合は代替の比較元）でなく、引き継ぐ値が `false` でなく、`isNeighborChairman(row)` が偽の行は、引き継がずに「引き継ぎ元なし」として扱う（E-13-02。代替の比較元からは `false` と会長の行の値だけを引き継ぐ）。引き継ぎ元のない行（比較元で一致0件または複数）は、`options.chairmanDefaults !== false` かつ `isNeighborChairman(row)` なら `true` とする。
+	- 返り値は新しいオブジェクトであり、比較元にない添字のキーは含まない。
+- `upsertRepDistrict` は、置換対象 `existingIdx`（同名・同班のエントリ、なければ従来の仮エントリ `placeholderIdx`）のエントリを置換前に保持し（`existingIdx`・`placeholderIdx`・`existingWithNeighbors` は従来どおり `district` の完全一致で選ぶ。代表組の検索 `findNeighborGroup` と同名エントリの作り直しは前後の空白を除いて比べる）、次のとおり `szNeighborChecks` を決める。
+	- 取込データに自治会役員名簿がある（`incomingHasNeighbors`。前後の空白を除いて空でない役職か、空でない `getFullName`（旧形式の `name` だけの行を含み、前後の空白を除く）を持つ行が1行以上ある。氏名・役職が空白だけの行は名簿に数えない。`existingWithNeighbors` の名簿の判定も同じ）場合: 候補を「`previous.neighbors` のうち `(group.district || '').trim()` が `(d.district || '').trim()` と一致する組（差替え前の代表組）」「置換対象エントリの `neighborCheckCandidate`（置換対象がなければ省く）」の順に渡す。
+	- 取込データに名簿がなく、従来の保護で `existingWithNeighbors` の名簿を写した場合: 写し元が置換対象エントリ自身なら、そのエントリの `szNeighborChecks` の複製（未定義なら未定義のまま）を使う。別のエントリなら `resolveImportedNeighborChecks(rows, [代表組, neighborCheckCandidate(写し元)], { chairmanDefaults: false })` とする。
+	- 取込データに名簿がなく写す名簿もない場合: `defaultNeighborChecks([])`（`{}`）とする。
+- `upsertRepDistrict` は、名簿を置き換えたエントリ以外で `(entry.district || '').trim()` が `(d.district || '').trim()` と一致するエントリについて、取込データに自治会役員名簿がある（`incomingHasNeighbors`）場合と、名簿のない取込で写し元が置換対象と異なる（`copiedFrom && copiedFrom !== replaced`。置換対象がなく新しく加える場合を含む）場合に、`alignNeighborChecksToGroup(entry, [代表組, neighborCheckCandidate(置き換えたエントリ)], { clearDuplicatesOf: 置き換えたエントリの識別子の配列 })` を適用する（写し元を含む。名簿のない取込で自エントリの名簿を写した場合と、写す名簿がない場合は、他のエントリを変更しない）。`clearDuplicatesOf` は取込データに名簿がある場合だけ置き換えたエントリの識別子の配列とし、名簿のない取込の写しでは `[]` とする（写した名簿の重複は写し元に元からあるため）。`resolveImportedNeighborChecks`・`alignNeighborChecksToGroup`・`reconcileSeatState` の出席の照合は、比較元・揃える元・`clearDuplicatesOf` ごとに識別子から添字の一覧を引く表（`neighborIdentityIndex`）を1回だけ作って引く（受入上限の名簿で行数の2乗の処理をしない）。`alignNeighborChecksToGroup(entry, sources, options = {})`（`js/seat.js`）は、`entry.szNeighborChecks` を本人単位で作り直す（E-13-02。第4引数なしの `reconcileSeatState` と同じく、照合で決まらない行にキーを残さない）。`sources`（配列でなければ空とみなす）から、オブジェクトでない要素と、氏名のある識別子を持たない要素を除く。`entry.neighborhood`（配列でなければ空とみなす）の行のうち、名簿内で一意で、`getFullName(row) !== ''` で、識別子が `options.clearDuplicatesOf`（配列でなければ空とみなす）に2件以上ない行ごとに、識別子がちょうど1件に一致する最初の要素を揃える元とし、揃える元の `checks`（なければ空）にその添字の所有キーがあれば値を設定する。それ以外の行（氏名のない行、名簿内で一意でない行、`clearDuplicatesOf` に2件以上ある行、揃える元のない行、揃える元に所有キーのない行）と、名簿の範囲外の添字にはキーを作らない（使える要素がなければ全行がキーなしとなる）。結果が元（未定義なら `{}`）と同じなら `szNeighborChecks` を変更しない（未定義のままにする）。
+- `toggleSzNeighbor(dIdx, nIdx, flag)`（`js/rep.js`）は、`dIdx` のエントリの添字 `nIdx` へ `flag` を設定する（`szNeighborChecks` がなければ作る）。`dIdx` のエントリの地区名（前後の空白を除く）が空でなければ、地区名が同じ他のエントリへ次のとおり同期する（E-03-06・E-13-02。同期先の `szNeighborChecks` がなければ作る）。`neighborhood`（なければ空）の識別子の並びが `dIdx` のエントリと同じエントリには、従来どおり添字 `nIdx` へ設定する。並びの異なるエントリには、`dIdx` のエントリの `neighborhood[nIdx]` の行があり（行は取込・保存値の検証でオブジェクトに限られる）、その識別子が同じエントリの名簿内で一意で、同期先の `neighborhood` で識別子がちょうど1件に一致する場合だけ、その行の添字へ設定する。それ以外のエントリ（一致しない・複数一致する・`neighborhood` がない並びの異なるエントリ）と、同じ添字の別の行は変更しない。
+- `mergeNeighborDataIntoRep` は、名簿を置き換える同名の全エントリ（`matching`）について、候補を「同名の代表組」「各エントリの置換前の `neighborCheckCandidate`（`matching` の順）」の順に渡して1回だけ算出し、同じ値の複製を全エントリへ設定する。`nList` に役職・氏名のある行がない場合（空の配列を含む）も、従来どおり `matching` の全エントリの名簿を置き換える（出席は `{}`）。同名のエントリがなく新しく加える場合は `defaultNeighborChecks(nList)` とする。
+- 両関数は、名簿の置換えと同名エントリの作り直しをすべて終えた後に `reconcileSeatState(previous, {}, target, { neighborChecksResolved: true })` を呼ぶ。`options.neighborChecksResolved === true` のとき、`reconcileSeatState(previous, explicitKeys = {}, target = repState, options = {})` は `target` の出席チェックを照合し直さない（地区ごとの `szNeighborChecks` の再計算を行わず、取込で決めた出席を保つ）。これにより、他の地区（重複行の `true` を含む）の `szNeighborChecks` は変更されず、同名の別班は上記の作り直し以外では変更されない。第4引数を渡さない呼出しの出席チェックの照合は従来どおりとする。
+- 座席セルの `refKey` の再対応は、第4引数の有無によらず、`reconcileSeatState` を通るすべての経路で次のとおりとする（E-13-02）。空の参照・自由入力（`CUSTOM`）・設備（`FAC_`）の座席は、従来どおり再対応の対象にせず、そのまま残す。`explicitKeys` にある参照は従来どおりその対応で写す。ただし、写し先が自治会役員の候補で `identity` が `null`（座席候補のエントリの名簿内で重複する行）なら解除する。それ以外は、座席候補の識別子が変更前後でそれぞれ1件に一致する場合だけ引き継ぐ。引継ぎ先は変更前の参照（`refKey`）ごとに求め、異なる変更前の参照が同じ候補に当たる場合は、それらをすべて解除する（`explicitKeys` の写しを含む。同じ参照を持つ複数のセルは1つの参照として扱う）。
+	- 自治会役員の候補（`NEI_`）の識別子は `JSON.stringify([org, identity, 'neighbor'])` とし、`identity` が `null` の候補は一致させない。校外役員・外部関係者の候補の識別子は、従来どおり `participantIdentity`（`[org, name]`）とする（要素数が異なり、互いに一致しない）。
+	- `getAllSzParticipantsForSeat` は自治会役員の候補に `identity` を持たせる。値はその行の `neighborIdentity` で、候補を出したエントリ（`getUniqueNeighborhoodDistricts(target.districts, true)` が返すエントリ）の名簿内で一意でなければ `null` とする。一意性は `neighborIdentityFlags`（件数の Map）で求める。
+	- 地区詳細モーダルの保存（`saveAndCloseRepDistrictDetailModal`）では、編集したエントリが変更前の座席候補のエントリで、変更後も座席候補のエントリなら、従来どおり `explicitKeys` で写す。変更後は別のエントリが座席候補のエントリになる場合は、`previous.participants` のうち編集したエントリの候補（`NEI_${original.district}_${oldIndex}`）に、`modalNeighborIndexes` で対応する編集後の行の `org`・`name`・`identity` を `edited` として加える（削除した行と、編集後の名簿内で一意でない行には加えない）。座席の照合では、`edited` を持つ候補について、編集前の識別子と編集後の識別子のそれぞれに一致する変更後の候補を求める。一致する候補がある識別子がちょうど1つで、その候補がちょうど1件の場合だけ、その候補へ引き継ぐ（編集前と編集後の識別子が同じなら1つとみなす）。両方の識別子に一致する候補があれば解除する。変更前の候補の一意性は、従来どおり編集前の識別子で確かめる。
+- 適用経路は、`applyRepImport` 経由のファイル読込（`loadMultipleDistrictFiles`）・マスター読込欄（`loadRepMasterTxt`）・貼付読込（`loadPastedTextToRep`）と、自地区の合算（`addCurrentDistrictToRep`）である。`applyRepImport` は候補モデルへ適用して `commitImportedModel` の成功後だけ採用するため、検証・保存（`IMPORT_SAVE_FAILED`、保存停止中を含む）の失敗時は `repState` と保存値を変更しない。`addCurrentDistrictToRep` は `applyStorableChange` の検証失敗時に元へ戻す（後続の `saveRepLocal()` の失敗は E-12-02 の拒否表示とし、本改修で変更しない）。
+- 地区詳細モーダルの保存（`saveAndCloseRepDistrictDetailModal`）・印刷対象切替（`setDistrictPrintSelection`）・地区削除などの他の呼出しは第4引数を渡さず、従来どおり、代表組のエントリと `district` が完全に一致するエントリだけを代表組と照合する（`group.district === d.district`。前後の空白だけが異なるエントリは照合せず、`szNeighborChecks` を変えない）。したがって、取込で代表でない同名エントリ（代表組と `district` が完全に一致するもの）に付いた出席は、代表組と本人が一致する行だけ代表組の値へ置き換わり、一致しない行は解除される。代表組のエントリ自身の出席は、名簿が変わらなければ一意な行のまま維持される（取込は重複行にキーを作らないため、取込で付いたチェックが後続の照合で失われることはない）。
+
+### I-13-03 期間プリセットの年度（SPEC-Q4）
+
+- `js/utils.js` に `getFiscalYear(date = new Date())` を設ける。`date` が `Date` で時刻が有効でなければ `new Date()` を使い、端末ローカルの `getMonth() < 3` なら `getFullYear() - 1`、それ以外は `getFullYear()` を返す。
+- `getPeriodPresetDates(presetKey, baseYear)` は `Number.isInteger(baseYear)` でなければ `getFiscalYear()` を使う。`applyHataPeriodPreset` は `getFiscalYear()` を基準年 `yr` とする。
+- `applyHataPeriodPreset` は、`hata.holidays` が空でなく（空文字・空配列でない）、`hata.inputDrafts?.holidays` が未定義で、`isDefaultHolidayValue(hata)` が真（従来どおり、設定中の開始日の年と当年、開始日がなければ当年・前年・翌年の生成一覧と一致）で、`2000 <= yr <= 2099` のとき、`generateJapaneseHolidays(yr, Math.min(yr + 1, 2099))` を `date,name` の改行区切りにした文字列を `#hata-holidays` へ表示し、`collectHataScheduleInputs(hata, { startDate, endDate, holidays })` で期間と一括して採用する。採用に失敗した場合は、`collectHataScheduleInputs` の既存の動作により期間・休日の有効値を変えず、入力値を `inputDrafts` に保持する（以後のプリセットは休日の下書きがあるため休日を置き換えない）。それ以外は従来どおり `{ startDate, endDate }` だけを渡し、休日を変更しない。生成一覧が現在の休日と同じ場合も同じ経路で採用し、結果は変わらない。
+- `renderHataCard` の初期期間（`getPeriodPresetDates('zenki', new Date().getFullYear())`）・初期休日と、`isDefaultStartEndDates`・`isDefaultHolidayValue` は暦年を明示する従来どおりとし、変更しない。1〜3月にプリセットで設定した前年度の前期と、その開始年で生成し直した休日は、従来の判定範囲（期間は当年・前年・翌年、休日は開始日の年と当年）に含まれるため既定と判定される。

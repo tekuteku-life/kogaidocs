@@ -50,35 +50,55 @@ function upsertRepDistrict(d, target = repState, persist = true) {
 
 	// 自治会役員データの保護:
 	// 代表側にすでに有効な自治会役員が存在し、提出データ側の neighborhood が空の場合は代表側の自治会役員を保護
-	const incomingHasNeighbors = (d.neighborhood || []).some(n => n.lastName || n.firstName || n.role);
+	// 役職または氏名（旧形式の name を含む）のある行があれば名簿とみなす。どちらも前後の空白を除いて比べる（E-13-01・E-13-02・I-13-02）。
+	const hasRosterRow = n => !!n && (getFullName(n) !== '' || String(n.role ?? '').trim() !== '');
+	const incomingHasNeighbors = (d.neighborhood || []).some(hasRosterRow);
+	const replaced = existingIdx >= 0 ? target.districts[existingIdx] : null;
+	let copiedFrom = null;
 	if (!incomingHasNeighbors) {
 		const existingWithNeighbors = target.districts.find(x =>
 			x.district === d.district &&
-			(x.neighborhood || []).some(n => n.lastName || n.firstName || n.role)
+			(x.neighborhood || []).some(hasRosterRow)
 		);
 		if (existingWithNeighbors) {
 			d.neighborhood = JSON.parse(JSON.stringify(existingWithNeighbors.neighborhood));
+			copiedFrom = existingWithNeighbors;
 		}
 	}
 
-	// 自治会役員の初期チェック（役職に「会長」が含まれる人をデフォルトON、いなければ先頭をON）
-	const defaultChecks = {};
-	(d.neighborhood || []).forEach((n, idx) => {
-		if (n.role && n.role.includes("会長")) defaultChecks[idx] = true;
-	});
-	if (Object.keys(defaultChecks).length === 0 && (d.neighborhood || []).length > 0) {
-		defaultChecks[0] = true;
+	// 自治会役員の出席（SPEC-Q1・Q2、I-13-02）: 差替え前の代表名簿、なければ置換対象の名簿と本人単位で照合する。
+	const group = findNeighborGroup(previous, d.district);
+	let checks;
+	if (incomingHasNeighbors) {
+		checks = resolveImportedNeighborChecks(d.neighborhood, [group, replaced && neighborCheckCandidate(replaced)]);
+	} else if (copiedFrom && copiedFrom === replaced) {
+		// 名簿のない再取込で自エントリの名簿を写した場合は、名簿差替えではないため出席を変更しない。
+		checks = replaced.szNeighborChecks ? JSON.parse(JSON.stringify(replaced.szNeighborChecks)) : undefined;
+	} else if (copiedFrom) {
+		checks = resolveImportedNeighborChecks(d.neighborhood, [group, neighborCheckCandidate(copiedFrom)], { chairmanDefaults: false });
+	} else {
+		checks = {};
 	}
 
 	const wrapped = {
 		...JSON.parse(JSON.stringify(d)),
-		selectedForPrint: existingIdx >= 0 ? target.districts[existingIdx].selectedForPrint : true,
-		szNeighborChecks: existingIdx >= 0 ? (target.districts[existingIdx].szNeighborChecks || defaultChecks) : defaultChecks
+		selectedForPrint: replaced ? replaced.selectedForPrint : true,
+		szNeighborChecks: checks
 	};
+	if (checks === undefined) delete wrapped.szNeighborChecks;
 
 	if (existingIdx >= 0) target.districts[existingIdx] = wrapped;
 	else target.districts.push(wrapped);
-	reconcileSeatState(previous, {}, target);
+	// 置き換えない同名エントリは、差替え前の代表組・取込後の名簿と本人単位で作り直し、代表の入替えや印刷対象の選び方で出席が変わらないようにする。
+	// 名簿のない取込でも、別のエントリの名簿を写した場合は代表の名簿が縮んで代表が入れ替わることがあるため、同じく作り直す。
+	if (incomingHasNeighbors || (copiedFrom && copiedFrom !== replaced)) {
+		const name = (d.district || '').trim();
+		const imported = neighborCheckCandidate(wrapped);
+		target.districts.forEach(entry => {
+			if (entry !== wrapped && (entry.district || '').trim() === name) alignNeighborChecksToGroup(entry, [group, imported], { clearDuplicatesOf: incomingHasNeighbors ? imported.identities : [] });
+		});
+	}
+	reconcileSeatState(previous, {}, target, { neighborChecksResolved: true });
 	if (persist) saveRepLocal();
 }
 
@@ -89,19 +109,13 @@ function mergeNeighborDataIntoRep(data, target = repState, persist = true) {
 	const dName = (data.district || "").trim() || "未設定地区";
 	nList.forEach(normalizeNameFields);
 
-	const defaultChecks = {};
-	nList.forEach((n, idx) => {
-		if (n.role && n.role.includes("会長")) defaultChecks[idx] = true;
-	});
-	if (Object.keys(defaultChecks).length === 0 && nList.length > 0) {
-		defaultChecks[0] = true;
-	}
-
 	const matching = target.districts.filter(x => (x.district || "").trim() === dName);
 	if (matching.length > 0) {
+		// 差替え前の代表名簿（なければ各エントリの名簿）と本人単位で1回だけ照合し、同名の全エントリへ適用する（I-13-02）。
+		const checks = resolveImportedNeighborChecks(nList, [findNeighborGroup(previous, dName), ...matching.map(neighborCheckCandidate)]);
 		matching.forEach(d => {
 			d.neighborhood = JSON.parse(JSON.stringify(nList));
-			d.szNeighborChecks = { ...defaultChecks, ...(d.szNeighborChecks || {}) };
+			d.szNeighborChecks = { ...checks };
 		});
 	} else {
 		target.districts.push({
@@ -112,10 +126,10 @@ function mergeNeighborDataIntoRep(data, target = repState, persist = true) {
 			neighborhood: JSON.parse(JSON.stringify(nList)),
 			students: [],
 			selectedForPrint: true,
-			szNeighborChecks: defaultChecks
+			szNeighborChecks: defaultNeighborChecks(nList)
 		});
 	}
-	reconcileSeatState(previous, {}, target);
+	reconcileSeatState(previous, {}, target, { neighborChecksResolved: true });
 	if (persist) saveRepLocal();
 }
 
@@ -437,6 +451,20 @@ function saveAndCloseRepDistrictDetailModal() {
 	}
 
 	const edited = candidateDistrict;
+	if (oldNeighborSource === modalDistrictIndex && newNeighborSource !== modalDistrictIndex) {
+		// 座席候補のエントリが替わる編集では、編集した行の候補に編集後の所属・本人も加えて照合する（I-13-02）。
+		const rows = edited.neighborhood || [];
+		const { identities, unique } = neighborIdentityFlags(rows);
+		const prefix = `NEI_${original.district}_`;
+		previous.participants.forEach(person => {
+			const rest = person.key.startsWith(prefix) ? person.key.slice(prefix.length) : '';
+			if (!/^\d+$/.test(rest)) return;
+			const newIndex = modalNeighborIndexes.indexOf(Number(rest));
+			// 削除した行と編集後の名簿で重複する行は、編集前の所属・本人だけで照合する。
+			if (newIndex < 0 || !unique[newIndex]) return;
+			person.edited = { org: `${original.district} ${rows[newIndex].role}`, name: getFullName(rows[newIndex]), identity: identities[newIndex] };
+		});
+	}
 	const oldGroup = previous.neighbors.find(group => group.district === original.district);
 	if (oldGroup && oldGroup.sourceIndex === modalDistrictIndex) {
 		oldGroup.identities = edited.neighborhood.map(neighborIdentity);
@@ -873,12 +901,26 @@ function toggleSzNeighbor(dIdx, nIdx, flag) {
 	const targetDist = repState.districts[dIdx];
 	if (!targetDist) return;
 	const distName = (targetDist.district || '').trim();
-	// 同一地区名の全エントリに対してチェック状態を同期する
-	repState.districts.forEach((d, idx) => {
-		if (idx === dIdx || (distName && (d.district || '').trim() === distName)) {
-			if (!d.szNeighborChecks) d.szNeighborChecks = {};
-			d.szNeighborChecks[nIdx] = flag;
+	if (!targetDist.szNeighborChecks) targetDist.szNeighborChecks = {};
+	targetDist.szNeighborChecks[nIdx] = flag;
+	// 同じ地区名の他のエントリへの同期（E-03-06・I-13-02）。名簿（行の内容と並び）が同じエントリは従来どおり同じ行番号へ、
+	// 名簿の異なるエントリは操作した本人と同じ内容の行（双方の名簿内で一意）だけへ同期し、別の本人や氏名のない枠を出席にしない。
+	const own = (targetDist.neighborhood || []).map(neighborIdentity);
+	const ownRoster = JSON.stringify(own);
+	const identity = own[nIdx];
+	const identifiable = identity !== undefined && own.filter(value => value === identity).length === 1;
+	if (distName) repState.districts.forEach((d, idx) => {
+		if (idx === dIdx || (d.district || '').trim() !== distName) return;
+		const identities = (d.neighborhood || []).map(neighborIdentity);
+		let target = null;
+		if (JSON.stringify(identities) === ownRoster) target = nIdx;
+		else if (identifiable) {
+			const matches = identities.reduce((list, value, i) => (value === identity ? [...list, i] : list), []);
+			if (matches.length === 1) target = matches[0];
 		}
+		if (target === null) return;
+		if (!d.szNeighborChecks) d.szNeighborChecks = {};
+		d.szNeighborChecks[target] = flag;
 	});
 	saveRepLocal();
 	renderSeatEditor();

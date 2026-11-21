@@ -124,7 +124,8 @@ test('UI SEC-34: a save waiting for the exclusive lock while another context wri
 		frame.remove();
 		ui.fill('#modal-unlock-pass', sessionStorage.getItem('__uiDatabasePassword'));
 		await ui.click('[data-click="handlePasswordUnlock"]');
-		await ui.waitFor(() => isStorageUnlocked(), 'Re-unlock');
+		// 鍵の解除後に保存値を読み込み終えると解除画面が閉じる。読込の完了を待ってから検査する。
+		await ui.waitFor(() => isStorageUnlocked() && !ui.visible('#storage-lock-modal'), 'Re-unlock');
 		assert.strictEqual(currentDistrict.district, 'タブBの新しい値', 'The value written while waiting survives');
 	}, { queryMode: 'district', allowFileAccess: true, timeoutMs: 40000 });
 	assertBrowserResult(result);
@@ -300,5 +301,184 @@ test('UI QA-01: a guest browser handoff restored on an encrypted officer device 
 		assert.strictEqual(currentDistrict.district, '端末の地区', 'Officer district kept after restart');
 		assert.strictEqual(neighborState.district, '引き継ぎ自治会', 'Guest data persisted');
 	} });
+	assertBrowserResult(result);
+});
+
+test('UI SPEC-Q1: adding this device district checks only the named chairman and offers no blank neighbor seat', async () => {
+	const result = await runInHeadlessChrome(async () => {
+		await ui.mode('district'); await ui.expand('district');
+		ui.fill('#d-name', '合算地区');
+		currentDistrict.neighborhood = [
+			{ role: '副会長', lastName: '副', firstName: '花子', lastNameKana: '', firstNameKana: '', address: '', tel: '' },
+			{ role: '会長', lastName: '会', firstName: '太郎', lastNameKana: '', firstNameKana: '', address: '', tel: '' },
+			{ role: '会長', lastName: '', firstName: '', lastNameKana: '', firstNameKana: '', address: '', tel: '' }
+		];
+		renderDistrictForm();
+		assert.strictEqual(await saveDistrictLocal(), true);
+		await ui.mode('rep'); await ui.expand('rep');
+		await ui.click('[data-click="addCurrentDistrictToRep"]');
+		await ui.waitFor(() => repState.districts.some(d => d.district === '合算地区'), 'District added to the representative data');
+		const labels = [...document.querySelectorAll('#sz-neighborhood-selector input[type="checkbox"]')].filter(box => box.checked).map(box => box.parentElement.textContent.trim());
+		assert.strictEqual(JSON.stringify(labels), JSON.stringify(['会長：会 太郎']), 'Only the named chairman is checked; 副会長 and the blank slot are not');
+		const neighbors = getAllSzParticipantsForSeat().filter(person => person.key.startsWith('NEI_'));
+		assert.strictEqual(JSON.stringify(neighbors.map(person => person.name)), JSON.stringify(['会 太郎']), 'No blank neighbor seat option');
+		assert.strictEqual(await saveRepLocal(), true);
+	}, { queryMode: 'district', afterReload: async () => {
+		assert.ok(isStorageUnlocked(), 'Restart unlocks');
+		assert.strictEqual(JSON.stringify(repState.districts.find(d => d.district === '合算地区').szNeighborChecks), JSON.stringify({ 1: true }), 'Attendance persisted');
+	} });
+	assertBrowserResult(result);
+});
+
+test('UI SPEC-Q2: re-importing a district file offers no blank neighbor seat or name tag from another 班 of the same district, also after a restart', async () => {
+	const result = await runInHeadlessChrome(async () => {
+		await ui.mode('rep'); await ui.expand('rep');
+		ui.fill('#rep-pass', 'RepImport123!');
+		const person = (role, lastName) => ({ role, lastName, firstName: '', lastNameKana: '', firstNameKana: '', address: '', tel: '' });
+		const entry = (han, rows, checks) => ({ district: '空枠地区', han, hanList: [han], officers: [{ role: '校外委員', lastName: '委員' }], students: [], selectedForPrint: true, neighborhood: rows, szNeighborChecks: checks });
+		repState.districts.push(entry('1班', [person('会長', ''), person('副会長', '鈴木')], { 0: true }), entry('2班', [person('会長', '')], {}));
+		renderRepAll();
+		const first = () => repState.districts.find(d => d.district === '空枠地区' && d.han === '1班');
+		await ui.click(`[data-change="setDistrictPrintSelection"][data-index="${repState.districts.indexOf(first())}"]`);
+		await ui.waitFor(() => first().selectedForPrint === false, '1班 is not selected for print');
+		const file = await encryptPayload(JSON.stringify({ district: '空枠地区', han: '1班', hanList: ['1班'], officers: [{ role: '校外委員', lastName: '委員' }], students: [{ grade: '2', class: '1', lastName: '児童', firstName: '一' }], neighborhood: [person('会長', ''), person('副会長', '鈴木')] }), 'RepImport123!');
+		await ui.file('#rep-files', file);
+		await ui.waitFor(() => first()?.students.length === 1, 'District file re-imported');
+		assert.ok(__dialogs.every(dialog => !dialog.message.includes('失敗')), JSON.stringify(__dialogs));
+		const second = repState.districts.find(d => d.district === '空枠地区' && d.han === '2班');
+		assert.strictEqual(JSON.stringify(second.szNeighborChecks), '{}', 'The nameless slot of 2班 is not attending');
+		assert.strictEqual(first().selectedForPrint, false, 'Only 2班 is printed');
+		const neighbors = getAllSzParticipantsForSeat().filter(person => person.key.startsWith('NEI_'));
+		assert.strictEqual(JSON.stringify(neighbors.map(person => person.name)), '[]', 'No blank neighbor seat option');
+		const checked = [...document.querySelectorAll('#sz-neighborhood-selector input[type="checkbox"]')].filter(box => box.checked);
+		assert.strictEqual(checked.length, 0, 'The selector shows no attending neighbor');
+		const tags = buildSzTentCardsPagesHtml(repState.districts.filter(d => d.selectedForPrint)).filter(page => page.includes('<div class="tent-sub">空枠地区</div>'));
+		assert.strictEqual(tags.length, 0, 'No nameless name tag');
+		assert.strictEqual(await saveRepLocal(), true);
+	}, { queryMode: 'rep', afterReload: async () => {
+		assert.ok(isStorageUnlocked(), 'Restart unlocks');
+		const stored = repState.districts.filter(d => d.district === '空枠地区').map(d => [d.han, d.selectedForPrint, d.szNeighborChecks]);
+		assert.strictEqual(JSON.stringify(stored), JSON.stringify([['1班', false, {}], ['2班', true, {}]]), 'Attendance and print selection persisted');
+		assert.strictEqual(getAllSzParticipantsForSeat().filter(person => person.key.startsWith('NEI_')).length, 0, 'No blank neighbor seat option after the restart');
+	} });
+	assertBrowserResult(result);
+});
+
+test('UI SPEC-Q2: replacing a roster by neighborhood and district files checks the new chairman and survives an actual restart', async () => {
+	const result = await runInHeadlessChrome(async () => {
+		await ui.mode('rep'); await ui.expand('rep');
+		ui.fill('#rep-pass', 'RepImport123!');
+		const encrypt = model => encryptPayload(JSON.stringify(model), 'RepImport123!');
+		const person = (role, lastName) => ({ role, lastName, firstName: '', lastNameKana: '', firstNameKana: '', address: '', tel: '' });
+		const neighborFile = rows => encrypt({ isNeighborhoodData: true, district: '差替地区', neighborhood: rows });
+		const districtFile = rows => encrypt({ district: '班地区', han: '1班', hanList: ['1班'], officers: [{ role: '校外委員', lastName: '委員' }], students: [{ grade: '2', class: '1', lastName: '児童', firstName: '一' }], neighborhood: rows });
+		const checkedLabels = name => [...document.querySelectorAll('#sz-neighborhood-selector div')].filter(group => group.textContent.includes(`【${name}】`))
+			.flatMap(group => [...group.querySelectorAll('input[type="checkbox"]')].filter(box => box.checked).map(box => box.parentElement.textContent.trim()));
+		const find = name => repState.districts.find(d => d.district === name);
+		await ui.file('#rep-files', await neighborFile([person('会長', '旧'), person('副会長', '副')]));
+		await ui.waitFor(() => !!find('差替地区'), 'First neighborhood import');
+		assert.strictEqual(JSON.stringify(checkedLabels('差替地区')), JSON.stringify(['会長：旧']));
+		await ui.file('#rep-files', await neighborFile([person('副会長', '副'), person('会長', '新')]));
+		await ui.waitFor(() => find('差替地区').neighborhood[1]?.lastName === '新', 'Neighborhood replacement');
+		assert.strictEqual(JSON.stringify(checkedLabels('差替地区')), JSON.stringify(['会長：新']), 'The new chairman is checked after the replacement');
+		await ui.file('#rep-files', await districtFile([person('会長', '班旧')]));
+		await ui.waitFor(() => !!find('班地区'), 'First district import');
+		await ui.file('#rep-files', await districtFile([person('書記', '書'), person('会長', '班新')]));
+		await ui.waitFor(() => find('班地区').neighborhood[1]?.lastName === '班新', 'District replacement');
+		assert.strictEqual(JSON.stringify(checkedLabels('班地区')), JSON.stringify(['会長：班新']));
+		assert.ok(__dialogs.every(dialog => !dialog.message.includes('失敗')), JSON.stringify(__dialogs));
+	}, { queryMode: 'rep', afterReload: async () => {
+		assert.ok(isStorageUnlocked(), 'Restart unlocks');
+		const checksOf = name => JSON.stringify(repState.districts.find(d => d.district === name).szNeighborChecks);
+		assert.strictEqual(checksOf('差替地区'), JSON.stringify({ 1: true }));
+		assert.strictEqual(checksOf('班地区'), JSON.stringify({ 1: true }));
+		await ui.expand('rep');
+		const group = name => [...document.querySelectorAll('#sz-neighborhood-selector div')].find(element => element.textContent.includes(`【${name}】`));
+		const checkedLabels = name => [...group(name).querySelectorAll('input[type="checkbox"]')].filter(box => box.checked).map(box => box.parentElement.textContent.trim());
+		assert.strictEqual(JSON.stringify(checkedLabels('差替地区')), JSON.stringify(['会長：新']), 'After the restart the selector shows the new chairman of the neighborhood file');
+		assert.strictEqual(JSON.stringify(checkedLabels('班地区')), JSON.stringify(['会長：班新']), 'After the restart the selector shows the new chairman of the district file');
+		const storedBefore = localStorage.getItem('kogai_rep_v2');
+		const box = [...group('班地区').querySelectorAll('input[data-change="toggleSzNeighbor"]')].find(input => input.checked);
+		await ui.click(`#sz-neighborhood-selector input[data-change="toggleSzNeighbor"][data-index="${box.dataset.index}"][data-index2="${box.dataset.index2}"]`);
+		await ui.waitFor(() => checksOf('班地区') === JSON.stringify({ 1: false }), 'Clearing the chairman in the selector updates the attendance');
+		assert.strictEqual(JSON.stringify(checkedLabels('班地区')), '[]', 'The selector shows the cleared chairman');
+		await ui.waitFor(() => localStorage.getItem('kogai_rep_v2') !== storedBefore, 'The cleared attendance is saved');
+		lockStorage();
+		assert.ok(await unlockStorageWithPassword(sessionStorage.getItem('__uiDatabasePassword')), 'Unlock again');
+		await loadAppDataFromStorage();
+		assert.strictEqual(checksOf('班地区'), JSON.stringify({ 1: false }), 'The cleared chairman stays cleared after lock and unlock');
+		assert.strictEqual(checksOf('差替地区'), JSON.stringify({ 1: true }), 'Other districts are unchanged');
+		renderRepAll();
+		assert.strictEqual(JSON.stringify(checkedLabels('班地区')), '[]', 'The selector still shows no check');
+	} });
+	assertBrowserResult(result);
+});
+
+test('UI SPEC-Q2: after a district file import a seat stays only with the same chairman, also in the seat chart and after an actual restart', async () => {
+	const result = await runInHeadlessChrome(async () => {
+		await ui.mode('rep'); await ui.expand('rep');
+		ui.fill('#rep-pass', 'RepImport123!');
+		const encrypt = model => encryptPayload(JSON.stringify(model), 'RepImport123!');
+		const person = (role, lastName, tel) => ({ role, lastName, firstName: '', lastNameKana: '', firstNameKana: '', address: '', tel });
+		const districtFile = rows => encrypt({ district: '座席地区', han: '1班', hanList: ['1班'], officers: [{ role: '校外委員', lastName: '委員' }], students: [{ grade: '2', class: '1', lastName: '児童', firstName: '一' }], neighborhood: rows });
+		const entry = () => repState.districts.find(d => d.district === '座席地区');
+		const cell = () => ui.element('#seat-grid-container select[data-target="0_0"]');
+		await ui.file('#rep-files', await districtFile([person('会長', '山田', '111'), person('書記', '佐藤', '')]));
+		await ui.waitFor(() => !!entry(), 'First import');
+		const option = [...cell().options].find(o => o.textContent.includes('山田'));
+		ui.fill(cell(), option.value);
+		await ui.waitFor(() => repState.seatConfig.cells['0_0']?.refKey === 'NEI_座席地区_0', 'The chairman is seated');
+		await ui.file('#rep-files', await districtFile([person('副会長', '中村', ''), person('会長', '山田', '111')]));
+		await ui.waitFor(() => entry().neighborhood[0]?.lastName === '中村', 'The same chairman moves to the second row');
+		assert.strictEqual(repState.seatConfig.cells['0_0'].refKey, 'NEI_座席地区_1', 'The seat follows the same chairman to the new row');
+		assert.ok(cell().selectedOptions[0].textContent.includes('山田'), 'The seat editor shows the same chairman');
+		await ui.file('#rep-files', await districtFile([person('副会長', '中村', ''), person('会長', '山田', '222')]));
+		await ui.waitFor(() => entry().neighborhood[1]?.tel === '222', 'Replaced by another 山田 with another phone');
+		assert.strictEqual(JSON.stringify(entry().szNeighborChecks), JSON.stringify({ 1: true }), 'The other 山田 is checked as a new chairman');
+		assert.strictEqual(repState.seatConfig.cells['0_0'].refKey, '', 'The seat of the old chairman is released');
+		assert.strictEqual(cell().value, '', 'The seat editor shows an empty cell');
+		assert.ok([...cell().options].some(o => o.textContent.includes('山田')), 'The new chairman is offered but not selected');
+		assert.ok(__dialogs.every(dialog => !dialog.message.includes('失敗')), JSON.stringify(__dialogs));
+		// 取込が保存した状態をそのまま再起動で確かめるため、ここでは保存や印刷を行わない。
+	}, { queryMode: 'rep', afterReload: async () => {
+		assert.ok(isStorageUnlocked(), 'Restart unlocks');
+		assert.strictEqual(repState.seatConfig.cells['0_0']?.refKey ?? '', '', 'The import saved the released seat');
+		assert.strictEqual(JSON.stringify(repState.districts.find(d => d.district === '座席地区').szNeighborChecks), JSON.stringify({ 1: true }));
+		await ui.expand('rep');
+		assert.strictEqual(ui.element('#seat-grid-container select[data-target="0_0"]').value, '', 'The seat editor is still empty after the restart');
+		ui.capturePrints();
+		await ui.click('[data-click="setRepPrintChecks"][data-flag="false"]');
+		await ui.click('.rep-print-chk[value="sz_seats"]');
+		await ui.click('[data-click="executeRepSelectedPrint"]');
+		assert.ok(ui.element('#print-area').querySelector('.print-seat-cell'), 'The seat chart is printed');
+		assert.ok(!ui.element('#print-area').textContent.includes('山田'), 'The seat chart does not seat the other 山田');
+	} });
+	assertBrowserResult(result);
+});
+
+test('UI SPEC-Q4: in February the preset buttons show the current fiscal year while the initial period stays on the calendar year', async () => {
+	const result = await runInHeadlessChrome(async () => {
+		await ui.mode('district'); await ui.expand('district');
+		const RealDate = Date;
+		const fixed = new RealDate(2027, 1, 10, 9, 0, 0).getTime();
+		// 引数なしの new Date() だけを固定する。Date.now() は自動ロック期限の計算に使われるため実時刻のままにする。
+		window.Date = class extends RealDate {
+			constructor(...args) { super(...(args.length ? args : [fixed])); }
+		};
+		try {
+			currentDistrict.hata = undefined;
+			renderHataCard();
+			assert.strictEqual(ui.element('#hata-start-date').value, '2027-04-06', 'Initial period unchanged (calendar year)');
+			for (const [mode, start, end] of [['kouki', '2026-10-01', '2027-03-24'], ['zenki', '2026-04-06', '2026-09-30'], ['full', '2026-04-06', '2027-03-24']]) {
+				await ui.click(`[data-click="applyHataPeriodPreset"][data-mode="${mode}"]`);
+				assert.strictEqual(ui.element('#hata-start-date').value, start, `${mode} start`);
+				assert.strictEqual(ui.element('#hata-end-date').value, end, `${mode} end`);
+				assert.strictEqual(JSON.stringify([currentDistrict.hata.startDate, currentDistrict.hata.endDate]), JSON.stringify([start, end]), `${mode} model`);
+				const holidays = generateJapaneseHolidays(2026, 2027).map(x => `${x.date},${x.name}`).join('\n');
+				assert.strictEqual(ui.element('#hata-holidays').value, holidays, `${mode} shows the fiscal-year holidays`);
+				assert.strictEqual(currentDistrict.hata.holidays, holidays, `${mode} holidays model`);
+			}
+		} finally { window.Date = RealDate; }
+	}, { queryMode: 'district' });
 	assertBrowserResult(result);
 });

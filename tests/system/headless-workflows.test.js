@@ -432,13 +432,20 @@ browserTest('UI encryption setup: initial auto-lock starts and interactions rese
 	await ui.encrypt();
 	assert.ok(window.__autoLockTasks.length >= 1, 'Encryption starts fifteen-minute timer without subsequent interaction');
 	const first = window.__autoLockTasks.at(-1);
-	window.dispatchEvent(new Event('pointerdown'));
-	assert.ok(window.__clearedTimers.includes(first.id), 'Interaction cancels old deadline');
-	assert.ok(window.__autoLockTasks.at(-1).id !== first.id, 'Interaction schedules new deadline');
 	const actualNow = Date.now;
-	const deadline = actualNow() + 15 * 60 * 1000 + 1;
-	Date.now = () => deadline;
-	try { window.__autoLockTasks.at(-1).callback(); } finally { Date.now = actualNow; }
+	// 1分後の操作で、期限が操作時刻から15分後へ延びることを確かめる。
+	const interactionAt = first.at + 60 * 1000;
+	Date.now = () => interactionAt;
+	try { window.dispatchEvent(new Event('pointerdown')); } finally { Date.now = actualNow; }
+	assert.ok(window.__clearedTimers.includes(first.id), 'Interaction cancels old deadline');
+	const next = window.__autoLockTasks.at(-1);
+	assert.ok(next.id !== first.id, 'Interaction schedules new deadline');
+	assert.strictEqual(next.at + next.delay, interactionAt + 15 * 60 * 1000, 'The new deadline is fifteen minutes after the interaction');
+	Date.now = () => first.at + first.delay + 1;
+	try { next.callback(); } finally { Date.now = actualNow; }
+	assert.ok(isStorageUnlocked(), 'Passing the first deadline does not lock after the interaction');
+	Date.now = () => interactionAt + 15 * 60 * 1000 + 1;
+	try { next.callback(); } finally { Date.now = actualNow; }
 	assert.ok(!isStorageUnlocked(), 'Expiration locks key');
 	assert.ok(ui.visible('#storage-lock-modal'), 'Expiration opens lock UI');
 }, { beforeLoad: () => {
@@ -448,7 +455,8 @@ browserTest('UI encryption setup: initial auto-lock starts and interactions rese
 	window.__clearedTimers = [];
 	window.setTimeout = (callback, delay, ...args) => {
 		const id = original(callback, delay, ...args);
-		if (delay === 15 * 60 * 1000) __autoLockTasks.push({ id, callback });
+		// 自動ロックの遅延は期限までの残り時間であり、期限設定から予約までに時計が進むと15分ちょうどより短くなる。
+		if (delay > 14 * 60 * 1000 && delay <= 15 * 60 * 1000) __autoLockTasks.push({ id, callback, at: Date.now(), delay });
 		return id;
 	};
 	window.clearTimeout = id => { __clearedTimers.push(id); clear(id); };

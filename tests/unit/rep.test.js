@@ -21,11 +21,11 @@ test('rep: renderRepAll executes sub-renders without throwing', () => {
 	assert(tbody.innerHTML.includes("緑が丘"));
 });
 
-test('rep: neighborhood default checks use the partial 会長 match and fall back to the first row only without one', () => {
+test('rep: neighborhood default checks mark only the chairman and fall back to the first row only without one (SPEC-Q1)', () => {
 	setupDomEnvironment();
 	state.repState.districts = [];
-	rep.upsertRepDistrict({ district: '部分一致地区', officers: [], students: [], neighborhood: [{ role: '書記', lastName: 'A' }, { role: '副会長', lastName: 'B' }, { role: '会長', lastName: 'C' }] }, state.repState, false);
-	assert.deepStrictEqual(state.repState.districts[0].szNeighborChecks, { 1: true, 2: true });
+	rep.upsertRepDistrict({ district: '会長地区', officers: [], students: [], neighborhood: [{ role: '書記', lastName: 'A' }, { role: '副会長', lastName: 'B' }, { role: '会長', lastName: 'C' }] }, state.repState, false);
+	assert.deepStrictEqual(state.repState.districts[0].szNeighborChecks, { 2: true }, '副会長 is not checked by a partial match');
 	rep.upsertRepDistrict({ district: '先頭地区', officers: [], students: [], neighborhood: [{ role: '書記', lastName: 'A' }, { role: '会計', lastName: 'B' }] }, state.repState, false);
 	assert.deepStrictEqual(state.repState.districts[1].szNeighborChecks, { 0: true }, 'Without any 会長 role the first row is the fallback');
 	rep.upsertRepDistrict({ district: '空地区', officers: [], students: [], neighborhood: [] }, state.repState, false);
@@ -54,8 +54,8 @@ test('rep: upsertRepDistrict handles legacy officer, defaultChecks, and updates'
 	const saved1 = state.repState.districts[0];
 	assert.strictEqual(saved1.officers.length, 1);
 	assert.strictEqual(saved1.officers[0].lastName, "田中");
-	// SPEC-Q1: 現行仕様は「会長」を含む役職（副会長を含む）を部分一致で初期チェックする。
-	assert.deepStrictEqual(saved1.szNeighborChecks, { 0: true }, 'A role containing 会長 is checked by partial match');
+	// SPEC-Q1: 副会長は会長ではないため、会長がいない名簿として先頭行を初期チェックする。
+	assert.deepStrictEqual(saved1.szNeighborChecks, { 0: true }, 'Without a chairman the first row is checked');
 	assert.strictEqual(saved1.students[0].han, "1班");
 	assert.strictEqual(saved1.students[0].isOutOfDistrict, false);
 

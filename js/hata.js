@@ -253,7 +253,7 @@ function expandDateOrRange(datePart) {
  * 期間プリセットの日程を算出します（前期・後期・通年）
  */
 function getPeriodPresetDates(presetKey, baseYear) {
-	const yr = typeof baseYear === 'number' ? baseYear : new Date().getFullYear();
+	const yr = Number.isInteger(baseYear) ? baseYear : getFiscalYear();
 	if (presetKey === 'zenki') {
 		return {
 			startDate: `${yr}-04-06`,
@@ -899,15 +899,25 @@ function toggleHataExempt(householdKey, isExempt, memberName = householdKey) {
  * 期間プリセット（前期・後期・通年）を適用します
  */
 function applyHataPeriodPreset(presetKey) {
-	const yr = new Date().getFullYear();
+	// 基準年は操作日の年度（4月1日切替）とする（SPEC-Q4・I-13-03）。
+	const yr = getFiscalYear();
 	const dates = getPeriodPresetDates(presetKey, yr);
 	if (!currentDistrict.hata) currentDistrict.hata = {};
+	const h = currentDistrict.hata;
+	const candidate = { startDate: dates.startDate, endDate: dates.endDate };
+	const hasHolidays = Array.isArray(h.holidays) ? h.holidays.length > 0 : (typeof h.holidays === 'string' && h.holidays !== '');
+	// 自動生成のままの休日は、プリセットの年度の祝日一覧へ合わせる。編集・下書き・空欄は変更しない。
+	if (hasHolidays && h.inputDrafts?.holidays === undefined && yr >= 2000 && yr <= 2099 && isDefaultHolidayValue(h)) {
+		candidate.holidays = generateJapaneseHolidays(yr, Math.min(yr + 1, 2099)).map(x => `${x.date},${x.name}`).join('\n');
+		const holiEl = document.getElementById('hata-holidays');
+		if (holiEl) holiEl.value = candidate.holidays;
+	}
 	const startEl = document.getElementById('hata-start-date');
 	if (startEl) startEl.value = dates.startDate;
 	const endEl = document.getElementById('hata-end-date');
 	if (endEl) endEl.value = dates.endDate;
 	// 手入力と同じ上限検査を通し、超過時は有効期間を変えず下書きとして保持する（SEC-31）。
-	if (!collectHataScheduleInputs(currentDistrict.hata, { startDate: dates.startDate, endDate: dates.endDate })) renderHataInputStatus();
+	if (!collectHataScheduleInputs(h, candidate)) renderHataInputStatus();
 	markHataDirty();
 	saveDistrictLocal();
 }

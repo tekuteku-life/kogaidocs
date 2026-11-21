@@ -305,7 +305,8 @@ securityTest('Security deadline: first interaction locks after sixteen minutes e
 	Date.now = () => now() + window.__securityClockOffset;
 	const timeout = window.setTimeout.bind(window);
 	window.__securityTimerExecuted = 0;
-	window.setTimeout = (callback, delay, ...args) => timeout(delay === 15 * 60 * 1000 ? () => { window.__securityTimerExecuted++; callback(...args); } : callback, delay, ...args);
+	// 自動ロックの遅延は期限までの残り時間であり、15分ちょうどより短くなることがある。
+	window.setTimeout = (callback, delay, ...args) => timeout(delay > 14 * 60 * 1000 && delay <= 15 * 60 * 1000 ? () => { window.__securityTimerExecuted++; callback(...args); } : callback, delay, ...args);
 } });
 
 securityTest('Security storage generation: an autosave queued after clear cannot restore erased data as plaintext', async () => {

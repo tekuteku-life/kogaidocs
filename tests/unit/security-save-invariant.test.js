@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { setupDomEnvironment } = require('../helpers/dom-mock');
+const { setupDomEnvironment, waitForStoredChange } = require('../helpers/dom-mock');
 setupDomEnvironment();
 const utils = require('../../js/utils');
 const cryptoLib = require('../../js/crypto');
@@ -114,8 +114,9 @@ test('SEC-30: shrinking the seat grid asks before discarding assigned seats and 
 	const dialogs = fresh();
 	await cryptoLib.setupStorageEncryption(PASSWORD, false);
 	await resize(4, 6);
+	const resized = localStorage.getItem('kogai_rep_v2');
 	seat.updateSeatCell('5_0', 'customText', '来賓');
-	await new Promise(resolve => setTimeout(resolve, 0));
+	await waitForStoredChange('kogai_rep_v2', resized);
 	const saved = localStorage.getItem('kogai_rep_v2');
 
 	dialogs.confirmAnswer = false;
@@ -610,8 +611,9 @@ test('SEC-31: an in-budget preset is committed directly and clears the period dr
 	fresh();
 	await cryptoLib.setupStorageEncryption(PASSWORD, false);
 	state.currentDistrict.hata.inputDrafts = { endDate: '2026-1' };
+	const before = localStorage.getItem('kogai_district_v2');
 	hata.applyHataPeriodPreset('kouki');
-	await new Promise(resolve => setTimeout(resolve, 0));
+	await waitForStoredChange('kogai_district_v2', before);
 	assert.equal(state.currentDistrict.hata.inputDrafts, undefined);
 	assert.match(state.currentDistrict.hata.startDate, /-10-01$/);
 	assert.match(state.currentDistrict.hata.endDate, /-03-24$/);
@@ -619,9 +621,9 @@ test('SEC-31: an in-budget preset is committed directly and clears the period dr
 	assert.match(state.currentDistrict.hata.endDate, /-03-24$/);
 });
 
-test('SEC-31 / SPEC-Q4: presets use the calendar year of the operation at year and fiscal-year boundaries', t => {
+test('SEC-31 / SPEC-Q4: presets use the fiscal year of the operation at year and fiscal-year boundaries', t => {
 	const cases = [
-		['2026-01-01T00:00:00', 2026], ['2026-03-31T23:59:00', 2026], ['2026-04-01T00:00:00', 2026], ['2026-12-31T23:59:00', 2026], ['2027-01-01T00:00:00', 2027]
+		['2026-01-01T00:00:00', 2025], ['2026-03-31T23:59:00', 2025], ['2026-04-01T00:00:00', 2026], ['2026-12-31T23:59:00', 2026], ['2027-01-01T00:00:00', 2026]
 	];
 	for (const [now, year] of cases) {
 		fresh();
@@ -803,9 +805,10 @@ test('SEC-35: added district names are limited to 4096 characters', async () => 
 	rep.addNewRepDistrict('か'.repeat(4097));
 	assert.equal(state.repState.districts.length, 0);
 	assert.match(document.getElementById('rep-new-district-error').textContent, /4096/);
+	const before = localStorage.getItem('kogai_rep_v2');
 	rep.addNewRepDistrict('か'.repeat(4096));
 	assert.equal(state.repState.districts.length, 1);
-	await new Promise(resolve => setTimeout(resolve, 0));
+	await waitForStoredChange('kogai_rep_v2', before);
 	await relock();
 	assert.equal(state.repState.districts[0].district.length, 4096);
 });

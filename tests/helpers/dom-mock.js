@@ -556,6 +556,17 @@ function setupDomEnvironment() {
 	return { mockDoc, elementsMap };
 }
 
+/**
+ * 呼出元が await しない保存（暗号化を含む）が完了し、保存値が previous から変わるまで待つ。
+ * 模擬の navigator.locks は排他をかけないため、後から await した保存の完了は、先に始まった保存の完了を保証しない。
+ */
+async function waitForStoredChange(storageKey, previous) {
+	for (let i = 0; i < 500 && localStorage.getItem(storageKey) === previous; i++) {
+		await new Promise(resolve => setTimeout(resolve, 10));
+	}
+	if (localStorage.getItem(storageKey) === previous) throw new Error(storageKey + ' was not saved');
+}
+
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		MockElement,
@@ -563,6 +574,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		MockLocalStorage,
 		MockClipboard,
 		MockCredentials,
-		setupDomEnvironment
+		setupDomEnvironment,
+		waitForStoredChange
 	};
 }

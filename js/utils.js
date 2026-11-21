@@ -31,6 +31,15 @@ function getFullName(item) {
 }
 
 /**
+ * 操作日が属する年度（4月1日〜翌年3月31日）の開始年を返す（R-24・I-13-03）。
+ * 不正な日付・Date 以外は現在日時として扱う。
+ */
+function getFiscalYear(date = new Date()) {
+	const value = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+	return value.getMonth() < 3 ? value.getFullYear() - 1 : value.getFullYear();
+}
+
+/**
  * オブジェクトから姓名ふりがなを結合した文字列を取得します
  * @param {Object} item
  * @returns {string}
@@ -1061,6 +1070,7 @@ if (typeof window !== 'undefined') {
 
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
+		getFiscalYear,
 		requireImportShape,
 		isImportObject,
 		isNeighborhoodImportData, validateImportData,

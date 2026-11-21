@@ -1906,8 +1906,9 @@ test('branch-booster: neighbor.js and rep.js 100% branch perfection', async () =
 		]
 	});
 	assert.strictEqual(state.repState.districts[0].neighborhood.length, 2);
-	assert.strictEqual(state.repState.districts[0].szNeighborChecks[0], true);
-	assert.strictEqual(state.repState.districts[0].szNeighborChecks[1], true);
+	// SPEC-Q2: 同名の名簿がなかった地区は E-13-01 で作り直し、旧キー {1:true} は残さない。
+	assert.deepStrictEqual(state.repState.districts[0].szNeighborChecks, { 0: true });
+	assert.deepStrictEqual(state.repState.districts[1].szNeighborChecks, { 0: true });
 
 	// 2. upsertRepDistrict edge cases
 	// placeholder replacement branches:
