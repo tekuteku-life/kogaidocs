@@ -64,14 +64,13 @@ test('UI SEC-34: a second real browsing context updating the database locks this
 		await ui.mode('district'); await ui.expand('district');
 		ui.fill('#d-name', 'タブAの旧値');
 		await saveDistrictLocal();
-		const frame = document.createElement('iframe');
-		frame.src = 'index.html?mode=district';
-		document.body.appendChild(frame);
+		// 入れ子文書は CSP（frame-src 'none'）で拒否されるため、同一オリジンの別ウィンドウを開く。
+		const other = window.open('index.html?mode=district');
+		assert.ok(other, 'The second window opens');
 		// 固定待機ではなく、別コンテキストが初期化を終えて解除画面を表示するまで待つ。
-		await ui.waitFor(() => { try { return frame.contentWindow.document.readyState === 'complete' && frame.contentWindow.document.getElementById('storage-lock-modal')?.style.display === 'flex'; } catch (_) { return false; } }, 'Second context initialized and locked', 10000);
+		await ui.waitFor(() => { try { return other.document.readyState === 'complete' && other.document.getElementById('storage-lock-modal')?.style.display === 'flex'; } catch (_) { return false; } }, 'Second context initialized and locked', 10000);
 		assert.ok(isStorageUnlocked(), 'Opening another context alone does not lock this tab');
-		// 別コンテキストのスクリプト変数は参照できないため、その画面の解除操作と入力イベントで更新する。
-		const other = frame.contentWindow;
+		// 別コンテキストの画面の解除操作と入力イベントで更新する。
 		const otherDoc = other.document;
 		otherDoc.getElementById('modal-unlock-pass').value = sessionStorage.getItem('__uiDatabasePassword');
 		await other.handlePasswordUnlock();
@@ -87,12 +86,12 @@ test('UI SEC-34: a second real browsing context updating the database locks this
 		assert.ok(ui.element('#modal-unlock-error').textContent.includes('別のタブで保存データが更新されました'), 'Reason shown');
 		assert.strictEqual(ui.element('#d-name').value, '', 'Stale private DOM purged');
 		assert.strictEqual(await saveDistrictLocal(), false, 'Stale tab cannot overwrite');
-		frame.remove();
+		other.close();
 		ui.fill('#modal-unlock-pass', sessionStorage.getItem('__uiDatabasePassword'));
 		await ui.click('[data-click="handlePasswordUnlock"]');
 		await ui.waitFor(() => isStorageUnlocked() && !ui.visible('#storage-lock-modal'), 'Re-unlock');
 		assert.strictEqual(currentDistrict.district, 'タブBの新しい値', 'Newest value is loaded instead of the stale memory');
-	}, { queryMode: 'district', allowFileAccess: true, timeoutMs: 40000 });
+	}, { queryMode: 'district', allowFileAccess: true, userGesture: true, timeoutMs: 40000 });
 	assertBrowserResult(result);
 });
 
@@ -101,11 +100,9 @@ test('UI SEC-34: a save waiting for the exclusive lock while another context wri
 		await ui.mode('district'); await ui.expand('district');
 		ui.fill('#d-name', 'タブAの旧値');
 		await saveDistrictLocal();
-		const frame = document.createElement('iframe');
-		frame.src = 'index.html?mode=district';
-		document.body.appendChild(frame);
-		await ui.waitFor(() => { try { return frame.contentWindow.document.getElementById('storage-lock-modal')?.style.display === 'flex'; } catch (_) { return false; } }, 'Second context ready', 10000);
-		const other = frame.contentWindow;
+		const other = window.open('index.html?mode=district');
+		assert.ok(other, 'The second window opens');
+		await ui.waitFor(() => { try { return other.document.readyState === 'complete' && other.document.getElementById('storage-lock-modal')?.style.display === 'flex'; } catch (_) { return false; } }, 'Second context ready', 10000);
 		other.document.getElementById('modal-unlock-pass').value = sessionStorage.getItem('__uiDatabasePassword');
 		await other.handlePasswordUnlock();
 		assert.ok(other.isStorageUnlocked(), 'Second context unlocked');
@@ -121,13 +118,13 @@ test('UI SEC-34: a save waiting for the exclusive lock while another context wri
 		assert.strictEqual(await pendingSave, false, 'The waiting stale save is refused');
 		assert.ok(!isStorageUnlocked(), 'This tab locks');
 		assert.ok(ui.element('#modal-unlock-error').textContent.includes('別のタブで保存データが更新されました'), 'Reason shown');
-		frame.remove();
+		other.close();
 		ui.fill('#modal-unlock-pass', sessionStorage.getItem('__uiDatabasePassword'));
 		await ui.click('[data-click="handlePasswordUnlock"]');
 		// 鍵の解除後に保存値を読み込み終えると解除画面が閉じる。読込の完了を待ってから検査する。
 		await ui.waitFor(() => isStorageUnlocked() && !ui.visible('#storage-lock-modal'), 'Re-unlock');
 		assert.strictEqual(currentDistrict.district, 'タブBの新しい値', 'The value written while waiting survives');
-	}, { queryMode: 'district', allowFileAccess: true, timeoutMs: 40000 });
+	}, { queryMode: 'district', allowFileAccess: true, userGesture: true, timeoutMs: 40000 });
 	assertBrowserResult(result);
 });
 
@@ -136,19 +133,17 @@ test('UI SEC-34: a guest tab shows the reason in the guest notice after another 
 		await ui.mode('district');
 		await ui.mode('neighbor');
 		assert.ok(isStorageUnlocked(), 'Guest tab starts unlocked');
-		const frame = document.createElement('iframe');
-		frame.src = 'index.html?mode=district';
-		document.body.appendChild(frame);
-		await ui.waitFor(() => { try { return frame.contentWindow.document.getElementById('storage-lock-modal')?.style.display === 'flex'; } catch (_) { return false; } }, 'Second context ready', 10000);
-		const other = frame.contentWindow;
+		const other = window.open('index.html?mode=district');
+		assert.ok(other, 'The second window opens');
+		await ui.waitFor(() => { try { return other.document.readyState === 'complete' && other.document.getElementById('storage-lock-modal')?.style.display === 'flex'; } catch (_) { return false; } }, 'Second context ready', 10000);
 		other.document.getElementById('modal-unlock-pass').value = sessionStorage.getItem('__uiDatabasePassword');
 		await other.handlePasswordUnlock();
 		assert.strictEqual(await other.saveNeighborLocal(), true, 'Second context saves the neighborhood data');
 		await ui.waitFor(() => !isStorageUnlocked(), 'Guest tab locks');
 		assert.ok(ui.visible('#guest-storage-notice'), 'Guest notice shown');
 		assert.ok(ui.element('#guest-storage-notice-reason').textContent.includes('別のタブで保存データが更新されました'), 'Reason in the guest notice');
-		frame.remove();
-	}, { queryMode: 'neighbor', allowFileAccess: true, timeoutMs: 40000 });
+		other.close();
+	}, { queryMode: 'neighbor', allowFileAccess: true, userGesture: true, timeoutMs: 40000 });
 	assertBrowserResult(result);
 });
 

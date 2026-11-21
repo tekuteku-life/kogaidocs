@@ -165,6 +165,9 @@ async function runInHeadlessChrome(testFn, options = {}) {
 	const results = [];
 	const errors = [];
 	const requests = [];
+	const failures = [];
+	const webSockets = [];
+	const downloads = new Map();
 	try {
 
 		browser = spawn(process.env.CHROMIUM_PATH || (existsSync('/usr/lib/chromium/chromium') ? '/usr/lib/chromium/chromium' : 'chromium'), [
@@ -207,8 +210,17 @@ async function runInHeadlessChrome(testFn, options = {}) {
 					// 再起動シナリオでは、利用者が離脱確認を了承した操作を再現する。
 					send('Page.handleJavaScriptDialog', { accept: true }).catch(failPending);
 				} else if (options.observeNetwork && message.sessionId === sessionId && message.method === 'Network.requestWillBeSent') {
-					const { request, type } = message.params;
-					requests.push({ url: request.url, method: request.method, headers: request.headers, postData: request.postData || '', type });
+					const { request, type, requestId } = message.params;
+					requests.push({ url: request.url, method: request.method, headers: request.headers, postData: request.postData || '', type, requestId });
+				} else if (options.observeNetwork && message.sessionId === sessionId && message.method === 'Network.loadingFailed') {
+					const { requestId, blockedReason, errorText } = message.params;
+					failures.push({ requestId, blockedReason: blockedReason || '', errorText: errorText || '' });
+				} else if (options.observeNetwork && message.sessionId === sessionId && message.method === 'Network.webSocketCreated') {
+					webSockets.push({ url: message.params.url });
+				} else if (options.downloadDir && message.method === 'Browser.downloadWillBegin') {
+					downloads.set(message.params.guid, { filename: message.params.suggestedFilename, state: 'inProgress' });
+				} else if (options.downloadDir && message.method === 'Browser.downloadProgress' && downloads.has(message.params.guid)) {
+					downloads.get(message.params.guid).state = message.params.state;
 				} else if (message.method === 'Runtime.bindingCalled') {
 					const { id, method, params } = JSON.parse(message.params.payload);
 					const allowed = ['Input.dispatchMouseEvent', 'Input.dispatchKeyEvent', 'Emulation.setEmulatedMedia'];
@@ -228,6 +240,8 @@ async function runInHeadlessChrome(testFn, options = {}) {
 			}
 		});
 		const run = async () => {
+			// 実際のダウンロードを指定の場所へ保存させる（ブラウザ単位の命令のため session を付けない）。
+			if (options.downloadDir) await send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: options.downloadDir, eventsEnabled: true }, null);
 			const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
 			sessionId = (await send('Target.attachToTarget', { targetId, flatten: true })).sessionId;
 			await send('Page.enable');
@@ -241,12 +255,15 @@ async function runInHeadlessChrome(testFn, options = {}) {
 			if (options.beforeLoad) {
 				await send('Page.addScriptToEvaluateOnNewDocument', { source: `(${options.beforeLoad.toString()})();` });
 			}
-			const evaluate = async fn => {
-				const response = await send('Runtime.evaluate', { allowUnsafeEvalBlockedByCSP: false, expression: `(${fn.toString()})()`, awaitPromise: true, returnByValue: true });
+			// userGesture は、利用者の操作を要するブラウザ機能（ポップアップなど）を試験関数から使うときだけ指定する。
+			const evaluate = async (fn, userGesture = false) => {
+				const response = await send('Runtime.evaluate', { allowUnsafeEvalBlockedByCSP: false, expression: `(${fn.toString()})()`, awaitPromise: true, returnByValue: true, userGesture });
 				if (response.exceptionDetails) throw new Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
 				return response.result.value;
 			};
 			const ready = async () => {
+				// アプリ以外のページ（CSP の対照ページなど）では、アプリの初期化を待たない。
+				if (options.appReady === false) return;
 				await evaluate(async () => {
 					await ui.waitFor(() => document.readyState === 'complete' && document.getElementById('mode-active-badge')?.style.display === 'inline-flex', 'Application initialization');
 					await new Promise(resolve => setTimeout(resolve, 0));
@@ -277,7 +294,15 @@ async function runInHeadlessChrome(testFn, options = {}) {
 				}
 				if (options.prepare) await evaluate(options.prepare);
 				phase = index ? 'reload scenario' : 'initial scenario';
-				await evaluate(fn);
+				await evaluate(fn, !!options.userGesture);
+				// ブラウザを閉じる前に、Node 側で観測（CDP のイベントなど）が揃うのを待つ。
+				if (options.settle) await options.settle({ requests, failures, webSockets, send: (method, params) => send(method, params), evaluate });
+				if (options.downloadDir) {
+					// 開始の通知（downloadWillBegin）が届く前に抜けないよう、期待する件数が始まって完了するまで待つ。
+					const expected = options.expectDownloads ?? 1;
+					const start = Date.now();
+					while ((downloads.size < expected || [...downloads.values()].some(download => download.state === 'inProgress')) && Date.now() - start < 10000) await new Promise(resolve => setTimeout(resolve, 20));
+				}
 				const output = await evaluate(async () => {
 					await new Promise(resolve => setTimeout(resolve, 20));
 					return { results: __uiTestResults, errors: __uiErrors };
@@ -285,7 +310,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 				results.push(...output.results);
 				errors.push(...output.errors);
 			}
-			return { success: true, results, errors, requests };
+			return { success: true, results, errors, requests, failures, webSockets, downloads: [...downloads.values()] };
 		};
 		return await Promise.race([
 			run().catch(async err => {
@@ -295,7 +320,7 @@ async function runInHeadlessChrome(testFn, options = {}) {
 					results.push(...snapshot.result.value.results);
 					errors.push(...snapshot.result.value.errors);
 				} catch (_) {}
-				return { success: false, results, errors, requests, fatal: { message: err.message } };
+				return { success: false, results, errors, requests, failures, webSockets, downloads: [...downloads.values()], fatal: { message: err.message } };
 			}),
 			new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`UI test timed out (${phase}): ${stderr}${options.observeNetwork ? JSON.stringify(requests.slice(-5)) : ''}`)), options.timeoutMs || 20000); })
 		]);

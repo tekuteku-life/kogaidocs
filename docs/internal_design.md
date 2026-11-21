@@ -1,6 +1,6 @@
 # kogaidocs 内部仕様書
 
-**文書版**: 1.9（アプリケーション 2.12.1 対応）<br>
+**文書版**: 1.10（アプリケーション 2.12.1 対応）<br>
 **改訂日**: 2026年11月21日<br>
 **文体・規範**: 本文の「する」「である」は要求または仕様を表す。試験済みという意味ではない。
 
@@ -300,7 +300,7 @@ sequenceDiagram
 
 ## I-05 描画・イベント・印刷
 
-- **厳格CSPとイベント**: インラインscriptとイベント属性を除去し、`js/events.js` の固定処理表へ移す。`data-click/input/change/submit/keydown` と `data-index/field/target` 等は宣言的なアクション名・検証済み引数のみであり、コード文字列ではない。任意コード評価・汎用式解釈・`window[name]` 実行は禁止する。動的名簿にもdocumentの委譲を適用し、停止・preventDefault・モーダル背景判定・Enterを維持する。CSPは `script-src 'self'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; form-action 'none'` を含む。既存の印刷CSSに必要なstyleのinline許容は維持する。frame-ancestorsはmetaでは機能しないため、実配信ヘッダー未確認を対策済みとしない。
+- **厳格CSPとイベント**: インラインscriptとイベント属性を除去し、`js/events.js` の固定処理表へ移す。`data-click/input/change/submit/keydown` と `data-index/field/target` 等は宣言的なアクション名・検証済み引数のみであり、コード文字列ではない。任意コード評価・汎用式解釈・`window[name]` 実行は禁止する。動的名簿にもdocumentの委譲を適用し、停止・preventDefault・モーダル背景判定・Enterを維持する。CSPの全文と配置は I-14-01 を正とする（`script-src 'self'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; form-action 'none'` を含む）。既存の印刷CSSに必要なstyleのinline許容は維持する。frame-ancestorsはmetaでは機能しないため、実配信ヘッダー未確認を対策済みとしない。
 
 HTML本文・引用符付き属性の値はescで `& < > " '` をエスケープする。URLやCSS/数値の文脈はHTMLエスケープだけで安全とせず、固定URLと範囲検証を用いる。印刷DOMも同じ境界で扱う。`window.print` とCSS `@page` を用い、タイトル・一時style・表示をfinally等で復元する。名札の4面と180度回転、宛名12面とページ分割は出力契約である。詳細は外部仕様E-07である。
 
@@ -648,3 +648,108 @@ SEC-23では全ての暗号化ファイル・コピー・共有・代表地区�
 - `getPeriodPresetDates(presetKey, baseYear)` は `Number.isInteger(baseYear)` でなければ `getFiscalYear()` を使う。`applyHataPeriodPreset` は `getFiscalYear()` を基準年 `yr` とする。
 - `applyHataPeriodPreset` は、`hata.holidays` が空でなく（空文字・空配列でない）、`hata.inputDrafts?.holidays` が未定義で、`isDefaultHolidayValue(hata)` が真（従来どおり、設定中の開始日の年と当年、開始日がなければ当年・前年・翌年の生成一覧と一致）で、`2000 <= yr <= 2099` のとき、`generateJapaneseHolidays(yr, Math.min(yr + 1, 2099))` を `date,name` の改行区切りにした文字列を `#hata-holidays` へ表示し、`collectHataScheduleInputs(hata, { startDate, endDate, holidays })` で期間と一括して採用する。採用に失敗した場合は、`collectHataScheduleInputs` の既存の動作により期間・休日の有効値を変えず、入力値を `inputDrafts` に保持する（以後のプリセットは休日の下書きがあるため休日を置き換えない）。それ以外は従来どおり `{ startDate, endDate }` だけを渡し、休日を変更しない。生成一覧が現在の休日と同じ場合も同じ経路で採用し、結果は変わらない。
 - `renderHataCard` の初期期間（`getPeriodPresetDates('zenki', new Date().getFullYear())`）・初期休日と、`isDefaultStartEndDates`・`isDefaultHolidayValue` は暦年を明示する従来どおりとし、変更しない。1〜3月にプリセットで設定した前年度の前期と、その開始年で生成し直した休日は、従来の判定範囲（期間は当年・前年・翌年、休日は開始日の年と当年）に含まれるため既定と判定される。
+
+## I-14 意図しない外部通信の遮断（R-25）
+
+### I-14-01 CSP と head の順序
+
+- index.html の `<head>` は、`<meta charset="UTF-8">` の直後を CSP の `<meta http-equiv="Content-Security-Policy">` とし、内容は E-14-01 の文字列と完全一致させる。CSP の meta は1つだけとする。
+- その直後に referrer と x-dns-prefetch-control の meta を置き、そのあとに viewport などの meta、manifest・icon の link、title、stylesheet、script を置く。
+- `<base>` 要素と、`http-equiv="refresh"` の meta は置かない。
+- **配信するファイル**: リポジトリの直下の index.html・manifest.json・version.json・sw.js と、css/（`.css`）・js/（`.js`）・icons/（`.png`・`.svg`）のファイルだけとする。HTML の文書は index.html だけである。sw.js の `ASSETS` と index.html の `src`・`href` が指すファイルは、すべて配信するファイルに含まれる。
+- **配信しないもの**: tests/・docs/・.github/・.git/・node_modules/・package.json・package-lock.json・README.md・.editorconfig・.gitignore。直下には、配信するファイル・ディレクトリと配信しないもののほかに、ファイル・ディレクトリを置かない。
+- **手元のもの**: 名前が `.` か `#` で始まるもの、`~` で終わるもの、`Thumbs.db`（エディタ・OS・開発支援の設定と一時ファイル。`.DS_Store`・`.vscode/`・`.claude/`・vim のスワップ・Emacs の一時ファイルなど）。それだけを含む（または空の）ディレクトリとともに、範囲に数えず走査もしない。
+- **配信側の前提**: 配信しないものと手元のものを、配信側が公開しないことを前提とする（E-14-05）。Jekyll は名前が `.`・`#` で始まるもの、`~` で終わるものを既定で公開から外す（`.htaccess` を除く）が、`Thumbs.db` は外さないため、配信側の除外の設定に含める。
+- **静的試験の一覧**: ディレクトリを読んで作る（Git に依存しない）。走査するファイルの一覧と、変異の試料の試験の写しも同じ一覧から作る。
+
+### I-14-02 外部 URL・通信 API・ページ移動・HTML の固定
+
+CSP で制限できない経路（E-14-05）は、次の字句で固定する。対象は I-14-01 の配信するファイルのうちテキストのもの（index.html・manifest.json・version.json・sw.js・css/*.css・js/*.js・icons/*.svg）とする。許可する箇所は、ファイル・行の内容（行番号ではない）・件数で固定する。許可した行の内容を変えたとき、別のファイルへ移したときも検出するためである。
+
+- **照合の規則**: 字句の照合は、URL 解析で同じ宛先になる形を見逃さないよう、次のとおりとする。
+	- スキーム・タグ名・属性名は大文字小文字を区別しない。
+	- `\` を `/` と同じに扱う（`https:\\host`・`/\host` を含む）。
+	- 特別スキーム（`http`・`https`・`ws`・`wss`・`ftp`・`file`）は、`:` の後のスラッシュの有無を問わない（`https:host` を含む）。ただし、文字列全体がプロトコル名のもの（`'https:'` など）と、直後が空白・引用符のもの（文中の「file:」など）は除く。
+	- `mailto:`・`data:`・`blob:`・`javascript:`・`stun:`・`stuns:`・`turn:`・`turns:` は、文字列・属性値・`url(` の先頭にあるものに限る（オブジェクトのキー `data:` などを除く）。
+	- 属性は、`=` の前後の空白を許す。
+	- 照合は、コメントと正規表現リテラルを取り除いた内容に対して行う。js・sw.js は簡易な字句解析で、行コメント・ブロックコメントを空白に、正規表現リテラルを同じ長さの `0` と空白に置き換える（行の数と文字の位置は保ち、取り除いた後のコードが構文として正しいことを試験で確かめる）。前置・後置の `++`・`--` は1つの字句とし、その後の `/` は除算とみなす。文字列とテンプレートの文字は残し、テンプレートの `${…}` の中はコードとして扱う。`/` は、直前の字句が演算子・区切り（`(`・`,`・`=`・`:`・`[`・`!`・`&`・`|`・`?`・`{`・`}`・`;` など）・`return` などのキーワード、またはファイルの先頭のときに正規表現の始まりとみなす。index.html の `<!-- … -->` と css の `/* … */` も同じく取り除く。
+	- スキームは、直前が英数字・`+`・`-`・`.` でない位置から始まるトークン全体とする（`rows:5` の `ws:` などを除く）。
+	- プロトコル相対の URL は、文字列・属性値の区切り（`"`・`'`・`` ` ``・`(`・`=`、`srcset` の候補の区切りの `,`）の直後に `/`・`\` が2つ以上（数を問わない）続き、その後にホストの文字（`/`・`\`・空白・引用符以外）が続くものとする。ホスト名に `.` を含むことは条件としない（単一ラベルの UNC の `\\fileserver`・`//nasbox`、数値の IPv4、IPv6 のリテラルを含む）。js・json の文字列では、実行時の `\` がソースでは `\\` と書かれることに注意する（`'/\\host'`・`'\\\\host\\share'`（UNC）・`'///host'` を含む）。
+	- タグ名は、`<` の直後（空白を許す）にあり、直後が空白・`>`・`/` のものとする（`<abbr` などを除く）。
+	- 属性名は、直前が英数字・`_`・`-`・`.`・`$` でないものとし、`=` の後の値が引用符・`` ` ``・`${`・エスケープした引用符で始まるものとする（`errEl =`・`mapping =`・`a.href =`・`data-href=` などを除く）。
+	- API の名前は、大文字小文字を区別した部分一致で照合し、ベンダー接頭辞の付いた別名（`webkitRTCPeerConnection`・`webkitSpeechRecognition` など）も検出する。`submit()`・`requestSubmit()` は、メンバーの呼出し（`.submit(`・`.requestSubmit(`）として照合する（`handleEnableEncryptionSubmit()` などを除く）。
+	- 名前による固定の「語」は、前後が語の文字（英数字・`_`・`$`・`-`）でない出現とする。`-` を語の文字に含めるため、クラス名の `'hata-location'` などは数えない。属性名の境界もこれにそろえる。
+- **URL の定義**: 上の規則で、`スキーム://`（スラッシュは `\` を含む）で始まる部分、特別スキームの `スキーム:` で始まる部分、プロトコル相対の `//host`（`/\host`・`\\host`・`///host`、ドットのないホスト・数値の IPv4・IPv6 のリテラルを含む）、`mailto:`・`data:`・`blob:`・`javascript:`・`stun:`・`stuns:`・`turn:`・`turns:` で始まる部分を URL とする（後の8つは文字列・属性値・`url(` の先頭にあるものに限る）。次のものは URL として扱わない。
+	- プロトコル名だけの文字列（`'https:'`・`'http:'`・`'file:'`）。URL のプロトコルの比較に使う（js/app.js・js/handoff.js・js/crypto.js）。
+	- SVG の名前空間 URI（`http://www.w3.org/2000/svg`）。
+- **許可する URL**: `https://line.me/R/msg/text/?`（js/district.js 2か所・js/rep.js 1か所の LINE 共有）と、`mailto:`（js/district.js 2か所・js/rep.js 1か所のメール共有）だけとする。`file:`・`javascript:`・`data:`・`blob:` の URL と、プロトコル相対の URL は含めない。manifest.json の URL は相対とする。
+- **名前による固定**: 書き方（プロパティ・添字・オブジェクトのキー・文字列・`setAttribute`・`setAttributeNS`・`Object.assign` など）によらず検出するため、次の名前は、コメントと正規表現リテラルを除いた js・sw.js の中の語としての出現（大文字小文字を区別しない）を、ファイル・行の内容・件数で固定する。変更するときは、この許可リストと試験を見直す。
+	- `href`: js/app.js 1か所（更新の `location.href` への代入）、js/handoff.js 3か所（現在の URL の読出し1か所、組み立てた URL の読出し1か所、LINE 内ブラウザ向けのリンクへの代入1か所）、js/rep.js 1か所（メール共有の `location.href` への代入）、js/utils.js 1か所（ファイルの保存のリンクへの代入）、sw.js 4か所（3行。URL の読出し）。
+	- `open`: `window.open` の6か所（js/district.js 4・js/rep.js 2）、`typeof window.open` の確認2か所（js/rep.js）、ダイアログの `open` の読出し2か所（js/handoff.js）、クラス名の `'open'` 3か所（js/hata.js）、`caches.open` 2か所（sw.js）。
+	- `navigate`: sw.js 1か所（`request.mode` との比較）。
+	- 許可した移動先へ渡す URL を作る名前: `newUrl`（js/app.js 5か所。更新の再読込とモードの履歴の同期）、`lineUrl`（js/rep.js 2か所）、`mailUrl`（js/rep.js 3か所）。`fetch` の出現（js/app.js 1か所、sw.js 4か所。イベント名の `'fetch'` を含む）も行の内容で固定する。
+	- `credentials`（js/app.js 1・js/crypto.js 4・sw.js 6）と `publicKey`（js/crypto.js 3）の出現も行の内容で固定する（WebAuthn の選択肢を変数で組み立てて渡す形を検出する）。
+	- js/utils.js の `downloadTextFile` と js/handoff.js の `buildExternalBrowserUrl` は、関数の本体の全行を固定する（保存のリンク・LINE 内ブラウザ向けのリンクの宛先を作る値を変えさせない）。
+	- `location`: js/app.js 26・js/crypto.js 2・js/district.js 2・js/events.js 1・js/handoff.js 4・js/hata.js 7・js/rep.js 2・js/state.js 1・js/utils.js 3（計48か所、36行。旗振りの場所の項目名 `location` を含む）。行の内容は静的試験で固定する。`location`・`window.location` を別の名前の変数に代入すること・引数として渡すことは、js/handoff.js の `buildExternalBrowserUrl` の引数の既定値と、同じファイルの `updateLineBrowserNotice` の呼出しの引数の2か所だけとし、この関数の中では読出し（`location.href`）だけを行う。
+	- `hostname`: js/app.js 3か所（2行。安全な配信元の判定の読出し）。`protocol`: js/app.js 3・js/crypto.js 1・js/handoff.js 1（計5か所、4行。読出しだけ）。`host`・`port`: 0件。これらへの代入（URL オブジェクト・リンク・`location` を問わず、`Object.assign` などのキーを含む）は使わない。URL のホスト・スキームを書き換えると、URL のリテラルなしで外部の宛先を作れるためである。sw.js も同じとする（sw.js には CSP が適用されない）。
+	- 出現を0件とする名前: js・sw.js の `openWindow`・`rel`・`ping`・`http-equiv`・`httpEquiv` と、sw.js の `add`・`addAll`（Cache への追加は任意の宛先を取得して保存するため使わない）。
+	- sw.js の `put` は2か所（許可リストの資産の応答の保存）、`clients` は1か所（`clients.claim()`）とする。
+	- sw.js の `redirect`・`Refresh` は0件とする（ナビゲーションへのリダイレクト応答を作らない）。`Location` ヘッダーは、上の `location` の固定（sw.js は0件）で検出する。
+- **通信 API**:
+	- `fetch` の呼出しは、js/app.js の `./version.json`（1か所）と、sw.js の公開資産・version.json の取得（3か所）だけとする。
+	- `navigator.serviceWorker.register` は `./sw.js` だけに使う。
+	- 次の API は使わない（名前は部分一致で照合する）: `XMLHttpRequest`、`WebSocket`、`WebTransport`、`EventSource`、`navigator.sendBeacon`、`fetchLater`、`importScripts`、`new Worker`、`SharedWorker`、`RTCPeerConnection`（`webkitRTCPeerConnection` を含む）、`SpeechRecognition`（`webkitSpeechRecognition` を含む）、`speechSynthesis`、`geolocation`、`PaymentRequest`、`PresentationRequest`、`postMessage`、`BroadcastChannel`、`MessageChannel`、ブラウザ内蔵の AI の API（`Translator`・`LanguageDetector`・`Summarizer`・`LanguageModel`・`Writer`・`Rewriter`・`Proofreader`。言語パック・モデルをベンダーのサーバーから取得しうる）。
+	- 名前による固定で、`opener`・`parent` は0件とする（`noopener` などの語の一部は数えない）。
+	- 生体認証連携（js/crypto.js の WebAuthn）の選択肢: js/crypto.js の `publicKey` の選択肢の3か所（`navigator.credentials.create` の1か所と `get` の2か所）は、複数行の塊の全行を行の内容で固定する。`user` の `id`（`WEBAUTHN_USER_ID`）の定義の行も固定する。
+		- `rp` は名前（`name: "kogaidocs - 校外委員名簿管理システム"`）だけ、`user` は `id: WEBAUTHN_USER_ID`・`name: "kogaidocs-user"`・`displayName: "PTA校外委員会 名簿管理"` だけとする。
+		- `extensions` は3か所とも `prf` の `eval.first`（PRF の塩）だけとする。認証器に任意のデータを保存させる `largeBlob`・`credBlob` は0件とする。
+		- `rpId` は0件とする（`rp.id` も `rp` の塊の固定で検出する）。
+- **ページ移動**:
+	- `open(` の呼出しは、`window.open`（LINE とメールの共有、js/district.js と js/rep.js の計6か所。`'_blank', 'noopener,noreferrer'` で開く）と、sw.js の `caches.open`（2か所）だけとする（上の名前による固定で、`document.open`・`globalThis.open`・`self.open`・添字の形などを含めて検出する）。
+	- `location` の操作は、次のものだけとする。
+		- `location.replace`: js/app.js の更新で、同じオリジン・同じパスへ `?_update=` を付けて再読込する（1か所）。
+		- `location.href` への代入: js/app.js の更新で `location.replace` が使えない場合（1か所）と、js/rep.js のメール共有の `mailto:`（1か所）。
+		- `location.reload()`: js/app.js の全消去の後の再読込（1か所）。
+	- 属性名・添字の形を問わず、それ以外の `location` への代入・呼出しは使わない（`location.assign`、`location.host`・`hostname`・`protocol`・`port`・`pathname`・`search`・`hash` への代入、`location[…]`、`location` そのものへの代入を含む）。値の読出しは制限しない。
+	- ここでの `location` は、`window`・`self`・`document`・`top`・`parent`・`opener`・`globalThis` の `.location`、局所で宣言されていない `location`、および実際の `Location` を受け取る js/handoff.js の `buildExternalBrowserUrl` の引数 `location` である。旗振りの場所の項目名（js/hata.js の `const location` など）は `Location` ではない。いずれも、上の名前による固定で行の内容を固定する。
+	- `navigation.navigate`、フォームの `submit()`・`requestSubmit()` は使わない。
+	- Service Worker（sw.js）の `clients` の操作は `clients.claim()` だけとする。js・sw.js で `.navigate(`・`openWindow`・`showNotification`・`pushManager`・`backgroundFetch`・`sync.register` は使わない。sw.js で Cache の `add`・`addAll` は使わない。
+- **HTML の生成**:
+	- js の文字列・テンプレート（`innerHTML`・`insertAdjacentHTML` に渡すものを含む）では、`<a`・`<area`・`<link`・`<meta`・`<base`・`<form`・`<iframe`・`<object`・`<embed`・`<script` のタグと、`href=`・`rel=`・`ping=`・`action=`・`formaction=`・`http-equiv` を使わない。
+	- `document.createElement` で作る要素のうち、`a`・`area`・`link`・`meta`・`base`・`form`・`iframe`・`object`・`embed`・`script` は、js/utils.js のファイルの保存の `a`（1か所）だけとする。
+- **リンク・資源ヒント**:
+	- js の `href` は、上の名前による固定のとおりとする。代入は、上記の `location.href` のほかに、次の2つだけである（オブジェクトのキー・文字列の `'href'`・`setAttribute`・`setAttributeNS`・`Object.assign` による設定を含めて、ほかにない）。
+		- js/utils.js のファイルの保存: `Blob` と `URL.createObjectURL` で作る URL を、ページ内のリンクの `download` に使う。外部へは通信しない。
+		- js/handoff.js の LINE 内ブラウザ向けのリンク: 現在の URL から利用者名・パスワード・検索・断片を除き、`mode` と `openExternalBrowser` だけを付けた同じアプリの URL（http・https のときだけ）とする。
+	- js で `setAttribute` による `href`・`rel`・`ping`・`action`・`formaction`・`http-equiv` の設定と、`.rel`・`.ping`・`.action`・`.formAction`・`.httpEquiv` への代入は使わない。
+	- index.html の `rel` は、`manifest`・`icon`・`apple-touch-icon`・`stylesheet`・`noopener noreferrer` だけとする。資源ヒント（`dns-prefetch`・`preconnect`・`prefetch`・`prerender`・`preload`・`modulepreload`）は、対象のどのファイルでも使わない（`x-dns-prefetch-control` の meta の名前は資源ヒントではない）。
+- **スペルチェックと入力の候補表示**: index.html の `<body>` に `spellcheck="false"` と `writingsuggestions="false"` を置く。
+	- index.html と js の `spellcheck`・`writingsuggestions`（大文字小文字を区別しない）は、値が `false` の属性（引用符の有無・大文字小文字を問わない）と、次の代入だけとする。`true`・空の値・値なしは使わない。
+		- `.spellcheck` は真偽値の IDL 属性のため、真偽値の `false` の代入だけとする（文字列の `'false'` は真に変換され、スペルチェックが有効に戻る）。
+		- `.writingSuggestions` は文字列の IDL 属性のため、`false` と `'false'` の代入を許す。
+	- js で `setAttribute`・`toggleAttribute`・`removeAttribute` によりこれらの属性を操作しない。
+
+### I-14-03 試験
+
+- **静的試験**（`tests/system/csp-external-block.test.js`）:
+	- head の要素の順序、CSP の完全一致と各ディレクティブの許可元（ホスト・スキーム・`data:` を許可しない）、指定しないディレクティブ、referrer・x-dns-prefetch-control、`<base>`・meta refresh がないこと。
+	- I-14-02 の URL・通信 API・ページ移動・HTML の生成・リンク・資源ヒント・スペルチェックの許可リスト。許可する箇所は、ファイル・行の内容（行番号ではない）・件数で固定する。
+	- 照合の検出力: 現行コードには禁止する形がないため、規則ごとに違反の試料（文字列）を同じ照合の関数に与えて検出されることを確かめる。試料には、Gate 1 で実証された形を含める（`document.open`・`globalThis.open`・`self.open`・`location.host =`・`location['href'] =`・`navigation.navigate`・`requestSubmit()`・`WebTransport`・`clients.openWindow`・`client.navigate(`・js の文字列の `<link rel="preconnect">`・`<A HREF = "HTTPS://…">`・meta refresh・`setAttribute('rel', …)`・`HTTPS://`・`https:\\`・`https:host`・`//host`・`/\host`、スペルチェックと候補表示を有効に戻す `setAttribute('spellcheck', 'true')`・`setAttribute('spellcheck', '')`・`toggleAttribute('spellcheck')`・`removeAttribute('spellcheck')`・`spellcheck='true'`・`spellcheck=true`・`spellcheck="TRUE"`・`spellcheck=""`・値なしの `spellcheck`・`writingsuggestions="true"`・`el.spellcheck = 'false'`・`document.body.spellcheck = 'false'`、`new webkitRTCPeerConnection(…)`・`'stun:…'`・`'turns:…'`・`new webkitSpeechRecognition()`・`speechSynthesis.speak(…)`・`new PaymentRequest(…)`、js の `'/\\host.example'`・`'\\\\host.example\\share'`・`'///host.example'`・`'\\\\fileserver\\share\\a.png'`・`'//nasbox/share/b.png'`・`'//2130706433/'`・`'//[2001:db8::1]/'` と index.html の属性値の `/\host.example`、sw.js の `cache.add(url)`・`cache.addAll([…])`、`Object.assign(a, { href: u })`・`setAttributeNS(null, 'href', u)`・`window['open'](u)`）。除外する形（`'https:'`・SVG の名前空間・`x-dns-prefetch-control`・`caches.open`・文中の「file:」・オブジェクトのキー `data:`・旗振りの場所の項目名の `location`（行の内容で固定したもの）・正規表現リテラルの `/\d+/g`・`/\n/g`・`/\./g`・コメントの中の URL・`rows:5`・`errEl =`・`mapping =`・`<abbr`・`data-href=`・`spellcheck="false"`）が検出されないことも確かめる。字句解析が、現行コードのコメントと正規表現リテラルだけを取り除くことも確かめる。meta の `http-equiv` は、引用符の有無・大文字小文字を問わずに確かめる（単引用符・引用符なしの refresh の試料）。ファイルの中に置く形の試料（`location` の別名、sw.js のリダイレクト応答と Cache の追加、WebAuthn の選択肢の変更と変数で渡す形、`buildExternalBrowserUrl` の中の移動、AI の API、`srcset` のプロトコル相対の URL）は、配信するファイルを一時ディレクトリへ写して加え、この静的試験を子プロセスで実行して失敗することを確かめる（変更しない写しが合格することを対照とする）。名前による固定は、許可した行を件数を変えずに書き換えた試料（`link.href = url;` を `link.href = importedModel.homepage;` にするなど）と、許可した行を別のファイルへ移した試料でも検出されることを確かめる。`location` の別名（`const loc = window.location;`）、sw.js の `Response.redirect(u)`・`new Response(null, { status: 302, headers: { Location: u } })`・`headers: { Refresh: '0;url=' + u }`、`navigator.geolocation.getCurrentPosition(…)`、`parent.postMessage(d, '*')`・`window.opener.postMessage(d, '*')`・`new BroadcastChannel('x').postMessage(d)`・`new MessageChannel()`、WebAuthn の `rp: { id: 'example.com', … }`・`user: { name: currentDistrict.district, … }`・`rpId: 'example.com'`・複数行の `user` の `displayName` の書換え・`extensions` への `largeBlob` の追加・`WEBAUTHN_USER_ID` の定義の変更、配信するファイルの範囲の外に置いたファイル（直下の `help.html`・`js/vendor/a.js`、合成の試料の名前が `.js` で終わるディレクトリ `js/vendor.js`）、`buildExternalBrowserUrl` の中への `location.replace(x)`・`location.host = 'x'` の追加、`link.hostname = 'x'`・`url.host = 'x'`・`Object.assign(link, { host: 'x' })`・sw.js の `u.host = 'x'` も違反の試料とする。
+- **実Chromium**（`tests/system/headless-csp-external.test.js`、file 起動、試験用の外部オリジンは Node の HTTP サーバー）:
+	- 試験用の外部サーバーは2つとし、サーバーの受信で確かめる6つの手段と、それ以外の手段を別のポートへ送る。受信されない手段の要求は接続を張らないまま保留され、同じホスト・ポートへの同時接続の枠（6本）をふさぐため、同じサーバーに送ると後の要求（マニフェストなど）が十数秒待たされるためである。
+	- 陽性の対照: CSP を持たない対照ページを同じ Chromium で開き、各手段の送信が観測できることを先に確かめる。観測は CDP の `Network.requestWillBeSent`（WebSocket は `Network.webSocketCreated`）で行う。この環境の試験用サーバーが実際に受信するのは、fetch・XHR・EventSource・動的 `import()`・`@font-face`・マニフェストだけである（画像・script・stylesheet・`@import`・`<a ping>`・sendBeacon・video・入れ子文書・フォームは、CDP に要求が出るがサーバーは受信しない）。このため、これらの6つだけをサーバーの受信でも確かめる。
+	- アプリのページ: 通常の起動で CSP 違反が0件であることを確かめる。そのうえで、外部オリジンへ次の手段で送信を試み、それぞれが該当する `effectiveDirective` の CSP 違反として拒否されることを、違反イベントで確かめる。`blockedURI` の期待値は手段ごとに次のとおりとする。入れ子文書（`frame-src`）と object（`object-src`）は試験用オリジンだけ、WebSocket は試験用サーバーの `ws:` の URL、`blob:`・`data:` の Worker は `blob`・`data`、それ以外は要求の URL（試験用オリジンで始まる）である。
+		- fetch、XHR、WebSocket、EventSource、sendBeacon、`<a ping>`（`connect-src`）
+		- 画像、インライン style の `url()`（`img-src`）
+		- script 要素、動的 `import()`（`script-src-elem`）
+		- stylesheet の link、インライン style の `@import`（`style-src-elem`）
+		- `@font-face`（`font-src`）、video（`media-src`）、object（`object-src`）、iframe（`frame-src`）、form の送信（`form-action`）、`<link rel="prefetch">`（`default-src`）
+		- アイコンの link（`img-src`）
+		- マニフェスト（`manifest-src`）: `link[rel=manifest]` の宛先を試験用オリジンへ向け、CDP の `Page.getAppManifest` で取得させる。
+		- `blob:`・`data:` の Worker（`worker-src`。`blockedURI` は `blob`・`data`）。対照ページでは Worker が実行されて応答することを確かめる。外部オリジンの Worker は、file 起動では CSP の判定より前に例外となるため対象にしない。
+	- 外部の宛先への `Network.requestWillBeSent` が出たものは、すべて `Network.loadingFailed` の `blockedReason: 'csp'` で終わることを確かめる。CDP への現れ方は手段で異なる（Chromium 150 で観測）。XHR・EventSource・ping・画像・`url()`・script・`import()`・stylesheet・`@import`・font・prefetch・マニフェストは要求が出て `blockedReason: 'csp'` で失敗する。iframe・form は要求が出ず、`blockedReason` のない `loadingFailed`（`net::ERR_BLOCKED_BY_CSP`）が出て、同じ requestId でエラーページの受信・完了が続く。fetch・sendBeacon・video・object・アイコン・WebSocket は CDP に現れず、違反イベントだけになる。iframe を送信先とする form の送信では、`form-action` の違反（`blockedURI` は要求の URL）に加えて `frame-src` の違反（`blockedURI` はオリジン）も出るため、違反の一覧は試験の送信によるものだけであることを確かめ、form の試験を `form-action` の違反だけと判定しない。このため、拒否の根拠は違反イベントとし、CDP の観測は補助とする。対照ページで試験用サーバーが受信した手段について、アプリのページでは受信が0件であることも確かめる。
+	- iframe・form の送信は、宛先の名前解決・接続が先行しうる（E-14-05）。このため、試験用サーバーへの TCP 接続の有無は判定に使わない。
+	- スペルチェックと入力の候補表示: 地区モードなどの入力欄と後から作る入力欄の `spellcheck` が `false`、`writingSuggestions` が `'false'` であることを確かめる。
+	- 実際のファイルの保存: `downloadTextFile` を差し替えずに呼び、CDP の `Browser.setDownloadBehavior` で指定した場所にファイルが保存され、内容が一致し、CSP 違反が0件であることを確かめる。ダウンロードの完了は、期待する件数の開始の通知が届き、すべて完了するまで待つ（開始の通知の前に抜けない）。
+- **既存の実Chromium 試験一式**が、新しい CSP のもとで合格することを確かめる。既存の試験の多くは、ファイルの保存と印刷を `ui.captureDownloads()`・`ui.capturePrints()` で差し替えている。同一オリジンの入れ子文書で複数タブを再現していた SEC-34 の3件は、`frame-src 'none'` のもとでは動かないため、試験から開いた同一オリジンの別ウィンドウで再現する形に改める（利用者操作として評価し、ポップアップを許可する）。
+- **未検証**: HTTP 配信での実ブラウザの確認（Service Worker の登録と更新、自オリジンのマニフェストの取得を含む）は、この試験環境では行わない。Service Worker の処理（`clients` の操作など）は静的試験だけで固定する。file 起動では自オリジンのマニフェストの取得が CORS で失敗し、ローカルの Chromium から試験用サーバーへの要求は上記の6つの手段でしか届かない。
