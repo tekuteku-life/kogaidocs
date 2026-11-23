@@ -1,0 +1,26 @@
+[
+	{
+		"name": "暗号化の後に保存の完了を 5ms 遅らせる",
+		"file": "js/crypto.js",
+		"find": "\t\tconst encoded = await encryptStorageValue(serialized, key, storageKey);\n",
+		"replace": "\t\tconst encoded = await encryptStorageValue(serialized, key, storageKey);\n\t\tawait new Promise(resolve => setTimeout(resolve, 5));\n",
+		"expect": "pass",
+		"tests": [
+			"tests/unit/security-save-invariant.test.js",
+			"tests/unit/chairman-fiscal-year.test.js",
+			"tests/unit/rep.test.js"
+		]
+	},
+	{
+		"name": "暗号化の後に保存の完了を 0〜40ms のばらつきで遅らせる（完了順の入替え）",
+		"file": "js/crypto.js",
+		"find": "\t\tconst encoded = await encryptStorageValue(serialized, key, storageKey);\n",
+		"replace": "\t\tconst encoded = await encryptStorageValue(serialized, key, storageKey);\n\t\tawait new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 41)));\n",
+		"expect": "pass",
+		"tests": [
+			"tests/unit/security-save-invariant.test.js",
+			"tests/unit/chairman-fiscal-year.test.js",
+			"tests/unit/rep.test.js"
+		]
+	}
+]

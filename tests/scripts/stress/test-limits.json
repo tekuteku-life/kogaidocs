@@ -1,0 +1,16 @@
+{
+	"description": "repeat-tests.js が使う、試験ごとの自身の上限（ms）。所要時間がこの半分を超えたら失敗とする。規則は、試験名のある規則、ファイル名だけの規則（* を含まないもの）、* を含む規則の順に優先する。exempt の試験は所要時間を比べない（理由を書く）。",
+	"rules": [
+		{ "file": "tests/system/headless-*.test.js", "limitMs": 20000, "reason": "headless-runner の既定の timeoutMs" },
+		{ "file": "tests/system/headless-csp-external.test.js", "limitMs": 30000, "reason": "各試験の runInHeadlessChrome の timeoutMs: 30000" },
+		{ "file": "tests/system/headless-import-leakage.test.js", "limitMs": 30000, "reason": "leakageTest の runInHeadlessChrome の timeoutMs: 30000" },
+		{ "file": "tests/system/headless-save-invariant.test.js", "name": "UI SEC-34: a second real browsing context updating the database locks this tab and the newer value survives", "limitMs": 40000, "reason": "timeoutMs: 40000" },
+		{ "file": "tests/system/headless-save-invariant.test.js", "name": "UI SEC-34: a save waiting for the exclusive lock while another context writes never restores the stale value", "limitMs": 40000, "reason": "timeoutMs: 40000" },
+		{ "file": "tests/system/headless-save-invariant.test.js", "name": "UI SEC-34: a guest tab shows the reason in the guest notice after another context updates the database", "limitMs": 40000, "reason": "timeoutMs: 40000" },
+		{ "file": "tests/system/headless-save-invariant.test.js", "name": "UI SEC-30: long derived values (4102-character seat key, 8193-character full name and household key) survive an actual restart", "limitMs": 40000, "reason": "timeoutMs: 40000" },
+		{ "file": "tests/system/headless-runner.test.js", "name": "UI runner: timeout terminates an unfinished scenario and cleans browser resources", "exempt": "runner の時間切れそのもの（timeoutMs: 1500）を確かめる試験で、上限を超えて止まるのが正しい" },
+		{ "file": "tests/unit/security-state.test.js", "name": "security: updating waits for every save before navigation", "limitMs": 5000, "reason": "node:test の timeout: 5000" },
+		{ "file": "tests/unit/dev-scripts-mutate.test.js", "name": "mutate: restoring across files, argument checks, line ranges without candidates and the timeout reaching the run", "limitMs": 120000, "reason": "node:test の timeout: 120000" },
+		{ "file": "tests/unit/dev-scripts-mutate.test.js", "name": "mutate: an interrupt, a termination or a hangup stops the running test process group, removes the copy and exits with the signal code", "limitMs": 60000, "reason": "node:test の timeout: 60000" }
+	]
+}
