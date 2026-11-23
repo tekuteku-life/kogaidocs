@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { stripScriptNoise } = require('../scripts/lib/js-lexer');
 
 // R-25・E-14・I-14-01・02: 意図しない外部通信を遮断する CSP と、CSP で制限できない経路を字句で固定する。
 // 字句の固定は、アプリ自身のコードが将来この経路を持ち込むことを検出するためのものである。
@@ -11,92 +12,8 @@ const vm = require('node:vm');
 const root = process.env.KOGAI_CSP_ROOT || path.resolve(__dirname, '../..');
 const readRaw = file => fs.readFileSync(path.join(root, file), 'utf8');
 
-/**
- * I-14-02: 簡易な字句解析で、js のコメントと正規表現リテラルを空白に置き換える（行の数と文字の位置は保つ）。
- * 文字列とテンプレートの文字は残し、テンプレートの ${…} の中はコードとして扱う。
- */
-function stripScriptNoise(code) {
-	let out = '';
-	let i = 0;
-	let last = '';
-	const blank = text => text.replace(/[^\n]/g, ' ');
-	const regexAllowedAfter = /^(?:|[(,=:[!&|?{};+\-*%<>~^]|return|typeof|case|do|else|in|of|new|delete|void|throw|instanceof|yield|await)$/;
-	const templateDepth = [];
-	while (i < code.length) {
-		const ch = code[i];
-		const next = code[i + 1];
-		if (ch === '/' && next === '/') {
-			const end = code.indexOf('\n', i);
-			const stop = end === -1 ? code.length : end;
-			out += blank(code.slice(i, stop));
-			i = stop;
-			continue;
-		}
-		if (ch === '/' && next === '*') {
-			const end = code.indexOf('*/', i + 2);
-			const stop = end === -1 ? code.length : end + 2;
-			out += blank(code.slice(i, stop));
-			i = stop;
-			continue;
-		}
-		if (ch === '"' || ch === "'") {
-			let j = i + 1;
-			while (j < code.length && code[j] !== ch && code[j] !== '\n') j += code[j] === '\\' ? 2 : 1;
-			out += code.slice(i, j + 1);
-			i = j + 1;
-			last = 'str';
-			continue;
-		}
-		if (ch === '`' || (ch === '}' && templateDepth.length && templateDepth[templateDepth.length - 1] === 0)) {
-			if (ch === '}') templateDepth.pop();
-			let j = i + 1;
-			while (j < code.length && code[j] !== '`' && !(code[j] === '$' && code[j + 1] === '{')) j += code[j] === '\\' ? 2 : 1;
-			if (code[j] === '$') { out += code.slice(i, j + 2); i = j + 2; templateDepth.push(0); last = '{'; }
-			else { out += code.slice(i, j + 1); i = j + 1; last = 'str'; }
-			continue;
-		}
-		if (ch === '{' && templateDepth.length) templateDepth[templateDepth.length - 1]++;
-		if (ch === '}' && templateDepth.length) templateDepth[templateDepth.length - 1]--;
-		if (ch === '/' && regexAllowedAfter.test(last)) {
-			let j = i + 1;
-			let inClass = false;
-			while (j < code.length && code[j] !== '\n') {
-				if (code[j] === '\\') { j += 2; continue; }
-				if (code[j] === '[') inClass = true;
-				else if (code[j] === ']') inClass = false;
-				else if (code[j] === '/' && !inClass) break;
-				j++;
-			}
-			j++;
-			while (/[a-z]/i.test(code[j] || '')) j++;
-			// 構文の検査ができるよう、正規表現リテラルは同じ長さの「0 と空白」に置き換える（値として残る）。
-			out += '0' + blank(code.slice(i + 1, j));
-			i = j;
-			last = 'regex';
-			continue;
-		}
-		// 後置・前置の ++・-- は1つの字句とし、その後の / を除算とみなす。
-		if ((ch === '+' || ch === '-') && code[i + 1] === ch) {
-			out += ch + ch;
-			last = ch + ch;
-			i += 2;
-			continue;
-		}
-		out += ch;
-		if (/\s/.test(ch)) { i++; continue; }
-		if (/[\w$]/.test(ch)) {
-			let j = i;
-			while (j < code.length && /[\w$]/.test(code[j])) j++;
-			out += code.slice(i + 1, j);
-			last = code.slice(i, j);
-			i = j;
-			continue;
-		}
-		last = ch;
-		i++;
-	}
-	return out;
-}
+// I-14-02: js のコメントと正規表現リテラルを空白に置き換える簡易な字句解析（行の数と文字の位置は保つ。文字列とテンプレートの文字は残す）。
+// 開発用のスクリプト（tests/scripts）と共通の実装を使う。
 
 /** 照合の対象の内容（js・sw.js はコメントと正規表現リテラル、HTML・CSS はコメントを取り除く）。 */
 const blankMarkupComments = (text, pattern) => text.replace(pattern, comment => comment.replace(/[^\n]/g, ' '));
