@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { setupDomEnvironment } = require('../helpers/dom-mock.js');
+const { setupDomEnvironment, recordStoredValues } = require('../helpers/dom-mock.js');
 const { createMockDistrict, createMockRepState } = require('../helpers/fixtures.js');
 
 setupDomEnvironment();
@@ -875,6 +875,8 @@ test('branch-booster: final push for print.js, app.js, and rep.js to >= 95% bran
 		szExternals: [],
 		seatConfig: { cols: 4, rows: 5, cells: {} }
 	}));
+	// 直接書いた保存値を、起動時の未暗号化の読込と同じく既知値として記録する（後の保存が他タブの書込みとして拒否されないように。R-27）。
+	await recordStoredValues();
 	await app.loadAppDataFromStorage();
 	assert.strictEqual(state.currentDistrict.han, "");
 	assert.strictEqual(state.currentDistrict.students[0].isOutOfDistrict, false);

@@ -236,18 +236,35 @@ for (const name of ['__proto__', 'constructor', 'toString']) {
 securityTest('Security CSP: inline script, inline event, eval, base and form submissions are blocked', async () => {
 	assert.strictEqual(__securityViolations.length, 0, 'Startup satisfies CSP');
 	const baseURI = document.baseURI;
-	const script = document.createElement('script'); script.textContent = 'window.__securityScript=1'; document.body.appendChild(script);
-	const button = document.createElement('button'); button.textContent = 'CSP event probe'; button.id = 'security-event-probe'; button.setAttribute('onclick', 'window.__securityEvent=1'); document.body.appendChild(button);
-	await ui.click('#security-event-probe');
-	try { window.eval('window.__securityEval=1'); } catch (error) { assert.strictEqual(error.name, 'EvalError', 'CSP rejects eval'); }
+	// Trusted Types のもとでは、ページのスクリプトからインラインの script・イベント属性を作れない（TypeError。I-15-06）。
+	const errorName = fn => { try { fn(); return null; } catch (error) { return error.name; } };
+	const script = document.createElement('script');
+	assert.strictEqual(errorName(() => { script.textContent = 'window.__securityScript=1'; }), 'TypeError', 'Trusted Types rejects inline script text');
+	document.body.appendChild(script);
+	const button = document.createElement('button');
+	assert.strictEqual(errorName(() => button.setAttribute('onclick', 'window.__securityEvent=1')), 'TypeError', 'Trusted Types rejects an inline event attribute');
+	// eval は Trusted Types の違反（require-trusted-types-for）と EvalError になる（script-src の違反は報告されない）。
+	assert.strictEqual(errorName(() => window.eval('window.__securityEval=1')), 'EvalError', 'eval is rejected');
+	assert.strictEqual(errorName(() => new Function('window.__securityEval=1')), 'EvalError', 'new Function is rejected');
 	const base = document.createElement('base'); base.href = new URL('./icons/', location.href).href; document.head.appendChild(base);
 	const frame = document.createElement('iframe'); frame.name = 'security-form-target'; frame.setAttribute('sandbox', ''); document.body.appendChild(frame);
 	const form = document.createElement('form'); form.target = frame.name; form.action = location.href; document.body.appendChild(form); form.submit();
-	await ui.waitFor(() => ['script-src-elem', 'script-src-attr', 'script-src', 'base-uri', 'form-action'].every(directive => __securityViolations.some(event => event.directive === directive)), 'Every prohibited capability produces a policy violation');
+	await ui.waitFor(() => ['require-trusted-types-for', 'base-uri', 'form-action'].every(directive => __securityViolations.some(event => event.directive === directive)), 'Every prohibited capability reports its directive');
 	assert.strictEqual(window.__securityScript, undefined, 'Inline script never runs');
-	assert.strictEqual(window.__securityEvent, undefined, 'Inline event never runs');
 	assert.strictEqual(window.__securityEval, undefined, 'Eval never runs');
 	assert.strictEqual(document.baseURI, baseURI, 'Injected base never changes URL resolution');
+}, {
+	// イベント属性の CSP（script-src-attr）の拒否は、Trusted Types を通らない CDP の DOM.setOuterHTML で入れて確かめる。
+	settle: async ({ send, evaluate }) => {
+		const { root } = await send('DOM.getDocument', { depth: 0 });
+		const { nodeId } = await send('DOM.querySelector', { nodeId: root.nodeId, selector: '#security-form-target' });
+		await send('DOM.setOuterHTML', { nodeId, outerHTML: '<button id="security-event-probe" onclick="window.__securityEvent=1">CSP event probe</button>' });
+		await evaluate(async () => {
+			await ui.click('#security-event-probe');
+			await ui.waitFor(() => __securityViolations.some(event => event.directive === 'script-src-attr'), 'The inline event is refused by script-src-attr');
+			assert.strictEqual(window.__securityEvent, undefined, 'Inline event never runs');
+		});
+	}
 });
 
 function seedPrivateStorage() {

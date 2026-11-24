@@ -1,7 +1,7 @@
 # kogaidocs 内部仕様書
 
-**文書版**: 1.10（アプリケーション 2.12.1 対応）<br>
-**改訂日**: 2026年11月21日<br>
+**文書版**: 1.11（アプリケーション 2.12.1 対応）<br>
+**改訂日**: 2026年11月24日<br>
 **文体・規範**: 本文の「する」「である」は要求または仕様を表す。試験済みという意味ではない。
 
 [外部仕様書](external_design.md)の実現方式を定める。過去改修のレビューは[レビュー記録](reviews/)に保持する。
@@ -85,7 +85,7 @@ WebAuthn `user.id` はASCII `kogaidocs` の固定配列である。パスキー�
 
 - **保護状態の整合性**: メモリ鍵は解除時の認証メタデータ内容と結び付ける。別タブの削除・再設定・破損を保存・読込・解除の開始と非同期完了時に照合し、不一致なら鍵・状態・DOMを破棄して書込みを拒否する。storageイベントでも同じ破棄を実行し、認証キー個別変更に加えて `localStorage.clear()` の `key === null` 通知を保護状態の消失として扱う。暗号文が残るのに認証情報が消失・不正である場合、および保護済みタブが別タブの全消去を検知した場合は未暗号化と扱わない。全消去を実行した当該タブだけは明示的に未暗号化初期状態へ移行する。
 
-- **複数キー確定の競合制御**: 平文状態を含む通常保存・読込・初期設定・再設定・旧形式移行・生体認証情報更新・全消去は、Web Locks API対応環境では同一origin・同一アプリ名のロックを必ず通す。読込は共有ロック、それ以外は排他ロックとし、ロック取得後に認証情報と暗号文の有無を再評価してから平文または暗号化の経路を決定する。保存要求は呼出時点のデータ直列化結果とセッション世代を保持し、ロック待機中に全消去・再設定・ロックが完了して世代が変わった場合は、取得後の平文/暗号化再判定へ進まず要求を拒否する。全4モードと認証情報のトランザクション書込および失敗時復元を1回の排他ロック保持中に完了する。これにより、照合と書込み、各キー間、失敗時復元の間へ別タブのアプリ操作が入ること、初期設定途中へ別タブの平文保存が入ること、および全消去より後に待機中の自動保存が旧データを平文復活させることを防ぐ。全消去要求が書込中に発生した場合は書込完了後に排他ロックを取得して全対象を削除するため、旧処理が後からデータを復活させない。Web Locks APIを利用できない環境では未暗号化データの単一キー読込・保存・全消去だけを許可し、暗号化の設定・解除・読込・保存・変更は開始せず、対応ブラウザを要求して平文へ降格しない。ブラウザ機能や開発者操作によるロック外の保存領域消去は `storage` の `key === null` 通知で保護セッションを直ちに無効化し、その後の保存を拒否する。
+- **複数キー確定の競合制御**: 平文状態を含む通常保存・読込・初期設定・再設定・旧形式移行・生体認証情報更新・全消去は、Web Locks API対応環境では同一origin・同一アプリ名のロックを必ず通す。読込は共有ロック、それ以外は排他ロックとし（ただし未暗号化の読込（I-16-03）は、読込・反映・既知値の記録・世代の前進を1回の排他ロックの中で行う）、ロック取得後に認証情報と暗号文の有無を再評価してから平文または暗号化の経路を決定する。保存要求は呼出時点のデータ直列化結果とセッション世代を保持し、ロック待機中に全消去・再設定・ロックが完了して世代が変わった場合は、取得後の平文/暗号化再判定へ進まず要求を拒否する。全4モードと認証情報のトランザクション書込および失敗時復元を1回の排他ロック保持中に完了する。これにより、照合と書込み、各キー間、失敗時復元の間へ別タブのアプリ操作が入ること、初期設定途中へ別タブの平文保存が入ること、および全消去より後に待機中の自動保存が旧データを平文復活させることを防ぐ。全消去要求が書込中に発生した場合は書込完了後に排他ロックを取得して全対象を削除するため、旧処理が後からデータを復活させない。Web Locks APIを利用できない環境では未暗号化データの読込・保存・取込・引き継ぎの復元・全消去だけを許可し（I-16-02）、暗号化の設定・解除・読込・保存・変更は開始せず、対応ブラウザを要求して平文へ降格しない。ブラウザ機能や開発者操作によるロック外の保存領域消去は `storage` の `key === null` 通知で保護セッションを直ちに無効化し、その後の保存を拒否する。
 
 - **保存暗号文のAAD**: 新形式は `STORAGE_ENC:2:` とし、AES-GCMのadditionalDataにアプリ識別子・形式・保存キーを含める。保存先の入替・改竄・異なる形式の偽装を拒否する。既存形式はパスワード・WebAuthn PRFのいずれも鍵取得後の共通処理で全モードを復号・検証して新形式へ原子的に移行し、認証情報へ形式2を確定する。失敗時は旧値を保持し、解除成功としない。形式2の認証情報で旧形式へ降格しない。生マスター鍵バッファはラップ・インポート・生体認証の成功/失敗にかかわらずfinallyでゼロ化する。
 
@@ -300,9 +300,9 @@ sequenceDiagram
 
 ## I-05 描画・イベント・印刷
 
-- **厳格CSPとイベント**: インラインscriptとイベント属性を除去し、`js/events.js` の固定処理表へ移す。`data-click/input/change/submit/keydown` と `data-index/field/target` 等は宣言的なアクション名・検証済み引数のみであり、コード文字列ではない。任意コード評価・汎用式解釈・`window[name]` 実行は禁止する。動的名簿にもdocumentの委譲を適用し、停止・preventDefault・モーダル背景判定・Enterを維持する。CSPの全文と配置は I-14-01 を正とする（`script-src 'self'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; form-action 'none'` を含む）。既存の印刷CSSに必要なstyleのinline許容は維持する。frame-ancestorsはmetaでは機能しないため、実配信ヘッダー未確認を対策済みとしない。
+- **厳格CSPとイベント**: インラインscriptとイベント属性を除去し、`js/events.js` の固定処理表へ移す。`data-click/input/change/submit/keydown` と `data-index/field/target` 等は宣言的なアクション名・検証済み引数のみであり、コード文字列ではない。任意コード評価・汎用式解釈・`window[name]` 実行は禁止する。動的名簿にもdocumentの委譲を適用し、停止・preventDefault・モーダル背景判定・Enterを維持する。CSPの全文と配置は I-14-01 を正とする（`script-src 'self'; script-src-attr 'none'; object-src 'none'; base-uri 'none'; form-action 'none'` を含む）。スタイルのインライン許可は置かない（I-15）。frame-ancestorsはmetaでは機能しないため、実配信ヘッダー未確認を対策済みとしない。
 
-HTML本文・引用符付き属性の値はescで `& < > " '` をエスケープする。URLやCSS/数値の文脈はHTMLエスケープだけで安全とせず、固定URLと範囲検証を用いる。印刷DOMも同じ境界で扱う。`window.print` とCSS `@page` を用い、タイトル・一時style・表示をfinally等で復元する。名札の4面と180度回転、宛名12面とページ分割は出力契約である。詳細は外部仕様E-07である。
+HTML本文・引用符付き属性の値はescで `& < > " '` をエスケープする。URLやCSS/数値の文脈はHTMLエスケープだけで安全とせず、固定URLと範囲検証を用いる。印刷DOMも同じ境界で扱う。`window.print` とCSS `@page` を用い、タイトル・印刷の向きの link の `media`・表示を finally で戻す（I-15-05）。名札の4面と180度回転、宛名12面とページ分割は出力契約である。詳細は外部仕様E-07である。
 
 ## I-06 PWA・更新・通信
 
@@ -562,8 +562,9 @@ SEC-23では全ての暗号化ファイル・コピー・共有・代表地区�
 
 ### I-12-07 平文起動時の読込失敗（SEC-30）
 
-- `startUnencryptedSession()`（`js/app.js`、起動処理の未暗号化分岐）は、各データキーの平文を `repair: true` で個別に検証し、失敗したキーだけを `suspendStorageWrites(keys)`（`js/crypto.js`）でキー単位に書込停止する。`loadAppDataFromStorage` は停止中のキーを読まず既定値を使い、他のキーは通常どおり読み込む。`isStorageWriteSuspended(key)` を公開する。
-- 個別検証に合格した後でも `loadAppDataFromStorage` が予期しない例外で失敗した場合は、保存値が存在するすべてのデータキーを停止し、既定状態で起動して原本を上書きしない（「安全な初期状態で起動しました」を通知する）。
+- `startUnencryptedSession()`（`js/app.js`、起動処理の未暗号化分岐）は、未暗号化の読込（I-16-03）で、各データキーの平文を `repair: true` で個別に検証し、失敗したキーだけを `suspendStorageWrites(keys)`（`js/crypto.js`）でキー単位に書込停止し、そのモードは既定値で開く。他のキーは通常どおり読み込む。`isStorageWriteSuspended(key)` を公開する。
+- 未暗号化の読込が予期しない例外で失敗した場合（反映の関数の中と外。I-16-03）は、保存値が存在するすべてのデータキーを停止し、既定状態で起動して原本を上書きしない（「安全な初期状態で起動しました」を通知する）。読めない保存値のモードの通知も、保存値ごとの検証で求めて出す。
+- 暗号化中の解除の読込（`loadAppDataFromStorage`）は、停止中のキーを読まず、今のメモリのモデルを使う。
 - 停止中のキーについて、`saveStorageDataUnlocked` は書き込まず `false` を返す（拒否集合へは入れない）。`#storage-save-warning` に対象モードの保存停止と、全消去または正しいデータの復元の案内を表示し、起動時に1回 `alert` する。
 - `performAppUpdate` は、`officerPlaintextWriteDenied(key)` と同じく `isStorageWriteSuspended(key)` のキーの `false` を失敗として扱わない（アプリ更新を止めない）。
 - `collectBrowserHandoff` は、停止中のキーが1つでもあれば保存前に「保存を停止しているモードがあるため、引き継ぎを作成できません。全消去するか、正しいデータを復元してください。」で中止する（既定モデルが復元先の有効なデータを上書きしないため）。
@@ -728,6 +729,7 @@ CSP で制限できない経路（E-14-05）は、次の字句で固定する。
 		- `.spellcheck` は真偽値の IDL 属性のため、真偽値の `false` の代入だけとする（文字列の `'false'` は真に変換され、スペルチェックが有効に戻る）。
 		- `.writingSuggestions` は文字列の IDL 属性のため、`false` と `'false'` の代入を許す。
 	- js で `setAttribute`・`toggleAttribute`・`removeAttribute` によりこれらの属性を操作しない。
+	- 例外: js/utils.js の描画の補助（I-15-02）の、属性の許可リストの行と、`spellcheck` を値が `false` のときだけ残す判定の行の2行（行の内容で固定する。描画の補助は値が `false` 以外の `spellcheck` を取り除くので、有効に戻す経路にならない）。
 
 ### I-14-03 試験
 
@@ -741,15 +743,263 @@ CSP で制限できない経路（E-14-05）は、次の字句で固定する。
 	- アプリのページ: 通常の起動で CSP 違反が0件であることを確かめる。そのうえで、外部オリジンへ次の手段で送信を試み、それぞれが該当する `effectiveDirective` の CSP 違反として拒否されることを、違反イベントで確かめる。`blockedURI` の期待値は手段ごとに次のとおりとする。入れ子文書（`frame-src`）と object（`object-src`）は試験用オリジンだけ、WebSocket は試験用サーバーの `ws:` の URL、`blob:`・`data:` の Worker は `blob`・`data`、それ以外は要求の URL（試験用オリジンで始まる）である。
 		- fetch、XHR、WebSocket、EventSource、sendBeacon、`<a ping>`（`connect-src`）
 		- 画像、インライン style の `url()`（`img-src`）
-		- script 要素、動的 `import()`（`script-src-elem`）
-		- stylesheet の link、インライン style の `@import`（`style-src-elem`）
+		- script 要素、動的 `import()`（`script-src-elem`。R-26 で、アプリのページの script 要素は Trusted Types の TypeError で確かめ、`script-src-elem` は動的 `import()` で確かめる形に改めた。I-15-06）
+		- stylesheet の link、インライン style の `@import`（`style-src-elem`。R-26 でインライン style も拒否されるため、`@import` は一時のスタイルシート（自オリジンの file: URL）の link の中で確かめる形に改めた。I-15-06）
 		- `@font-face`（`font-src`）、video（`media-src`）、object（`object-src`）、iframe（`frame-src`）、form の送信（`form-action`）、`<link rel="prefetch">`（`default-src`）
 		- アイコンの link（`img-src`）
 		- マニフェスト（`manifest-src`）: `link[rel=manifest]` の宛先を試験用オリジンへ向け、CDP の `Page.getAppManifest` で取得させる。
-		- `blob:`・`data:` の Worker（`worker-src`。`blockedURI` は `blob`・`data`）。対照ページでは Worker が実行されて応答することを確かめる。外部オリジンの Worker は、file 起動では CSP の判定より前に例外となるため対象にしない。
+		- `blob:`・`data:` の Worker（`worker-src`。`blockedURI` は `blob`・`data`）。対照ページでは Worker が実行されて応答することを確かめる。R-26 で、アプリのページでは文字列の URL の Worker を Trusted Types が拒否する（TypeError）ため `worker-src` の違反は観測できず、`worker-src` は CSP の文字列の固定で確かめる形に改めた（I-15-06）。外部オリジンの Worker は、file 起動では CSP の判定より前に例外となるため対象にしない。
 	- 外部の宛先への `Network.requestWillBeSent` が出たものは、すべて `Network.loadingFailed` の `blockedReason: 'csp'` で終わることを確かめる。CDP への現れ方は手段で異なる（Chromium 150 で観測）。XHR・EventSource・ping・画像・`url()`・script・`import()`・stylesheet・`@import`・font・prefetch・マニフェストは要求が出て `blockedReason: 'csp'` で失敗する。iframe・form は要求が出ず、`blockedReason` のない `loadingFailed`（`net::ERR_BLOCKED_BY_CSP`）が出て、同じ requestId でエラーページの受信・完了が続く。fetch・sendBeacon・video・object・アイコン・WebSocket は CDP に現れず、違反イベントだけになる。iframe を送信先とする form の送信では、`form-action` の違反（`blockedURI` は要求の URL）に加えて `frame-src` の違反（`blockedURI` はオリジン）も出るため、違反の一覧は試験の送信によるものだけであることを確かめ、form の試験を `form-action` の違反だけと判定しない。このため、拒否の根拠は違反イベントとし、CDP の観測は補助とする。対照ページで試験用サーバーが受信した手段について、アプリのページでは受信が0件であることも確かめる。
 	- iframe・form の送信は、宛先の名前解決・接続が先行しうる（E-14-05）。このため、試験用サーバーへの TCP 接続の有無は判定に使わない。
 	- スペルチェックと入力の候補表示: 地区モードなどの入力欄と後から作る入力欄の `spellcheck` が `false`、`writingSuggestions` が `'false'` であることを確かめる。
 	- 実際のファイルの保存: `downloadTextFile` を差し替えずに呼び、CDP の `Browser.setDownloadBehavior` で指定した場所にファイルが保存され、内容が一致し、CSP 違反が0件であることを確かめる。ダウンロードの完了は、期待する件数の開始の通知が届き、すべて完了するまで待つ（開始の通知の前に抜けない）。
 - **既存の実Chromium 試験一式**が、新しい CSP のもとで合格することを確かめる。既存の試験の多くは、ファイルの保存と印刷を `ui.captureDownloads()`・`ui.capturePrints()` で差し替えている。同一オリジンの入れ子文書で複数タブを再現していた SEC-34 の3件は、`frame-src 'none'` のもとでは動かないため、試験から開いた同一オリジンの別ウィンドウで再現する形に改める（利用者操作として評価し、ポップアップを許可する）。
 - **未検証**: HTTP 配信での実ブラウザの確認（Service Worker の登録と更新、自オリジンのマニフェストの取得を含む）は、この試験環境では行わない。Service Worker の処理（`clients` の操作など）は静的試験だけで固定する。file 起動では自オリジンのマニフェストの取得が CORS で失敗し、ローカルの Chromium から試験用サーバーへの要求は上記の6つの手段でしか届かない。
+
+## I-15 描画の多層防御（R-26・E-15）
+
+用語:
+
+- **描画の補助**: js/utils.js に置く関数 `renderHtml`（新設）。HTML の文字列を、許可リストで取り除いてから要素の中身にする。
+- **ポリシー**: Trusted Types のポリシー `kogai`。js/utils.js が読込時に1回だけ作る。
+- **移し先のクラス**: 従来の style 属性の宣言を移した、css/style.css の末尾のクラス（`u-` で始まる名前）。
+
+### I-15-01 CSP とポリシー
+
+- CSP は E-14-01 の文字列と完全一致させる。`style-src` は `'self'` だけとし、`require-trusted-types-for 'script'` と `trusted-types kogai` を加える。
+- ポリシーは、`window.trustedTypes` があるときだけ `window.trustedTypes.createPolicy('kogai', …)` で作る。作った値は即時関数の中に閉じ込め、グローバルの名前から参照できないようにする。外へ出すのは、描画の補助と、Service Worker の URL を返す関数 `trustedServiceWorkerUrl`（新設）だけとする。
+	- `policy.createHTML` は受け取った文字列をそのまま返す。描画の補助が、文書に属さない `<template>` での解析にだけ使う。解析した木は、I-15-02 の取り除きを経てから文書に入る。
+	- `policy.createScriptURL` は `'./sw.js'` だけを受け付け、それ以外は例外とする。
+	- `'allow-duplicates'` を指定しないので、読込の後に同じ名前のポリシーは作れない。別の名前のポリシーも CSP で作れない（Chromium で実測）。
+- 文字列のまま HTML を入れる操作（`element.innerHTML` への代入など）は、Trusted Types に対応するブラウザでは、空の文字列を含めて例外となる（Chromium で実測）。
+
+### I-15-02 描画の補助
+
+`renderHtml`（要素、HTML の文字列）は、次の順に処理する。戻り値は、取り除いた要素と属性の名前（`elements`・`attributes`）である。
+
+1. `document.createElement('template')` を作り、ポリシーがあれば `policy.createHTML(html)`、なければ文字列のままを `template.innerHTML` に代入して解析させる。template の内容は文書に属さないため、解析の間にスクリプトの実行・資源の読込・イベントは起きない。表の行（`<tr>`）・セル（`<td>`）・選択肢（`<option>`）だけの HTML も、template の中ではそのまま解析される。
+2. 内容の木を走査し、次のとおり取り除く。
+	- 許可リストにない要素は、子孫ごと取り除く（中の文字も残さない。取り除いた要素の中身は、その要素の文脈で解析された木であり、別の文脈へ移すと意味が変わりうるためである）。
+	- 要素と文字以外のノード（コメントなど）は取り除く。
+	- 残った要素から、許可リストにない属性と、値が許可リストにない属性を取り除く。属性の値は変えない（エスケープは従来どおり組み立てる側の `esc()` による）。
+3. `element.replaceChildren(template.content)` で、要素の元の子をすべて置き換える（複製せずに移す）。
+4. 取り除いたものがあれば、`console.error` に、取り除いた要素と属性の名前だけを記録する（値は名簿を含みうるため記録しない）。
+
+- **要素の許可リスト**: `div`・`span`・`p`・`br`・`hr`・`strong`・`label`・`button`・`input`・`select`・`option`・`table`・`thead`・`tbody`・`tr`・`th`・`td`（アプリのテンプレートが使うものだけ）。
+- **属性の許可リスト**: `class`・`id`・`type`・`value`・`placeholder`・`maxlength`・`title`・`colspan`・`checked`・`selected`・`disabled`・`spellcheck`・`inputmode`・`autocorrect`・`autocapitalize`、`data-` の後に英小文字・数字・`-` が続く名前、`aria-` の後に英小文字が続く名前。
+	- `type` は、`input` では `text`・`tel`・`email`・`password`・`checkbox`、`button` では `button` の値だけを残す。`spellcheck` は値が `false` のものだけを残す（I-14-02。有効に戻させない）。ほかの値の属性は取り除く。
+	- `style`、`on` で始まる属性、URL を取る属性（`href`・`src`・`srcset`・`action`・`formaction`・`xlink:href` など）は、許可リストにないので取り除く。
+- **style 属性を取り除く理由**（Chromium 150.0.7871.181 で実測）: template の中で解析した style 属性は、CSP により解析の時点で `style-src-attr` の違反（`blockedURI` が `inline`）として拒否され、`element.replaceChildren` で文書へ移した後も効かない。ところが、その要素を `node.cloneNode`・`document.importNode` で複製すると、複製した要素では style 属性が効く（移した後の要素を複製しても効く）。アプリのコードは今は要素を複製しないが、残しておくと後の複製で注入したスタイルが効くため、取り除く。
+- **文字列で取り除かない理由**: HTML を文字列のまま消毒して再び解析すると、2回の解析の結果が異なる形（mXSS）が生じうる。描画の補助は、1回だけ解析し、取り除いた木そのものを文書へ移す。
+- **描画の補助で防がないもの（残余。R-26・E-15-05）**: 許可リストの `class`・`id`・`data-` の属性は残すため、エスケープ（R-15）に漏れがあれば、注入された要素は次のことができる。これらはエスケープで防ぐ。
+	- アプリのクラスで、本物のボタンなどと同じ見た目を作る。
+	- `data-click`・`data-change`・`data-input` の操作名で、js/events.js に登録された処理（全消去を含む）を、利用者のクリック・入力で呼ぶ。
+	- `id` の重複で、`document.getElementById` の参照先を奪う。
+- 許可リストを変えるのは、アプリのテンプレートが新しい要素・属性・値を使うときだけとする。アプリの通常の描画で取り除くものがないことを、試験（I-15-06）で確かめる。
+- 中身の消去は `element.replaceChildren()`（引数なし）で行う。
+
+### I-15-03 HTML を入れる箇所
+
+- js の次の操作は、描画の補助の中の `template.innerHTML` への代入の1か所だけとする（静的試験で、ファイル・行の内容・件数を固定する。照合の規則は I-14-02 と同じ）: `innerHTML`・`outerHTML` への代入、`insertAdjacentHTML`、`DOMParser`、`range.createContextualFragment`、`document.write`・`document.writeln`、`document.execCommand`（その insertHTML の命令は、Trusted Types のないブラウザで描画の補助を通らずに HTML を入れる。js は `document.execCommand` を使わない）、`srcdoc`、`element.setHTMLUnsafe`、`Document.parseHTMLUnsafe`。
+- HTML を入れる箇所（21の関数の30か所）は描画の補助に、中身の消去（22か所）は `element.replaceChildren()` に替える（I-15-08）。HTML の組立て（テンプレートとエスケープ）は変えない。
+- style の文字列を設定する操作は使わない（不信の値がスタイルの文字列に入る経路を作らない）: `setAttribute('style', …)`・`setAttributeNS(…, 'style', …)`、`el.style.cssText` への代入、`el.style` への文字列の代入（`el.style = '…'` と `Object.assign(el, { style: … })`）、style の属性のノードの値への代入（`el.attributes`・`el.getAttributeNode` から得たもの）。要素のスタイルは、プロパティごとの代入と読出しだけとし、使うプロパティは `el.style.display` と `el.style.gridTemplateColumns` だけとする。静的試験で、js の `style` の語の出現のうち、`.style.display`・`.style.gridTemplateColumns` の形以外を0件とする（照合の規則は I-14-02 の名前による固定と同じ。`el.style.cssText` と `el.attributes.style.value` はこの形に当たらないので検出される）。
+- スタイルの規則・宣言を文字列で作る API も使わない（構築したスタイルシートは `style-src` で拒否されないため、不信の値がスタイルに入る経路になる。Chromium 150 で実測）: `sheet.insertRule`、`sheet.replaceSync`、`CSSStyleSheet`（構築。`replace` もこれを要する）、`document.adoptedStyleSheets`、`document.styleSheets`、`el.attributeStyleMap`。静的試験で、これらの名前の出現（大文字小文字を区別しない語）を0件とする。
+
+### I-15-04 Service Worker の登録
+
+- js/app.js の登録は、`navigator.serviceWorker.register` の第1引数を `trustedServiceWorkerUrl` の戻り値とし、第2引数は従来どおり `{ updateViaCache: 'none' }` とする。`trustedServiceWorkerUrl` は、ポリシーがあれば `policy.createScriptURL('./sw.js')`、なければ `'./sw.js'` を返す。Trusted Types のもとでは、登録の URL に文字列を渡すと例外になるためである（登録の分岐に入るのは、HTTPS 配信と、http の `localhost`・`127.0.0.1` の配信のとき。失敗はコンソールに記録されるだけで、オフライン起動が失われる）。実際の登録は手動の試験 `tests/manual/offline-http.js`（127.0.0.1 からの配信）で確かめる。この試験環境では Chromium の HTTP の起動が要求を届けずに時間切れになるため（I-08）、自動の試験は単体試験で登録に渡す値を確かめ、実際の登録は未検証とする。
+
+### I-15-05 スタイルの移し替え
+
+- **ファイルの構成**: css/style.css の末尾に、移し先のクラスの規則を置く（移し先のクラスのためにはファイルを分けず、sw.js の `ASSETS` も変えない。印刷の向きの css/print-landscape.css は下の「印刷の向き」による）。
+- **優先の順位**: 移し先のクラスの選択子は、`.<名前>:not(#_):not(#_):not(#_)` とする。`:not(#_)` は id が `_` でない要素（アプリのすべての要素）に当たり、1つにつき id 1つ分の詳細度を足すので、選択子の詳細度は (3,1,0) になる。css/style.css のほかの規則の選択子の詳細度は最大で (1,1,2)（`#hata-print-active-sheet table.schedule-table th` など）なので、移し先のクラスの通常の宣言は、ほかのどの規則の通常の宣言よりも優先し、`!important` の宣言には負ける。これは、従来の style 属性とほかの規則の関係（style 属性は詳細度によらず通常の宣言より優先し、`!important` の宣言には負ける）と同じである。スクリプトが CSSOM で設定する要素のスタイル（`el.style.display` など）は、従来どおり両方より優先する。
+	- カスケードレイヤー（`@layer`）は使わない。レイヤーに対応しないブラウザ（アプリが今の版で必要とする `Object.hasOwn` に対応する Chrome 93〜98・Firefox 92〜96 を含む）では、`@import … layer()` の読込そのものが無効になり、画面全体のスタイルが失われるためである。`:not()` に単純な選択子を与える形は、これらのブラウザでも使える。
+	- 静的試験で、ほかの規則の選択子の詳細度の id の数が3未満であること、index.html・js が id `_` を使わないことを確かめる。
+- **クラスの名前**: 宣言1つにつき1つのクラスとし、名前は `u-<プロパティの略号>-<値>` とする（例: `margin-top: 6px` は `u-mt-6px`、`text-align: center` は `u-ta-center`）。略号の表と値の書き方（英数字以外の文字の置き換え）は、css/style.css の移し先のクラスの前の注記に書く。1つの名前には1つの宣言だけが当たることを試験で確かめる。
+- **宣言の順**: 1つの style 属性の中で広い一括指定と狭い指定（`margin` と `margin-top`、`border` と `border-top` など）が重なるときは、宣言の順の結果が変わらないよう、広い一括指定のクラスを狭い指定のクラスより前に置く。後の広い一括指定が前の狭い指定を上書きしていた属性は、その属性だけの1つのクラス（`us-<番号>`）にまとめる（今の index.html・js にはない）。
+- **移し替えの方法**: index.html と js のテンプレートの `style="…"` を取り除き、その宣言の移し先のクラスを同じ要素の `class` に加える（`class` がなければ作る）。作業用のスクリプトで機械的に行い、I-15-07 で同等を確かめる。
+- **クラスの置き換え**: 既存の要素のクラスを `className` の代入で丸ごと置き換えると、移し先のクラスが消える。パスワードの確認の表示（js/app.js `validateModalPasswords`・js/district.js `validateDistrictPasswords`・js/rep.js `validateRepPasswords`・js/neighbor.js `validateNeighborPasswords`、js/utils.js `resetPasswordInputs` の表示の初期化）は、`#d-pass-match-msg`・`#rep-pass-match-msg`・`#neighbor-pass-match-msg`・`#modal-set-pass-msg`（従来は style 属性の余白を持つ）のクラスを置き換えるため、状態のクラス（`mismatch`・`match`・`pass-msg-ng`・`pass-msg-ok`）だけを `classList` で替える補助 `setPassFeedbackState`（js/utils.js に新設。`pass-feedback-msg` を加え、状態のクラスを1つにする）を使う形に改める。
+	- 字句の `className` の代入は、作ったばかりの要素への代入（js/district.js の役員の欄・js/hata.js の要約・js/seat.js の座席の欄の3か所）と、家庭情報の児童のデータの項目（組）への代入（js/transfer.js の1か所。要素ではない）の4か所だけとし、静的試験でファイル・行の内容・件数を固定する。クラスを丸ごと置き換える・消すほかの書き方（`el['className'] =`・`Object.assign(el, { className })`・`class` の属性の `setAttribute`・`setAttributeNS`・`removeAttribute`・`toggleAttribute`、属性のノードの取得・作成・名前付きの操作（getAttributeNode・createAttribute・getNamedItem・removeNamedItem・setNamedItem・setAttributeNode）、`attributes.class`・`classList.value =`・`classList =`、`Reflect.set`・`Reflect.defineProperty`・`Object.defineProperty` の `className`・`classList`（`Reflect.set(el.classList, 'value', x)` を含む）、`Object.assign`・`Object.defineProperties` の引数の `className`（省略記法・引用符・計算された名前を含む）、分割代入の対象の `className`・`classList`）は0件とし、同じ固定で検出する。代入は `=`・`+=` と論理代入（`||=`・`&&=`・`??=`）を、行をまたぐ書き方も含めて照合する（改行を空白にした内容に照合する）。
+- **初めに隠す要素**: 初めに `display: none` を指定していた index.html の22個の要素と、テンプレートの同じ指定は、移し先のクラス `u-d-none` を持つ。スクリプトは従来どおり `el.style.display` で表示を切り替える（要素のスタイルはクラスより優先する）。
+	- そのため、これらの要素の `el.style.display` の初めの値は、`'none'` から空（`''`）に変わる。表示中かを `el.style.display` で判定する箇所は、表示するときに設定する値との一致で判定する。js/events.js の `togglePastePanel`（`'block'` のときだけ隠し、それ以外は表示する）と、js/rep.js の Esc の処理（`'flex'` のときだけ地区の追加の画面を閉じる）を改める。js/district.js の2か所（空を非表示として扱う）、js/app.js の `toggleModeSelector`（初めに値を設定する要素）と解除の画面の判定（`'flex'` との一致）は変えない。
+- **実行時に決まる値**: js/print.js の座席表の列（`repeat(<列の数>, 1fr)`）は、要素の `data-cols` に列の数を置き、描画の後に `applyPrintSeatColumns`（js/print.js に新設）で `el.style.gridTemplateColumns` に設定する（js/seat.js と同じ方式。2〜10 の整数でない値は設定しない）。列の数は座席の設定の受入検証（I-12-04）の範囲の整数である。
+- **印刷の向き**: 横向きの `@page`（`size: A4 landscape; margin: 10mm;`）だけを持つ自オリジンのスタイルシート css/print-landscape.css を、index.html で css/style.css の後に `<link rel="stylesheet" href="css/print-landscape.css" media="not all" id="hata-print-landscape">` として読み込む（`media` が `not all` の間は当たらない）。js/hata.js の `printHataSchedule` は、`<style>` 要素の代わりに、設定の向きが横のときだけ、この link の `media` を印刷の間だけ `print` にし、`finally` で `not all` に戻す。後に読み込んだスタイルシートの `@page` が css/style.css の `@page`（縦）より優先する。sw.js の `ASSETS` に `./css/print-landscape.css` を加える。
+	- link の `media` の切替は、構築したスタイルシート（`document.adoptedStyleSheets`。Firefox 101・Safari 16.4 から）に対応しない版（アプリが使える Firefox 96〜100・Safari 15.4〜16.3）でも働く。file 起動のスタイルシートの規則（`sheet.cssRules`・`sheet.insertRule`）は、ブラウザによって別のオリジンとして扱われて操作できないため使わない。
+
+### I-15-06 試験
+
+- **静的試験**（`tests/system/csp-external-block.test.js` などに加える）:
+	- CSP の完全一致、`style-src` が `'self'` だけであること、`require-trusted-types-for 'script'` と `trusted-types kogai`。
+	- index.html・js の文字列とテンプレートに style 属性がないこと、js・index.html に `<style` 要素がないこと。
+	- I-15-03 の HTML を入れる操作の固定、ポリシーの作成（`window.trustedTypes.createPolicy`）の1か所、`style` の語の固定（`.style.display`・`.style.gridTemplateColumns` だけ）。違反の試料（`document.execCommand` の insertHTML の命令・`el.style = '…'`・`el.style.cssText = '…'`・`Object.assign(el, { style: … })`・`setAttributeNS(null, 'style', …)`・`el.attributes.style.value = …`・`el.style.color = …`・`insertAdjacentHTML`・`outerHTML =` など）を同じ照合の関数に与えて検出されることを確かめる。
+	- 字句の `className` の代入の4か所の固定。
+	- index.html の css/print-landscape.css の link（`media="not all"`、css/style.css の後）と、css/print-landscape.css の内容（横向きの `@page` だけ）、sw.js の `ASSETS`。
+	- index.html と js が使う `u-`・`us-` のクラスがすべて css/style.css に定義され、定義したクラスがどこかで使われていること、1つの名前に1つの宣言であること。移し先のクラスの選択子の形と、ほかの規則の詳細度（id が3未満）、id `_` を使わないこと。
+- **単体試験**（Node。`tests/helpers/dom-mock.js` に template の解析・属性の走査と取り除き・`element.replaceChildren` を加える。描画の補助で何も取り除かなかったときは、要素の `innerHTML` の読出しが入れた文字列のままになるようにし、取り除いたときは残った子から作る。描画した HTML の文字列を確かめる既存の単体試験は、許可リストの中の HTML では従来と同じ文字列が読めることを前提とし、異なる箇所は I-15-08 の試験の改めに含める）:
+	- 描画の補助の取り除き（要素・属性・`type` と `spellcheck` の値・`data-`・`aria-`・コメント）と記録の内容（名前だけ）、ポリシーがあるとき・ないとき。
+	- `trustedServiceWorkerUrl` の拒否と、Service Worker の登録（`navigator.serviceWorker.register` の差し替え）に、ポリシーがあるときはポリシーが作った値が、ないときは `'./sw.js'` が渡ること。
+- **実Chromium**:
+	- 全モードの画面、モーダル、帳票のプレビューと印刷の領域の描画、パスワードの確認の表示、狭い画面幅で、CSP 違反（`securitypolicyviolation`）が0件、描画の補助の取り除きの記録が0件であること。
+	- Trusted Types の強制: ページの中で、`element.innerHTML` に文字列を代入すること、script 要素の `src`・`textContent`、object の `data`、文字列の URL の Worker の構築、`setAttribute('onclick', …)` が TypeError になること、`kogai` の2つ目と別の名前のポリシーを作れないこと。
+	- 描画の補助の取り除き: `<img src onerror>`・style 属性・`<a href>`・`<svg>`・`<template>`・`<form>`・`<meta http-equiv="refresh">`・`<link>`・`<iframe>`・`<style>`・`<script>`・`spellcheck="true"`・`type="file"` を含む HTML を与え、取り除かれること、資源の要求・スクリプトの実行・スタイルの適用が起きないこと。CSP 違反は、試料の style 属性の数だけの `style-src-attr`（`blockedURI` が `inline`。template での解析の時点で報告される）だけであること。描画した要素を `node.cloneNode` で複製しても、スタイルが効かないこと（取り除いてあるため）。
+	- 移し先のクラスの効果: 上の各画面の状態で、移し先のクラスを持つ要素ごとに、computed style が、そのクラスを外して同じ宣言を CSSOM で要素のスタイルに設定したとき（従来の style 属性と同じ優先の順位）と同じであることを確かめる。要素のスタイルにすでにあるプロパティ（スクリプトが設定した `display` など）は設定しない（従来も、スクリプトの CSSOM の代入が style 属性の宣言を置き換えていた）。
+	- スタイルの API の固定: 違反の試料（`document.styleSheets[0].insertRule(…)`・`new CSSStyleSheet()`・`sheet.replaceSync(…)`・`document.adoptedStyleSheets = […]`・`el.attributeStyleMap.set(…)`）が検出されること（静的試験）。
+	- 印刷の向き: `printHataSchedule` の `window.print` の呼出しの間に、横の設定では css/print-landscape.css の link の `media` が `print` で、縦の設定では `not all` のままであり、呼出しの後に `not all` に戻ること。印刷のメディアを模擬した状態で、横の設定の呼出しの間の `@page` の規則が横向きであること（`link.sheet` の規則、または CDP の `Page.printToPDF` で CSS の用紙の指定を使ったときの用紙の向き）。
+	- 表示の切替: 貼付の欄の1回目の操作で表示されること、地区の追加の画面を開いていないときの Esc で何も変わらないこと。
+- **既存の試験の改め**（I-15-08）:
+	- `tests/system/headless-csp-external.test.js`: Trusted Types のもとでは、ページのスクリプトから外部の script 要素・object・Worker・インラインの script・イベント属性を作れず、`<style>` 要素とインライン style も拒否されるため、手段ごとに次のとおり改める。
+		- `<style>` の中の `@import`（`at-import`）: `<style>` 要素そのものが `inline` として拒否されて `@import` は評価されず、構築したスタイルシートの中の `@import` は違反も出さずに無視される（Chromium 150 で実測）。このため、試験の一時ディレクトリに外部の URL を `@import` する一時のスタイルシートを置き、link で読ませる（file 起動では `'self'` が file: URL に一致するので読込は許される）。その `@import` が、外部の URL への `style-src-elem` として拒否されることを確かめる。
+		- CSP の各指令の拒否は、Trusted Types を通らない CDP の `DOM.setOuterHTML` で要素を入れて確かめる: object（`object-src`）、イベント属性（`script-src-attr`）、`<style>` 要素（`style-src-elem`。`blockedURI` が `inline`）、style 属性（`style-src-attr`）。CDP で入れた script 要素は実行の対象にならないため、`script-src-elem` は従来どおり動的 `import()` で確かめる（Chromium 150 で実測）。
+		- インライン style の `url()` は CSSOM（`el.style.backgroundImage`）で設定して `img-src` の拒否を、`@font-face` は構築したスタイルシートに入れて `font-src` の拒否を確かめる。外部の stylesheet の `style-src-elem` の拒否は、従来の link の項目で確かめる。
+		- Worker は、Trusted Types のもとでは文字列の URL で構築できない（TypeError）ため、`worker-src` の拒否は実Chromium では確かめられない。TypeError になることを確かめ、`worker-src 'self'` は CSP の文字列の固定（静的試験）で確かめる。対照ページ（CSP なし）での Worker の実行の確かめは残す。
+		- 「試料による違反だけ」を確かめる判定は、Trusted Types の違反（`require-trusted-types-for`）と `blockedURI` の `inline` を、試料が起こすものとして数える。
+	- `tests/system/headless-security.test.js` の CSP の試験（`script-src-elem`・`script-src-attr`・`script-src`・`base-uri`・`form-action` の違反がそろうのを待つ）は、Trusted Types のもとで次のとおり改める（Chromium 150 で実測）。
+		- script の `textContent` への代入と `setAttribute('onclick', …)`: TypeError になることを確かめる。イベント属性の `script-src-attr` の拒否は、CDP の `DOM.setOuterHTML` で入れて確かめる。
+		- `window.eval` と `new Function`: EvalError と、`require-trusted-types-for` の違反（`script-src` の違反は報告されない）を確かめる。
+		- インラインの script の `script-src-elem` と、`eval` の `script-src` の拒否は、実Chromium では観測できないため、CSP の文字列の固定（`'unsafe-inline'`・`'unsafe-eval'` を含まない）で確かめる。
+		- 待機の条件は、`script-src-attr`・`base-uri`・`form-action`・`require-trusted-types-for` の違反とする。
+	- `tests/system/headless-workflows.test.js` の印刷の向きの試験は、`<style>` 要素の規則の代わりに css/print-landscape.css の link の `media` を確かめる。
+	- `tests/unit/security-render-coverage.test.js` の座席表の HTML の `grid-template-columns` の文字列の試験は、`data-cols` と描画の後の要素のスタイルを確かめる。
+	- `tests/system/csp-external-block.test.js` の js/hata.js の `location` の行の内容（style 属性を含む）の固定は、移し替えた後の行に合わせる。
+	- ページの中で文字列を `innerHTML` に入れていた実Chromium の試験（`tests/system/headless-specification-contracts.test.js` の2か所、`tests/system/headless-workflows.test.js` の1か所）は、描画の補助か DOM の操作にする。
+
+### I-15-07 見た目の同等（移し替えの確かめ）
+
+- 比較元（eaec46a）と作業ツリーの index.html を同じ Chromium で開き、同じ操作の列（全モード、モーダル、帳票のプレビュー、印刷の領域の描画、パスワードの確認の表示（短い・一致しない・一致する）、ロックの後、印刷のメディアの模擬、2つの画面幅）の後に、全要素の computed style（全プロパティ）を集めて比べる。差が0件であること（差があれば理由）を検証記録に書く。
+- 比較元の木を要するため、作業用の手順で行い、試験には入れない。手順は検証記録に書く。
+
+### I-15-08 影響範囲の一覧
+
+| 経路 | 箇所 | 変える／変えない | 旧版との差 |
+| :--- | :--- | :--- | :--- |
+| HTML の描画 | js の21の関数の30か所（js/app.js `openStorageSettingsModal`・`updateSecurityBadge`、js/district.js の名簿の表3つ、js/hata.js の要約・免除・プレビュー・印刷、js/neighbor.js の表と印刷2つ、js/print.js の印刷3つ、js/rep.js の詳細の画面・地区の表・外部関係者・自治会の選択、js/seat.js の座席の編集、js/transfer.js の家庭情報の表） | 変える（描画の補助） | 同じ（許可リストの外の要素・属性を取り除く） |
+| 中身の消去 | js の22か所（ロック時の消去、出力の領域の消去、表の作り直しの前の消去など） | 変える（`element.replaceChildren()`） | 同じ |
+| style 属性 | index.html の239か所、js のテンプレートの181か所 | 変える（移し先のクラス） | 同じ（I-15-07） |
+| クラスの置き換え | js の `className` の代入（パスワードの確認の表示の4つの関数と `resetPasswordInputs`、作ったばかりの要素の3か所） | 変える（パスワードの確認の表示は `classList`）／変えない（作ったばかりの要素） | 同じ |
+| 印刷の向き | js/hata.js の `printHataSchedule`、index.html の link、css/print-landscape.css（新規）、sw.js の `ASSETS` | 変える（link の `media` の切替） | 同じ |
+| 座席表の列 | js/print.js の座席表の印刷 | 変える（`data-cols` と CSSOM） | 同じ |
+| 表示中の判定 | js/events.js の `togglePastePanel`、js/rep.js の Esc | 変える（表示の値との一致） | 同じ（初めの値が空になったための改め） |
+| 表示の切替の書込み | js の `el.style.display`・`el.style.gridTemplateColumns` の代入（js/app.js・js/district.js・js/rep.js・js/events.js・js/seat.js） | 変えない | 同じ |
+| 要素の複製 | js の `node.cloneNode`・`document.importNode`（0件） | 変えない | 同じ |
+| Service Worker の登録 | js/app.js | 変える（`trustedServiceWorkerUrl`） | 同じ |
+| スタイルシート | css/style.css（末尾に移し先のクラス） | 変える | 同じ |
+| 配信するファイル | css/print-landscape.css（I-14-01 の css/ の `.css`） | 変える（加える） | 静的試験の配信するファイルの一覧に含まれる |
+| HTML の組立てとエスケープ | js のテンプレートと `esc()` | 変えない | 同じ |
+| 試験 | `tests/system/csp-external-block.test.js` の CSP の期待値・許可リスト・js/hata.js の行の固定、`tests/system/headless-csp-external.test.js` の各手段と違反の判定、`tests/system/headless-security.test.js` の script・イベント属性の試験、`tests/system/headless-workflows.test.js` の印刷の向きと `innerHTML` の1か所、`tests/system/headless-specification-contracts.test.js` の `innerHTML` の2か所、`tests/unit/security-render-coverage.test.js` の座席表の列、`tests/helpers/dom-mock.js` | 変える | 試験の改め（I-15-06） |
+
+## I-16 未暗号化の保存データの他タブ更新（R-27・E-16）
+
+用語:
+
+- **既知値**: js/crypto.js の `knownStorageValues` に、データキーごとに持つ、照合の基準とする保存値（保存値がないことは `null`）。このタブが最後に読んだ値、または最後に書いた値で、記録する場面は I-16-01 に並べる。ふつうはメモリの内容の元になった値だが、反映の失敗と起動時の失敗の後は、メモリがその値に基づかないことがある（そのキーは保存を停止する）。
+- **他タブの書込み**: このタブの既知値と、今の保存値が異なること。
+- **未暗号化の読込**: 暗号化していないときに、4つのデータキーを読み、メモリへ反映する処理（起動時と読み直し）。js/crypto.js に新設する関数 `loadUnencryptedStorage` で行う。反映の関数は js/app.js の `applyUnencryptedStorage`（新設）とする。
+
+### I-16-01 既知値の範囲
+
+- 既知値は、次の場面で記録する。ふつうはメモリへの反映と同時に記録し、読んだだけでは記録しない。例外は、反映の失敗（読んだ値を記録したうえで、メモリの元の値と異なるキーの保存を停止する）と、起動時の反映の外の例外（`rememberUnreflectedStorageValues`）の2つである。
+	- 未暗号化の読込（I-16-03）: 読んだ値（ないときは `null`。JSON として読めない値もそのまま）を、メモリへ反映したときに記録する。反映の関数の例外（予期しない失敗）のときも、同じ排他区間の中で読んだ値を記録する。このときメモリは読んだ値に基づかないため、メモリの元の値と読んだ値が異なるキーの保存を停止する（I-16-03 の手順5）。
+	- 起動時の、反映の関数の外の例外（排他区間の要求の失敗など）: 既知値のないキーに、そのときの保存値を記録する（js/crypto.js に新設する `rememberUnreflectedStorageValues`。既知値のあるキーは変えない。I-16-03）。
+	- 平文の保存（`saveStorageDataUnlocked` の平文の分岐）: 書いた値を記録する。
+	- `writeStorageTransaction`: 従来どおり、書いた値を記録する（平文の復元と暗号化の設定を含む）。
+	- 暗号化中の読込・解除: 従来どおり（`activateStorageKey` などが暗号文を記録する。SEC-34）。
+- 既知値を空にするのは、`lockStorage` を呼んだときに `isStorageEncrypted()` が真のとき（認証情報か暗号文がある、解除中、または無効化の印がある）だけとする。偽のとき（暗号化していない状態で、処理中に `cancelStorageAccess` が呼ぶときなど）は空にしない。空にすると、次の読み直しまでの平文の保存が照合なしで通るためである。
+	- 他タブの `localStorage.clear()` の通知（`key === null`）は、従来どおり `invalidateStorageSecurity` で無効化の印を立ててから `handleImmediateLock` を呼ぶ。このため `isStorageEncrypted()` は真になり、既知値は空になり、その後の保存は施錠中として拒否される（I-02。照合にも読み直しにも進まない）。
+- このタブの全消去（`clearStorageSecurityUnlocked`）は、4つのデータキーの既知値を `null` にする（保存値がないことと一致する）。
+- 既知値のないキーの扱い:
+	- 暗号化中は、従来どおり照合しない（解除の前から読んでいないキー）。
+	- 暗号化していないときは、既知値のないキーの平文の保存・取込・復元・暗号化の設定を、照合の失敗と同じく拒否する（`STORAGE_FOREIGN_UPDATE`。読み直しになる）。暗号化していないときに既知値がないのは、起動時の未暗号化の読込がまだ終わっていない（「読んだ」でも予期しない失敗でもない）ときだけである（その後は、読込・反映の失敗・起動時の失敗・保存・全消去でいつも記録がある）。読込の前の保存で、保存済みのデータを js/state.js の初期値と入力で上書きしないためである。
+
+### I-16-02 書込みの前の照合
+
+- 暗号化していないときも、次の書込みの前に `assertNoForeignStorageUpdate` で照合する。照合は排他区間の中で行う。照合するのは4つのデータキーだけとする（既知値も4つのデータキーだけを記録する。ほかのキーの保存は従来どおり照合しない）。
+	- `saveStorageDataUnlocked` の平文の分岐: 役員のデータの平文の拒否と停止中の判定の後、受入検証と書込みの前（暗号化中と同じ位置）。`commitImportedModel` の取込もこの関数を通る。
+	- `replaceStoredAppData`: 暗号化の有無によらず、書き換えるキーについて書込みの前に照合する（従来の `if (encrypted)` を外す）。
+	- `setupStorageEncryptionUnlocked`: 4つのデータキーについて、メモリの内容を直列化する前と `writeStorageTransaction` の前に照合する。設定は、このタブのメモリの内容を暗号化して書き込むため、他タブの書込みの後では古い内容で上書きするためである。暗号化中の再設定にも同じ照合を行う（暗号化中の他タブの書込みは SEC-34 の扱いになる）。
+- Web Locks がないとき（`withStorageLock` はロックなしで処理を呼ぶ）も、未暗号化の保存（`saveStorageData`）・取込（`commitImportedModel`）・引き継ぎの復元（`replaceStoredAppData`）・全消去・未暗号化の読込は動く（暗号化の設定・解除・暗号化中の保存は動かない）。このとき、照合と書込みは同じタスクの中で続けて行う。`saveStorageDataUnlocked` の平文の分岐と、`replaceStoredAppData` の平文の経路（暗号化の `await` を通らない）は、照合から書込みまでに `await` がないため、ほかのタスク（入力のイベント・storage イベント）が間に入らない。
+- 照合の失敗（`STORAGE_FOREIGN_UPDATE`）は、従来どおり排他区間の外で `notifyForeignStorageUpdate` を呼ぶ。`saveStorageData` は `false` を返し、`commitImportedModel`・`replaceStoredAppData` は `STORAGE_SESSION_CHANGED` を送出する（取込・復元の呼出元は失敗の通知を出さない。案内が出る）。`setupStorageEncryption` も同じく排他区間の外で `notifyForeignStorageUpdate` を呼び、`STORAGE_SESSION_CHANGED` を送出する。設定の2つの呼出元（js/app.js の設定の画面の `handleEnableEncryptionSubmit`（「暗号化の有効化に失敗しました: 」）と、カードからの設定の `quickSetupEncryptionFromCard`（「暗号化設定に失敗しました: 」））は、この例外では失敗の alert を出さない。読み直しが、保留にするときも含めて先に設定の画面を閉じ、処理中の設定を取り消す（`cancelStorageAccess`）ため、呼出元は取消の判定（`access.current()`）で通知の前に戻る（I-16-03）。
+- 保存の結果で利用者に完了を伝える処理は、`false` のときに完了を伝えない。家庭情報入力の提出後の消去（js/transfer.js `resetTransferForm`。メモリと画面を消してから保存する）は、保存が `false` のとき「家庭・児童の情報を端末から消去できませんでした。最新の内容を確かめて、もう一度消去してください。」を表示して `false` を返す（他タブの新しい内容を消さない。E-16-03）。ただし、保存の前から暗号化中のロックの状態のとき（ゲストのモードはメモリだけで入力し、保存しない）と、家庭情報入力の保存の停止（I-12-07）による `false` は、従来どおり消去を完了とする。ロックは保存の前に判定する。暗号化中で解除しているときに別のタブの書込みと競合したときは、保存の中の照合で SEC-34 のロックになる（`saveStorageData` が戻る前にロックする）ため、保存の後にロックを判定すると、完了と誤る。このときもロックと理由の表示に加えて、未暗号化と同じく「消去できませんでした」を表示して `false` を返す（E-16-03）。
+
+### I-16-03 未暗号化の読込と読み直し
+
+- **既定値**: js/state.js の読込の時点の4つのモデルの初期値の写し（読込の後の変更を含まない。`defaultStateModels` が毎回新しい写しを返す）。保存値がないキーと読めないキーのモデルは、この写しから作り、起動時と同じ正規化（`loadAppDataFromStorage` のモデルの組立て）を当てる。比較元の起動時は、保存値がないキーに読込の前のメモリ（= js/state.js の初期値）を使うため、起動時のモデルは比較元と同じになる（代表の外部関係者の既定の6行、座席表の見出し、地区の役員・児童の既定の行を含む）。`clearMemoryAndDomForLock` の値（ロック時の消去の値。外部関係者が空など）は使わない。
+- **未暗号化の読込**（`loadUnencryptedStorage`（世代、反映の関数））は、1つの排他区間の中で、次を続けて行う。結果は「読んだ」「読まなかった」「例外」のいずれかとする。
+	1. 排他区間に入ったとき、`isStorageEncrypted()` が真なら、読まずに「読まなかった」で終える。
+	2. 呼出元が呼出しの時点で取った世代が、今の世代と異なれば、読まずに `STORAGE_SESSION_CHANGED` を送出する（排他区間を待つ間のロック・`cancelStorageAccess`・取込の確定などで世代が進んだとき）。
+	3. 4つのデータキーの保存値を読む。
+	4. 反映の関数（js/app.js が渡す）を同期で呼ぶ。反映の関数は、保存値を検証・修復してモデルを作り、メモリへ反映する。保存値がないキーと、読めない（受入検証に合格しない）キーのモデルは既定値とし、今のメモリの内容は使わない。読めないキーは保存を停止し（I-12-07）、停止中のキーで読めるようになったもの（保存値がなくなったもの（別のタブの全消去など）を含む。起動時と同じく、保存値のないキーは読めないキーとしない）は保存を再開する（E-16-05）。メモリを置き換えるので、4つのキーの保存の拒否の状態を解除する（`clearStorageSaveRejections`。`clearMemoryAndDomForLock` と同じ）。
+	5. 反映の関数が例外を送出しなければ、3. で読んだ値を既知値として記録し、処理の世代を進めて「読んだ」で終える（`commitImportedModel` と同じく、排他区間に入る前に直列化した保存の要求に、反映した内容を上書きさせない）。例外のとき（反映の関数の不具合などの予期しない失敗）は、メモリと世代を変えないまま、同じ排他区間の中で次を行ってから送出する。
+		- メモリの元の値（既知値。ないときは `null`。起動の前のメモリは js/state.js の初期値で、保存値がないことに当たる）と、3. で読んだ値が異なるキーの保存を停止する（古いメモリで保存値を上書きしない）。起動時は保存値のあるキーが停止し、保存値のないキーは、比較元の起動時の予期しない失敗と同じく保存できる。読み直しでは、別のタブが書き換えたキー（削除を含む）が停止し、書き換えていないキーは保存できる（メモリがその保存値に基づく）。
+		- 3. で読んだ値を、4つのキーの既知値として記録する。停止中のキーは、比較元と同じく、置換の取込（`commitImportedModel` の `replace`。停止を越えて照合に進む）・引き継ぎの復元・全消去で解ける。この記録がないと、照合で拒否され、読み直し・同じ失敗を繰り返す。記録の後の別のタブの書込みは、照合で拒否する。
+- **このタブの保存との順序**: 排他区間に入る前に始まった保存の要求は、次のどちらかになり、他タブの書込みを古い内容で上書きしない。
+	- 未暗号化の読込より先に排他区間に入った要求: 既知値（古い値）と今の保存値が異なるため照合で拒否され、もう一度の読み直しになる。
+	- 後に入った要求: 要求の時点の世代と、5. で進めた世代が異なるため保存しない（`saveStorageData` の世代の判定）。取込（`commitImportedModel` の世代）も同じく中止する。
+	- 排他区間の後に始まった保存は、反映した内容を直列化するため、照合を通る。
+- **起動時**（`startUnencryptedSession`）: 未暗号化の読込で読み、「読んだ」ときに全モードの画面を描く。起動時の通知（読めないモード・修復）は従来どおり出す。
+	- 「読まなかった」とき（排他区間に入ったときに暗号化中。別のタブの暗号化の設定による無効化とロックなど）は、保存データが不正なものとして扱わない（全キーの保存の停止と「端末内の保存データが不正なため、安全な初期状態で起動しました。」を出さない）。メモリは変えず、画面の描画は比較元と同じく行う（ロックは認証情報の変更の通知が行う）。
+	- `STORAGE_SESSION_CHANGED` で終わったとき（排他区間を待つ間に、暗号化に関係しない世代の前進があったとき。設定の画面で暗号化の設定を送信してから閉じたときの `cancelStorageAccess` など）も、不正なものとして扱わない。世代を取り直して未暗号化の読込をやり直し、「読んだ」か「読まなかった」で終わるまで繰り返す（やり直しが要るのは、利用者の操作などによる1回ごとの世代の前進のときだけである）。やり直しの間の平文の保存は、既知値がないため拒否される（I-16-01）。
+	- ほかの例外は、従来どおり、保存値のあるキーの保存をすべて停止し、「端末内の保存データが不正なため、安全な初期状態で起動しました。」を出す（I-12-07）。読めない保存値のモードの通知（「保存データを読み込めないため、…の保存を停止しました。…」）も、比較元と同じく、その後に出す。反映の関数が戻らなかったため、読めないキーは、例外の処理で保存値ごとに `validateStoredData`（`repair: true`）で検証して求める（比較元の起動の前の検証と同じ）。反映の関数が修復を見つけた後に失敗したときも、修復した値を開いていないため、修復の通知は出さない（比較元と同じ。修復は反映が終わったときだけ引き継ぐ）。反映の関数の例外は、未暗号化の読込の手順5が既知値を記録している。反映の関数の外の例外（排他区間の要求の失敗など。手順5を通らない）では、`rememberUnreflectedStorageValues` で既知値のないキーにそのときの保存値を記録する（手順5の記録は変えない）。どちらも、保存値のないキーは従来どおり保存でき、停止中のキーは置換の取込・復元で解ける。
+- **読み直し**: `handleForeignStorageUpdate`（js/app.js）は、暗号化中（`isStorageEncrypted()` が真）は従来どおりロックする（I-12-06）。偽のときは、読み直しの関数 `reloadUnencryptedSession`（新設）を呼ぶ。
+	1. 設定の画面（`closeStorageSettingsModal`）と引き継ぎの画面（`clearBrowserHandoff`）を閉じる（下の保留にするときも、先に閉じる）。案内が、これらのモーダルの背後に隠れないようにするためである（暗号化中のロックも、これらの画面を閉じる）。
+	2. 処理の世代を進める（js/crypto.js に新設する `advanceStorageSessionGeneration`。`storageSessionGeneration` を進めるだけで、既知値は変えない）。これより前に始めていた印刷・提出用ファイルの出力（`captureStorageOutputGuard`）は、世代の判定で中止する。進めた後の世代を取る。
+	3. 取った世代で未暗号化の読込を行う。
+		- 「読んだ」: 全モードの画面を描き直し、印刷の領域（`#print-area`）を空にし（`element.replaceChildren()`。古い名簿をブラウザの印刷で出力させない。ロック・引き継ぎの復元・提出後の消去・年度更新と同じ）、案内（`#storage-foreign-update-notice`）を表示する（`hidden` を外す）。起動時と同じく、読めないモードの通知（「保存データを読み込めないため、…の保存を停止しました。…」）と修復の通知（`notifyStorageRepairs`）を出す（E-16-05）。停止の警告（`#storage-save-warning`）は、反映の関数の停止・再開の後の `clearStorageSaveRejections` が描き直す（再開の `resumeStorageWrites` は報告を保留にするだけで、画面を描き直さない）。案内の文は index.html に置き、スクリプトは文を作らない。「閉じる」のボタン（`data-click` の `dismissForeignStorageNotice`）で `hidden` に戻す。
+		- 「読まなかった」: 何もしない（描き直しも案内もしない。暗号化への切替は認証情報の変更の通知とロックで扱う）。
+		- `STORAGE_SESSION_CHANGED`: 描き直しも案内もせず、もう一度の読み直しを1回だけ予約する。
+		- ほかの例外（反映の関数の不具合など。読めないキーは手順4で扱うので、ここには来ない）: 未暗号化の読込が、別のタブが書き換えたキーの保存を停止して（停止の警告 `#storage-save-warning` が出る）、読んだ値を既知値として記録してから送出する（手順5）。読み直しはコンソールに記録し、案内は出さない。反映の関数の外の例外（排他区間の要求の失敗など）では、既知値は前の値のままで、停止もしない。別のタブが書き換えたキーの保存は照合で拒否され、そのたびに読み直しを求める。
+	- 読み直しは1つずつ行う。実行中に次の通知が来たら、終わった後にもう一度だけ行う。
+	- 起動（`startUnencryptedSession`）が終わる前に届いた通知は、起動が終わるまで保留し、起動の後に1回だけ読み直す。
+	- 保留・予約した読み直しは、実行するときにも `handleForeignStorageUpdate` と同じ暗号化の判定を通す（暗号化中なら行わない。ロックは認証情報の変更の通知が行っている）。
+	- 世代を進めた後、未暗号化の読込が終わる前のこのタブの保存は、上の「このタブの保存との順序」のとおり上書きしない。
+
+### I-16-04 storage イベント
+
+- `initAutoLockListeners` の `storage` の処理で、暗号化していないときのデータキーの変更（`oldValue` と `newValue` が異なるもの）にも、`handleForeignStorageUpdate` を呼ぶ。
+	- 新しい値が `STORAGE_ENC:` で始まるときは何もしない。別のタブの暗号化の設定は、データキーと認証情報（`kogai_auth_meta`）を1回の書込みで書くため、認証情報の変更の通知（従来どおり無効化とロック）で扱う。
+	- 暗号化中の処理（有効な接頭辞の新しい値なら解除中だけ `handleForeignStorageUpdate` を呼び、それ以外は無効化とロック）と、認証情報・`localStorage.clear()`（`key === null`）の処理は変えない。`localStorage.clear()` の後は、無効化の印により暗号化中として扱われ、保存は施錠中として拒否される（I-16-01）。
+- 別のタブの全消去（`clearStorageSecurityUnlocked`）は、データキーを1つずつ消すため、データキーごとの通知（`newValue` が `null`）として届き、読み直しで既定値の状態になる（E-16-04）。
+
+### I-16-05 家庭情報入力の保存の関数（BL-007）
+
+- js/transfer.js の `saveTransferLocal`（js/state.js と同じ名前の2つ目の宣言。index.html の読込みの順で後のため、こちらが使われていた）と、本番で呼ばれない読込の関数（js/transfer.js の loadTransferLocal）を除く。保存は js/state.js の `saveTransferLocal` だけとし、読込は起動時・解除時の読込（`loadAppDataFromStorage`・未暗号化の読込）だけとする。
+- js/transfer.js の版の `state.transferState = transferState` は CommonJS の試験のためだけのもので、ブラウザでは `state` は定義されない。js/state.js の CommonJS のエクスポートは、すでに `transferState` を共有のグローバルとして扱う。
+
+### I-16-06 試験
+
+- **単体試験**:
+	- 平文の既知値の記録（未暗号化の読込での反映と同時の記録、反映の例外のときの記録と停止（起動時・読み直し。別のタブが書き換えたキーだけの停止、置換の取込・復元による再開、失敗の間と後の別のタブの書込みの拒否）、起動時の反映の外の例外の記録（既知値のない状態から。保存値のないキーの保存、置換の取込による再開）、保存・`writeStorageTransaction`、ない値の `null`、読めない値、全消去の `null`）。暗号化していないときの `lockStorage`（処理中の `cancelStorageAccess` を含む）で既知値が空にならないこと。
+	- 平文の保存の照合（他の値への書換え・削除・初めにない値の追加の後の保存を拒否し、保存値を変えないこと）、`replaceStoredAppData`・`setupStorageEncryptionUnlocked`（平文と暗号化中）の照合、Web Locks がないときの照合。
+	- 未暗号化の読込とこのタブの保存の順序: 読込の前に排他区間に入った保存の拒否、読込の後に排他区間に入った古い世代の保存と取込の中止、読込の後に始めた保存の成功。保存値がないキー・停止中のキーの既定値（js/state.js の初期値の写し。保存値のない起動のモデルが比較元の起動と同じであること）、停止と再開（停止の警告の表示と消去。読める値に変わったとき・保存値がなくなったとき）、読み直しでの読めないキーの停止と通知・修復の通知、保存の拒否の状態の解除。読込の結果（読んだ・読まなかった・世代の変化・ほかの例外）ごとの描き直し・印刷の領域の消去・案内・保存の停止の有無。起動時の世代の変化のやり直しと、その間の保存の拒否。既知値のないキーの平文の保存の拒否。停止中のキーの保存値がなくなったときの再開。
+	- 読み直しの手順（設定の画面・引き継ぎの画面を閉じること、世代の前進、案内、1つずつの実行、起動中の通知の保留、保留・予約した読み直しの暗号化の判定、起動時の「読まなかった」・`STORAGE_SESSION_CHANGED` を不正として扱わないこと、ロックとの競合）。`storage` の平文の分岐（`STORAGE_ENC:` の新しい値と同じ値の無視）。
+	- 起動の経路の総当たり（失敗なし・反映の中の失敗・反映の外の失敗と、各キーの保存値（読めない・修復が要る・有効・なし）の組合せ）で、通知・停止・停止の警告・保存の可否と保存値が比較元の起動と同じであること（試験ファイルは比較元のコードでも合格する）。
+	- `resetTransferForm` の保存が `false` のときの表示と戻り値（暗号化中で解除しているときの、実際の別のタブの暗号文の書込みによる SEC-34 のロックを含む）。
+	- `saveTransferLocal` の宣言が1つであること（`precheck.js` の重複の検査で、比較元の変更外の1件がなくなる）。
+- **実Chromium**（file 起動の同一オリジンの2つのウィンドウ。SEC-34 の試験と同じ形）:
+	- 自治会モード: 一方の保存の後に、他方が読み直して最新の内容を表示し、案内を表示すること。他方の保存の待機中に一方が保存したとき、他方が上書きしないこと（保存値が一方の内容のまま）。一方の全消去の後に、他方が既定値の状態を表示し、印刷の領域が空になり（名簿の印刷の後）、他方の入力の保存で古い値が戻らないこと。取込・引き継ぎの復元・端末暗号化の設定が、他方の保存の後では書き込まずに読み直すこと。
+	- 家庭情報入力モード: 一方の保存の後に、他方が読み直して最新の内容を表示すること。提出後の消去が、他方の保存の後では書き込まずに読み直し、「消去できませんでした」を表示すること（排他の待機と全消去は、モードによらない同じ処理のため、自治会モードで確かめる）。
+- **退行**: 暗号化中の SEC-34 の試験（`tests/system/headless-save-invariant.test.js` ほか）がそのまま合格すること。
+
+### I-16-07 影響範囲の一覧
+
+| 経路 | 箇所 | 変える／変えない | 旧版との差 |
+| :--- | :--- | :--- | :--- |
+| 未暗号化の読込 | js/crypto.js `loadUnencryptedStorage`（新設）・`rememberUnreflectedStorageValues`（新設。起動時の反映の外の例外）、js/app.js `startUnencryptedSession`・`loadAppDataFromStorage`（モデルの組立てを共通にする）、js/state.js（初期値の写し） | 変える | 起動時は同じ（保存値がないキーは js/state.js の初期値。予期しない失敗では保存値のあるキーを停止し、停止中のキーは置換の取込・復元で解ける）。読み直しは新設 |
+| 停止の警告 | js/app.js `reportStorageSaveState`（← js/crypto.js `clearStorageSaveRejections`・`suspendStorageWrites`。未暗号化の読込の反映の関数が、停止・再開の後に描き直させる） | 変えない（呼ぶ順を決める） | 同じ（読み直しで再開したモードを警告から外す） |
+| 読み直しで閉じる画面 | js/app.js `closeStorageSettingsModal`、js/handoff.js `clearBrowserHandoff` | 変えない（読み直しから呼ぶ） | 同じ |
+| 案内 | index.html の `#storage-foreign-update-notice`（文と「閉じる」のボタン）、js/events.js の固定の処理の表 `uiEventHandlers`（「閉じる」の処理を加える） | 変える（加える） | 意図して変える |
+| 処理の世代 | js/crypto.js `advanceStorageSessionGeneration`（新設。読み直しの手順2） | 変える（加える） | 意図して変える |
+| 印刷の領域 | index.html の `#print-area`（読み直しで空にする） | 変える | 意図して変える |
+| 暗号化中の読込 | js/crypto.js `loadStorageDecryptedUnlocked`・`loadStorageDecrypted`（← `loadAppDataFromStorage` ← 解除） | 変えない | 同じ |
+| 平文の保存 | js/crypto.js `saveStorageDataUnlocked`（呼出元: `saveStorageData` ← 4つのモードの保存の関数・旗振り・座席など、`commitImportedModel` ← 地区・代表・自治会・旗振りの取込） | 変える（照合と既知値の記録） | 意図して変える（他タブの書込みの後は保存しない） |
+| 引き継ぎの復元 | js/crypto.js `replaceStoredAppData`（呼出元: js/handoff.js の復元） | 変える（平文でも照合） | 意図して変える |
+| 暗号化の設定 | js/crypto.js `setupStorageEncryptionUnlocked`（呼出元: `setupStorageEncryption` ← js/app.js の設定の画面・カードからの設定） | 変える（照合） | 意図して変える（暗号化中の再設定を含む） |
+| 書込みの取引 | js/crypto.js `writeStorageTransaction` | 変えない（既知値の記録は従来どおり） | 同じ |
+| 全消去 | js/crypto.js `clearStorageSecurityUnlocked` | 変える（既知値を `null` にする） | 同じ（別のタブでは読み直しになる） |
+| ロック | js/crypto.js `lockStorage`（呼出元: `handleImmediateLock`・js/app.js `cancelStorageAccess`・全消去ほか） | 変える（暗号化していないときは既知値を空にしない） | 暗号化中は同じ |
+| 他タブの書込みの通知 | js/app.js `handleForeignStorageUpdate`、js/crypto.js `notifyForeignStorageUpdate` | 変える（平文では読み直し） | 意図して変える（暗号化中は同じ） |
+| storage イベント | js/app.js `initAutoLockListeners`（`startUnencryptedSession` より前に登録される） | 変える（平文のデータキー、起動中の保留） | 意図して変える（暗号化中・認証情報・`key === null` は同じ） |
+| 家庭情報入力の保存 | js/transfer.js `saveTransferLocal` と読込の関数、js/state.js `saveTransferLocal` | 変える（js/transfer.js の2つを除く） | 同じ（使われる関数の内容は同じ） |
+| 提出後の消去 | js/transfer.js `resetTransferForm` | 変える（保存が `false` なら完了としない。ロックは保存の前に判定する） | 意図して変える |
+| 保存の結果を使う呼出元 | js/handoff.js の引き継ぎの作成（4つの保存のどれかが `false` なら「入力の保存に失敗しました。引き継ぎを中止します。」で中止）、js/app.js `performAppUpdate`（保存の失敗・世代の変化で更新を中止） | 変えない | 同じ（照合で拒否したときも上書きせずに中止し、案内が出る） |
+| 暗号化中の他タブの書込み | SEC-34（I-12-06） | 変えない | 同じ |
+| 試験 | `tests/unit/transfer.test.js`・`tests/unit/household-transfer.test.js` の js/transfer.js の保存・読込の関数を使う試験、`tests/system/browser-runtime-evaluation.test.js` の読込の関数が `window` にあることの確かめ、`tests/unit/branch-coverage.test.js` の読込の関数の退避と復元、平文の保存の照合を前提としない単体試験（同じ値を2つのタブから書く形など） | 変える | 試験の改め |

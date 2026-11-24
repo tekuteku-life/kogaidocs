@@ -784,6 +784,9 @@ test('SEC-34: identical values, already locked tabs, unencrypted storage and oth
 	app.initAutoLockListeners();
 	window.dispatchEvent({ type: 'storage', key: 'kogai_neighbor_v2', oldValue: '{}', newValue: '{"district":"x"}', storageArea: localStorage });
 	assert.equal(cryptoLib.isStorageEncrypted(), false);
+	// 未暗号化の他タブの更新はロックせず、読み直して案内する（R-27・I-16-03）。読み直しが終わってから設定する。
+	await new Promise(resolve => setTimeout(resolve, 0));
+	assert.equal(document.getElementById('storage-foreign-update-notice').hidden, false, 'An unencrypted update reloads and shows the notice');
 	await cryptoLib.setupStorageEncryption(PASSWORD, false);
 	const value = localStorage.getItem('kogai_rep_v2');
 	window.dispatchEvent({ type: 'storage', key: 'kogai_rep_v2', oldValue: value, newValue: value, storageArea: localStorage });

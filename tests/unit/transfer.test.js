@@ -1,6 +1,6 @@
 const { test, describe, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
-const { setupDomEnvironment } = require('../helpers/dom-mock.js');
+const { setupDomEnvironment, recordStoredValues } = require('../helpers/dom-mock.js');
 
 describe('transfer unit tests', () => {
 	let transfer;
@@ -173,7 +173,9 @@ describe('transfer unit tests', () => {
 		if (passInput) assert.equal(passInput.value, '');
 	});
 
-	test('saveTransferLocal and loadTransferLocal lifecycle', async () => {
+	// 保存は js/state.js の saveTransferLocal だけとし、読込は起動時・解除時の読込だけとする（BL-007・I-16-05）。
+	test('saveTransferLocal of js/state.js persists the household data', async () => {
+		await recordStoredValues();
 		transfer.transferState.children = [
 			{
 				id: 'c_test_1',
@@ -185,13 +187,10 @@ describe('transfer unit tests', () => {
 				tel: '03-1234-5678'
 			}
 		];
-		await transfer.saveTransferLocal();
-
-		// 別インスタンスでロード
-		transfer.transferState.children = [];
-		await transfer.loadTransferLocal();
-		assert.equal(transfer.transferState.children.length, 1);
-		assert.equal(transfer.transferState.children[0].lastName, '永続化');
+		assert.equal(await saveTransferLocal(), true);
+		const stored = JSON.parse(localStorage.getItem('kogai_transfer_v2'));
+		assert.equal(stored.children.length, 1);
+		assert.equal(stored.children[0].lastName, '永続化');
 	});
 
 	test('exportTransferTxt and copyTransferEncryptedText validate empty children and invalid password', async () => {
@@ -298,26 +297,6 @@ describe('transfer unit tests', () => {
 		transfer.transferState.children[0].lastName = 'キャンセル未消去';
 		transfer.resetTransferForm();
 		assert.equal(transfer.transferState.children[0].lastName, 'キャンセル未消去');
-
-		// 9. loadTransferLocal exception handling and empty payload
-		const origLoadDecrypted = global.loadStorageDecrypted;
-		global.loadStorageDecrypted = async () => { throw new Error('Decryption failed'); };
-		await transfer.loadTransferLocal(); // should catch gracefully without throwing
-
-		global.loadStorageDecrypted = async () => null;
-		await transfer.loadTransferLocal(); // data is null
-
-		global.loadStorageDecrypted = async () => ({ children: [] });
-		await transfer.loadTransferLocal(); // children empty
-
-		global.loadStorageDecrypted = async () => ({
-			children: [{ lastName: 'メモ付', firstName: '子' }],
-			memo: '転入メモあり'
-		});
-		await transfer.loadTransferLocal();
-		assert.strictEqual(transfer.transferState.memo, '転入メモあり');
-
-		global.loadStorageDecrypted = origLoadDecrypted;
 
 		// 10. Getter/Setter of transferState & fallback when global.transferState is undefined
 		delete global.transferState;
@@ -469,4 +448,17 @@ describe('transfer unit tests', () => {
 		const res4 = await transfer.exportTransferTxt();
 		assert.strictEqual(res4, true);
 	});
+});
+
+test('transfer: the household form shows the child names and class, migrating a legacy class field', () => {
+	setupDomEnvironment();
+	require('../../js/state.js');
+	require('../../js/utils.js');
+	const transfer = require('../../js/transfer.js');
+	transfer.transferState = { address: '', tel: '', memo: '', children: [{ id: 'c1', lastName: '表示姓', firstName: '表示名', grade: '2', className: '4組' }, { id: 'c2', lastName: '旧姓', firstName: '旧名', grade: '3', className: '', class: '旧組' }] };
+	transfer.renderTransferForm();
+	const values = field => document.getElementById('transfer-children-container').querySelectorAll(`[data-field="${field}"]`).map(input => input.value);
+	assert.deepStrictEqual(values('lastName'), ['表示姓', '旧姓']);
+	assert.deepStrictEqual(values('firstName'), ['表示名', '旧名']);
+	assert.deepStrictEqual(values('className'), ['4組', '旧組'], 'The legacy class field becomes the class name');
 });

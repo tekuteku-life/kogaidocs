@@ -11,19 +11,19 @@ function renderNeighborForm() {
 function renderNeighborTable() {
 	const tbody = document.getElementById('neighbor-tbody');
 	if (!tbody) return;
-	tbody.innerHTML = "";
+	tbody.replaceChildren();
 
 	if (!neighborState.neighborhood || neighborState.neighborhood.length === 0) {
-		tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748b; padding:16px;">自治会役員がまだ登録されていません。「＋ 行を追加」ボタンで追加してください。</td></tr>`;
+		renderHtml(tbody, `<tr><td colspan="7" class="u-ta-center u-c-64748b u-p-16px">自治会役員がまだ登録されていません。「＋ 行を追加」ボタンで追加してください。</td></tr>`);
 		return;
 	}
 
 	neighborState.neighborhood.forEach((row, i) => {
 		normalizeNameFields(row);
 		const tr = document.createElement('tr');
-		tr.innerHTML = `
-			<td style="text-align:center;">
-				<div style="display:flex; flex-direction:column; gap:2px;">
+		renderHtml(tr, `
+			<td class="u-ta-center">
+				<div class="u-d-flex u-fd-column u-gap-2px">
 					<button type="button" class="btn btn-outline btn-xs" ${i === 0 ? 'disabled' : ''} data-click="moveNeighborRow" data-index="${i}" data-direction="-1" title="上へ移動">▲</button>
 					<button type="button" class="btn btn-outline btn-xs" ${i === neighborState.neighborhood.length - 1 ? 'disabled' : ''} data-click="moveNeighborRow" data-index="${i}" data-direction="1" title="下へ移動">▼</button>
 				</div>
@@ -46,13 +46,13 @@ function renderNeighborTable() {
 			<td><input type="text" maxlength="4096" value="${esc(row.address || '')}" placeholder="住所（〇〇1-2-3）" data-input="updateNeighborItem" data-index="${i}" data-field="address"></td>
 			<td><input type="tel" maxlength="4096" value="${esc(row.tel || '')}" placeholder="090-0000-0000" data-input="updateNeighborItem" data-index="${i}" data-field="tel"></td>
 			<td>
-				<input type="email" maxlength="4096" value="${esc(row.email || '')}" placeholder="メールアドレス（任意）" data-input="updateNeighborItem" data-index="${i}" data-field="email" style="margin-bottom:4px;">
+				<input type="email" maxlength="4096" value="${esc(row.email || '')}" placeholder="メールアドレス（任意）" data-input="updateNeighborItem" data-index="${i}" data-field="email" class="u-mb-4px">
 				<input type="text" maxlength="4096" value="${esc(row.note || '')}" placeholder="備考" data-input="updateNeighborItem" data-index="${i}" data-field="note">
 			</td>
-			<td style="text-align:center;">
+			<td class="u-ta-center">
 				<button type="button" class="btn btn-danger btn-sm" data-click="removeNeighborRow" data-index="${i}">×</button>
 			</td>
-		`;
+		`);
 		tbody.appendChild(tr);
 	});
 }
@@ -112,29 +112,29 @@ function validateNeighborPasswords() {
 
 	if (!pass && !confirm) {
 		msgEl.textContent = "";
-		msgEl.className = "pass-feedback-msg";
+		setPassFeedbackState(msgEl, '');
 		return;
 	}
 
 	const chk = validatePassword(pass);
 	if (!chk.valid) {
 		msgEl.textContent = "⚠ " + chk.message.replace(/\n/g, " ");
-		msgEl.className = "pass-feedback-msg pass-msg-ng";
+		setPassFeedbackState(msgEl, 'pass-msg-ng');
 		return;
 	}
 
 	if (!confirm) {
 		msgEl.textContent = "確認用パスワードを入力してください";
-		msgEl.className = "pass-feedback-msg";
+		setPassFeedbackState(msgEl, '');
 		return;
 	}
 
 	if (pass !== confirm) {
 		msgEl.textContent = "⚠ パスワードが一致しません";
-		msgEl.className = "pass-feedback-msg pass-msg-ng";
+		setPassFeedbackState(msgEl, 'pass-msg-ng');
 	} else {
 		msgEl.textContent = "✓ パスワードが一致しました（12文字以上OK）";
-		msgEl.className = "pass-feedback-msg pass-msg-ok";
+		setPassFeedbackState(msgEl, 'pass-msg-ok');
 	}
 }
 
@@ -310,7 +310,7 @@ function runNeighborYearUpdate() {
 	}));
 	resetPasswordInputs(document.getElementById('tab-neighbor'));
 	const printArea = document.getElementById('print-area');
-	if (printArea) printArea.innerHTML = "";
+	if (printArea) printArea.replaceChildren();
 	saveNeighborLocal();
 	renderNeighborTable();
 	alert("自治会役員名簿の年度更新が完了しました。新年度の役員情報を入力してください。");
@@ -326,10 +326,10 @@ function printNeighborRoster() {
 	}
 	const printArea = document.getElementById('print-area');
 	if (!printArea) return;
-	printArea.innerHTML = buildNeighborPageHtml({
+	renderHtml(printArea, buildNeighborPageHtml({
 		district: neighborState.district || "自治会",
 		neighborhood: neighborState.neighborhood
-	});
+	}));
 	const origTitle = document.title;
 	const distName = neighborState.district || "自治会";
 	try {
@@ -337,7 +337,7 @@ function printNeighborRoster() {
 		window.print();
 	} finally {
 		document.title = origTitle;
-		if (!outputIsCurrent()) printArea.innerHTML = "";
+		if (!outputIsCurrent()) printArea.replaceChildren();
 	}
 }
 
@@ -352,13 +352,13 @@ function printNeighborTentCards() {
 	}
 	const printArea = document.getElementById('print-area');
 	if (!printArea) return;
-	printArea.innerHTML = validNeighbors.map(n => {
+	renderHtml(printArea, validNeighbors.map(n => {
 		const org = neighborState.district || "自治会";
 		const role = n.role || "役員";
 		const name = getFullName(n);
 		const ruby = (n.lastNameKana || n.firstNameKana) ? `${n.lastNameKana || ''} ${n.firstNameKana || ''}`.trim() : "";
 		return buildTentCardPageHtml(org, name, ruby, role);
-	}).join('');
+	}).join(''));
 	const origTitle = document.title;
 	const distName = neighborState.district || "自治会";
 	try {
@@ -366,7 +366,7 @@ function printNeighborTentCards() {
 		window.print();
 	} finally {
 		document.title = origTitle;
-		if (!outputIsCurrent()) printArea.innerHTML = "";
+		if (!outputIsCurrent()) printArea.replaceChildren();
 	}
 }
 

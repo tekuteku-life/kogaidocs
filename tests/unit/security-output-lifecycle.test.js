@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { setupDomEnvironment } = require('../helpers/dom-mock');
+const { setupDomEnvironment, recordStoredValues } = require('../helpers/dom-mock');
 setupDomEnvironment();
 require('../../js/utils');
 const cryptoLib = require('../../js/crypto');
@@ -53,6 +53,8 @@ for (const [name, output] of Object.entries(exportsByName)) {
 test('security access: cancelled setup preserves legacy storage and cannot activate its key', async () => {
 	prepare();
 	localStorage.setItem('kogai_district_v2', JSON.stringify(state.currentDistrict));
+	// 直接書いた旧保存値を、起動時の未暗号化の読込と同じく既知値として記録する（R-27・I-16-01）。
+	await recordStoredValues();
 	const before = localStorage.getItem('kogai_district_v2');
 	document.getElementById('modal-set-pass').value = 'DeviceDatabase123!';
 	document.getElementById('modal-set-pass-confirm').value = 'DeviceDatabase123!';

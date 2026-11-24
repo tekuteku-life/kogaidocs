@@ -70,8 +70,12 @@ function renderStorageLockReason() {
 	if (guestReason) guestReason.textContent = storageLockReason;
 }
 
-/** 他タブが保存データを更新したとき、古いメモリで上書きせずロックする（SEC-34）。 */
+/** 他タブが保存データを更新したとき、古いメモリで上書きせず、暗号化中はロックし（SEC-34）、未暗号化では読み直す（R-27）。 */
 function handleForeignStorageUpdate() {
+	if (!isStorageEncrypted()) {
+		reloadUnencryptedSession();
+		return;
+	}
 	storageLockReason = FOREIGN_STORAGE_UPDATE_REASON;
 	handleImmediateLock();
 	renderStorageLockReason();
@@ -358,17 +362,17 @@ function updateSecurityBadge(status) {
 
 	if (status === 'locked') {
 		badge.classList.add('is-locked');
-		badge.innerHTML = '🔒 データロック中 <span class="badge-hint">（クリックして解除）</span>';
+		renderHtml(badge, '🔒 データロック中 <span class="badge-hint">（クリックして解除）</span>');
 		badge.title = "データは暗号化保護されています。クリックしてロックを解除してください。";
 	} else if (status === 'unlocked') {
 		badge.classList.add('is-encrypted');
 		const meta = getStorageAuthMeta();
 		const hasBio = meta && meta.webauthn;
-		badge.innerHTML = `🛡️ 暗号化保護中${hasBio ? '（生体認証連携）' : ''} <span class="badge-hint">（設定）</span>`;
+		renderHtml(badge, `🛡️ 暗号化保護中${hasBio ? '（生体認証連携）' : ''} <span class="badge-hint">（設定）</span>`);
 		badge.title = "端末内保存データはAES-256-GCMで暗号化されています。クリックでセキュリティ設定を開きます。";
 	} else {
 		badge.classList.add('is-plain');
-		badge.innerHTML = '🔓 ストレージ未暗号化 <span class="badge-hint">（地区・代表モードでは設定必須）</span>';
+		renderHtml(badge, '🔓 ストレージ未暗号化 <span class="badge-hint">（地区・代表モードでは設定必須）</span>');
 		badge.title = "地区・代表モードの利用には端末データベースの暗号化設定が必要です。";
 	}
 }
@@ -543,16 +547,16 @@ function openStorageSettingsModal() {
 		: '100,000回（次回のパスワード解除時に600,000回へ移行）';
 
 	const versionHtml = `
-		<hr style="margin:20px 0 16px 0; border:none; border-top:1px solid var(--border);">
+		<hr class="u-m-20px-0-16px-0 u-b-none u-bt-1px-solid-border">
 		<div class="version-section">
-			<div style="font-weight:bold; font-size:0.95rem; margin-bottom:4px; color:var(--text);">ℹ️ アプリバージョン情報</div>
-			<div style="font-size:0.88rem; color:#475569; margin-bottom:8px;">
+			<div class="u-fw-bold u-fs-0_95rem u-mb-4px u-c-text">ℹ️ アプリバージョン情報</div>
+			<div class="u-fs-0_88rem u-c-475569 u-mb-8px">
 				現在のバージョン: <strong>v${CURRENT_APP_VERSION}</strong>
 			</div>
 			<button type="button" class="btn btn-outline btn-sm" id="btn-manual-check-update" data-click="checkAppVersion">
 				🔄 最新バージョンを確認・更新
 			</button>
-			<div id="version-check-status" style="font-size:0.82rem; margin-top:6px; color:#64748b;"></div>
+			<div id="version-check-status" class="u-fs-0_82rem u-mt-6px u-c-64748b"></div>
 		</div>
 	`;
 
@@ -565,32 +569,32 @@ function openStorageSettingsModal() {
 				これは<strong>出力・提出用パスワードではありません</strong>。端末内の全モードの保存データを保護し、次回起動時のロック解除に使います。<br>
 				既存の保存データもAES-256-GCMで暗号化します。パスワードを忘れると復元できないため、大切に保管してください。
 			</p>
-			<div class="form-group" style="margin-bottom:12px;">
+			<div class="form-group u-mb-12px">
 				<label>端末データベース用パスワード（半角英数記号12文字以上）</label>
 				<div class="pass-input-group">
 					<input type="password" id="modal-set-pass" placeholder="半角英数記号12文字以上" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" data-input="modalPasswordInput">
 					<button type="button" class="btn-toggle-pass" data-click="togglePasswordVisibility" data-password-target="modal-set-pass" title="表示/非表示">👁️</button>
 				</div>
 			</div>
-			<div class="form-group" style="margin-bottom:12px;">
+			<div class="form-group u-mb-12px">
 				<label>確認用パスワード（二度入力）</label>
 				<div class="pass-input-group">
 					<input type="password" id="modal-set-pass-confirm" placeholder="もう一度入力" inputmode="latin" autocorrect="off" autocapitalize="off" spellcheck="false" data-input="modalPasswordInput">
 					<button type="button" class="btn-toggle-pass" data-click="togglePasswordVisibility" data-password-target="modal-set-pass-confirm" title="表示/非表示">👁️</button>
 				</div>
 			</div>
-			<div id="modal-set-pass-msg" class="pass-feedback-msg" style="margin-bottom:12px;"></div>
+			<div id="modal-set-pass-msg" class="pass-feedback-msg u-mb-12px"></div>
 			${bioAvailable ? `
-				<label class="check-item" style="margin-bottom:16px;">
+				<label class="check-item u-mb-16px">
 					<input type="checkbox" id="modal-set-enable-bio" checked>
 					生体認証（Touch ID / Face ID / Windows Hello等）も有効にする（次回から1タップで解除）
 				</label>
 			` : `
-				<div class="help-text" style="margin-bottom:16px;">
+				<div class="help-text u-mb-16px">
 					※生体認証（WebAuthn）はHTTPS環境またはlocalhostでご利用いただけます。（現在の環境ではパスワード暗号化のみ有効になります）
 				</div>
 			`}
-			<div class="flex-row" style="justify-content:flex-end; gap:8px;">
+			<div class="flex-row u-jc-flex-end u-gap-8px">
 				<button type="button" class="btn btn-outline" data-click="closeStorageSettingsModal">閉じてモードを選ぶ</button>
 				<button type="button" class="btn" id="modal-btn-enable-enc" data-click="handleEnableEncryptionSubmit">🔒 暗号化を有効化</button>
 			</div>
@@ -603,14 +607,14 @@ function openStorageSettingsModal() {
 		`;
 	} else {
 		html = `
-			<div class="status-summary-box" style="margin-bottom:16px; padding:12px; background:var(--primary-light); border:1px solid #bfdbfe; border-radius:6px;">
-				<div style="font-weight:bold; color:var(--primary); margin-bottom:4px;">🛡️ 端末内保存データは暗号化されています</div>
-				<div style="font-size:0.88rem; color:#334155;">暗号化方式: AES-256-GCM + PBKDF2-HMAC-SHA256（${kdfStatus}）</div>
-				<div style="font-size:0.88rem; color:#334155; margin-top:4px;">
-					生体認証連携: ${hasBio ? '<span style="color:var(--success); font-weight:bold;">✅ 有効（登録済み）</span>' : '<span style="color:#d97706; font-weight:bold;">⚠️ 未登録</span>'}
+			<div class="status-summary-box u-mb-16px u-p-12px u-bg-primary-light u-b-1px-solid-bfdbfe u-br-6px">
+				<div class="u-fw-bold u-c-primary u-mb-4px">🛡️ 端末内保存データは暗号化されています</div>
+				<div class="u-fs-0_88rem u-c-334155">暗号化方式: AES-256-GCM + PBKDF2-HMAC-SHA256（${kdfStatus}）</div>
+				<div class="u-fs-0_88rem u-c-334155 u-mt-4px">
+					生体認証連携: ${hasBio ? '<span class="u-c-success u-fw-bold">✅ 有効（登録済み）</span>' : '<span class="u-c-d97706 u-fw-bold">⚠️ 未登録</span>'}
 				</div>
 			</div>
-			<div class="flex-col" style="gap:10px;">
+			<div class="flex-col u-gap-10px">
 				${bioAvailable ? `
 					<button type="button" class="btn btn-outline" data-click="handleAddOrUpdateBiometric">
 						👆 生体認証（Touch ID / Windows Hello等）を${hasBio ? '再登録' : '追加登録'}する
@@ -619,7 +623,7 @@ function openStorageSettingsModal() {
 				<button type="button" class="btn btn-outline" data-click="handleImmediateLock">
 					🔒 今すぐストレージをロックする
 				</button>
-				<button type="button" class="btn btn-danger btn-sm" style="margin-top:10px;" data-click="handleResetStorageConfirm">
+				<button type="button" class="btn btn-danger btn-sm u-mt-10px" data-click="handleResetStorageConfirm">
 					🗑️ 保存データを全消去して初期化
 				</button>
 			</div>
@@ -629,13 +633,13 @@ function openStorageSettingsModal() {
 			</div>
 			<p class="help-text">個人情報のスクリーンショット・画面収録は禁止です。ただし、Webアプリから技術的に阻止することはできません。入力フォームでコピーした情報にも有効期限は設定できません。端末のクリップボード履歴や共有先にもご注意ください。</p>
 			${versionHtml}
-			<div class="flex-row" style="justify-content:flex-end; margin-top:16px;">
+			<div class="flex-row u-jc-flex-end u-mt-16px">
 				<button type="button" class="btn btn-outline" data-click="closeStorageSettingsModal">閉じる</button>
 			</div>
 		`;
 	}
 
-	bodyEl.innerHTML = html;
+	renderHtml(bodyEl, html);
 	modal.style.display = 'flex';
 }
 
@@ -650,7 +654,7 @@ function closeStorageSettingsModal() {
 		resetPasswordInputs(modal);
 	}
 	const body = document.getElementById('settings-modal-body');
-	if (body) body.innerHTML = '';
+	if (body) body.replaceChildren();
 }
 
 /**
@@ -664,29 +668,29 @@ function validateModalPasswords() {
 
 	if (!p1 && !p2) {
 		msgEl.textContent = "";
-		msgEl.className = "pass-feedback-msg";
+		setPassFeedbackState(msgEl, '');
 		return;
 	}
 
 	const v = validatePassword(p1);
 	if (!v.valid) {
 		msgEl.textContent = "⚠️ " + v.message;
-		msgEl.className = "pass-feedback-msg mismatch";
+		setPassFeedbackState(msgEl, 'mismatch');
 		return;
 	}
 
 	if (p2 && p1 !== p2) {
 		msgEl.textContent = "⚠️ パスワードが一致していません。";
-		msgEl.className = "pass-feedback-msg mismatch";
+		setPassFeedbackState(msgEl, 'mismatch');
 		return;
 	}
 
 	if (p1 === p2) {
 		msgEl.textContent = "✅ パスワードの強度および一致が確認できました。";
-		msgEl.className = "pass-feedback-msg match";
+		setPassFeedbackState(msgEl, 'match');
 	} else {
 		msgEl.textContent = "ℹ️ 確認のためもう一度同じパスワードを入力してください。";
-		msgEl.className = "pass-feedback-msg";
+		setPassFeedbackState(msgEl, '');
 	}
 }
 
@@ -815,9 +819,9 @@ function clearMemoryAndDomForLock() {
 		hataLineText.hidden = true;
 	}
 	const settingsBody = document.getElementById('settings-modal-body');
-	if (settingsBody) settingsBody.innerHTML = '';
+	if (settingsBody) settingsBody.replaceChildren();
 	const printArea = document.getElementById('print-area');
-	if (printArea) printArea.innerHTML = "";
+	if (printArea) printArea.replaceChildren();
 }
 
 let autoLockTimer = null;
@@ -873,8 +877,14 @@ function initAutoLockListeners() {
 			handleImmediateLock();
 			return;
 		}
-		if (!STORAGE_DATA_KEYS.includes(event.key) || !isStorageEncrypted()) return;
+		if (!STORAGE_DATA_KEYS.includes(event.key)) return;
 		if (event.oldValue === event.newValue) return;
+		if (!isStorageEncrypted()) {
+			// 別のタブの暗号化の設定は、認証情報の変更の通知（無効化とロック）で扱う（I-16-04）。
+			if (typeof event.newValue === 'string' && event.newValue.startsWith('STORAGE_ENC:')) return;
+			handleForeignStorageUpdate();
+			return;
+		}
 		const meta = getStorageAuthMeta();
 		const validPrefix = meta && meta.storageFormat === 2 ? 'STORAGE_ENC:2:' : 'STORAGE_ENC:';
 		if (typeof event.newValue === 'string' && event.newValue.startsWith(validPrefix)) {
@@ -983,13 +993,23 @@ async function quickSetupEncryptionFromCard(inputId) {
  */
 async function loadAppDataFromStorage(guard = () => {}) {
 	const generation = getStorageSessionGeneration();
-	const keys = ['kogai_district_v2', 'kogai_rep_v2', 'kogai_neighbor_v2', 'kogai_transfer_v2'];
 	const current = [currentDistrict, repState, neighborState, transferState];
 	const inherited = typeof takeActivationRepairs === 'function' ? takeActivationRepairs() : [];
 	const repairs = [];
-	// 平文起動で読めずに停止中のキーは読まず、既定値を使う（I-12-07）。
-	const loaded = await Promise.all(keys.map(key => typeof isStorageWriteSuspended === 'function' && isStorageWriteSuspended(key) ? null : loadStorageDecrypted(key)));
-	const next = loaded.map((value, index) => validateStoredData(value === null ? current[index] : value, keys[index], { repair: true, repairs }));
+	// 停止中のキーは読まず、既定値を使う（I-12-07）。
+	const loaded = await Promise.all(APP_DATA_KEYS.map(key => typeof isStorageWriteSuspended === 'function' && isStorageWriteSuspended(key) ? null : loadStorageDecrypted(key)));
+	const next = buildAppModels(loaded, current, repairs);
+	assertStorageSession(generation);
+	guard();
+	assignAppModels(next);
+	return { repairs: [...new Set([...inherited, ...repairs])] };
+}
+
+const APP_DATA_KEYS = ['kogai_district_v2', 'kogai_rep_v2', 'kogai_neighbor_v2', 'kogai_transfer_v2'];
+
+/** 読んだ4つの値（null は fallback のモデル）を検証・修復・正規化して、[地区, 代表, 自治会, 家庭情報] のモデルにする。 */
+function buildAppModels(values, fallback, repairs) {
+	const next = values.map((value, index) => validateStoredData(value === null ? fallback[index] : value, APP_DATA_KEYS[index], { repair: true, repairs }));
 
 	const district = next[0];
 	if (!district.officers.length) district.officers = [district.officer || {}];
@@ -1039,49 +1059,154 @@ async function loadAppDataFromStorage(guard = () => {}) {
 		];
 	}
 	neighbor.neighborhood.forEach(normalizeNameFields);
-	assertStorageSession(generation);
-	guard();
-	currentDistrict = district;
-	repState = representative;
-	neighborState = neighbor;
-	transferState = next[3];
+	return next;
+}
+
+/** モデルをメモリへ反映する。 */
+function assignAppModels(next) {
+	[currentDistrict, repState, neighborState, transferState] = next;
 	if (typeof state !== 'undefined') {
 		state.currentDistrict = currentDistrict;
 		state.repState = repState;
 		state.neighborState = neighborState;
 		state.transferState = transferState;
 	}
-	return { repairs: [...new Set([...inherited, ...repairs])] };
 }
 
-/** 未暗号化起動で、読めない保存値のキーだけ書込を止め、他のモードは通常どおり開く（I-12-07）。 */
-async function startUnencryptedSession() {
-	const unreadable = STORAGE_DATA_KEYS.filter(key => {
-		const raw = localStorage.getItem(key);
-		if (raw === null) return false;
+/**
+ * 未暗号化の読込の反映の関数（I-16-03）。保存値がないキーと読めないキーのモデルは js/state.js の初期値の写しとし、
+ * 読めないキーは保存を停止し、読めるようになったキー（保存値がなくなったキーを含む）は再開する。読めないキーを返す。
+ */
+function applyUnencryptedStorage(raw, repairs) {
+	const defaults = defaultStateModels();
+	const unreadable = [];
+	const values = APP_DATA_KEYS.map(key => {
+		if (raw[key] === null) return null;
 		try {
-			validateStoredData(JSON.parse(raw), key, { repair: true });
-			return false;
+			validateStoredData(JSON.parse(raw[key]), key, { repair: true });
+			return JSON.parse(raw[key]);
 		} catch (_) {
-			return true;
+			unreadable.push(key);
+			return null;
 		}
 	});
+	assignAppModels(buildAppModels(values, [defaults.district, defaults.rep, defaults.neighbor, defaults.transfer], repairs));
+	resumeStorageWrites(APP_DATA_KEYS.filter(key => !unreadable.includes(key)));
 	if (unreadable.length) suspendStorageWrites(unreadable);
-	let repairs = [];
-	try {
-		({ repairs } = await loadAppDataFromStorage());
-	} catch (error) {
-		console.warn('Stored application data was rejected:', error);
-		// 予期しない失敗でも、既定状態の自動保存で保存済みの原本を上書きしない（I-12-07）。
-		suspendStorageWrites(STORAGE_DATA_KEYS.filter(key => localStorage.getItem(key) !== null));
-		alert('端末内の保存データが不正なため、安全な初期状態で起動しました。');
-	}
+	// メモリを置き換えたので、保存の拒否の状態も解除する（clearMemoryAndDomForLock と同じ。I-12-02）。
+	// 解除は画面の停止の警告も描き直すので、停止と再開の後に行う（再開だけでは警告を描き直さない）。
+	clearStorageSaveRejections();
+	return unreadable;
+}
+
+function renderAllModes() {
 	renderDistrictForm();
 	renderRepAll();
 	if (typeof renderNeighborForm === 'function') renderNeighborForm();
 	if (typeof renderTransferForm === 'function') renderTransferForm();
+}
+
+// 未暗号化の起動・読み直しの状態（I-16-03）。起動中・読み直し中に届いた通知は保留し、終わった後に1回だけ読み直す。
+let unencryptedSessionStarting = false;
+let unencryptedReloadRunning = false;
+let unencryptedReloadPending = false;
+
+/** 保留・予約した読み直しを、暗号化していなければ行う（暗号化中のロックは、認証情報の変更の通知が行う）。 */
+function runPendingUnencryptedReload() {
+	if (!unencryptedReloadPending) return;
+	unencryptedReloadPending = false;
+	if (!isStorageEncrypted()) reloadUnencryptedSession();
+}
+
+/** 未暗号化起動で、読めない保存値のキーだけ書込を止め、他のモードは通常どおり開く（I-12-07・I-16-03）。 */
+async function startUnencryptedSession() {
+	unencryptedSessionStarting = true;
+	let repairs = [];
+	let unreadable = [];
+	try {
+		for (;;) {
+			try {
+				// 読まなかったとき（排他区間に入ったときに暗号化中）は、メモリを変えずに終える（ロックは認証情報の変更の通知が行う）。
+				// 修復は、反映が終わったときだけ引き継ぐ（反映の失敗では修復した値を開いていないので、修復の通知を出さない）。
+				await loadUnencryptedStorage(getStorageSessionGeneration(), raw => {
+					const found = [];
+					unreadable = applyUnencryptedStorage(raw, found);
+					repairs = found;
+				});
+				break;
+			} catch (error) {
+				// 排他区間を待つ間の、暗号化に関係しない世代の前進では、世代を取り直して読み直す（不正なデータとして扱わない）。
+				if (!(error && error.message === 'STORAGE_SESSION_CHANGED')) throw error;
+			}
+		}
+	} catch (error) {
+		console.warn('Stored application data was rejected:', error);
+		// 反映の外の失敗では既知値が記録されていないため、記録して保存値のないモードを保存できるようにする（I-16-03）。
+		rememberUnreflectedStorageValues();
+		// 読めないモードの通知は、比較元と同じく保存値ごとの検証で求める（反映の関数が戻らなかったため、その結果はない）。
+		unreadable = STORAGE_DATA_KEYS.filter(key => {
+			const raw = localStorage.getItem(key);
+			if (raw === null) return false;
+			try {
+				validateStoredData(JSON.parse(raw), key, { repair: true });
+				return false;
+			} catch (_) {
+				return true;
+			}
+		});
+		// 予期しない失敗でも、既定状態の自動保存で保存済みの原本を上書きしない（I-12-07）。
+		suspendStorageWrites(STORAGE_DATA_KEYS.filter(key => localStorage.getItem(key) !== null));
+		alert('端末内の保存データが不正なため、安全な初期状態で起動しました。');
+	} finally {
+		unencryptedSessionStarting = false;
+	}
+	renderAllModes();
 	if (unreadable.length) alert(`保存データを読み込めないため、${storageModeNames(unreadable)}の保存を停止しました。上書きを防ぐため、全消去するか、正しいデータを復元してください。`);
 	notifyStorageRepairs(repairs);
+	runPendingUnencryptedReload();
+}
+
+/** 別のタブが未暗号化の保存データを書き換えたとき、古いメモリで上書きせず、最新の内容を読み直して案内する（R-27・I-16-03）。 */
+async function reloadUnencryptedSession() {
+	// 案内がモーダルの背後に隠れないよう、保留にするときも含めて、先に設定の画面と引き継ぎの画面を閉じる。
+	// 閉じると処理中の設定・復元は取り消されるため、呼出元は失敗を通知しない（I-16-02）。
+	closeStorageSettingsModal();
+	if (typeof clearBrowserHandoff === 'function') clearBrowserHandoff();
+	if (unencryptedSessionStarting || unencryptedReloadRunning) {
+		unencryptedReloadPending = true;
+		return;
+	}
+	unencryptedReloadRunning = true;
+	try {
+		const generation = advanceStorageSessionGeneration();
+		const repairs = [];
+		let unreadable = [];
+		let loaded;
+		try {
+			loaded = await loadUnencryptedStorage(generation, raw => { unreadable = applyUnencryptedStorage(raw, repairs); });
+		} catch (error) {
+			if (error && error.message === 'STORAGE_SESSION_CHANGED') unencryptedReloadPending = true;
+			else console.warn('Reloading the stored data after another tab updated it failed:', error);
+			return;
+		}
+		if (!loaded) return;
+		renderAllModes();
+		const printArea = document.getElementById('print-area');
+		if (printArea) printArea.replaceChildren();
+		const notice = document.getElementById('storage-foreign-update-notice');
+		if (notice) notice.hidden = false;
+		if (unreadable.length) alert(`保存データを読み込めないため、${storageModeNames(unreadable)}の保存を停止しました。上書きを防ぐため、全消去するか、正しいデータを復元してください。`);
+		notifyStorageRepairs(repairs);
+	} finally {
+		unencryptedReloadRunning = false;
+		runPendingUnencryptedReload();
+	}
+}
+
+/** 別のタブの更新の案内を閉じる。 */
+function dismissForeignStorageNotice() {
+	const notice = document.getElementById('storage-foreign-update-notice');
+	if (notice) notice.hidden = true;
 }
 
 const UPDATE_ATTEMPT_TTL_MS = 60 * 60 * 1000; // 1時間
@@ -1311,7 +1436,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 	if (typeof initializeBrowserHandoff === 'function') initializeBrowserHandoff();
 	// ServiceWorker 登録（PWA対応）
 	if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-		navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(err => {
+		navigator.serviceWorker.register(trustedServiceWorkerUrl(), { updateViaCache: 'none' }).catch(err => {
 			console.log('ServiceWorker registration error:', err);
 		});
 	}
@@ -1381,7 +1506,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		resetAutoLockTimer,
 		initAutoLockListeners,
 		quickSetupEncryptionFromCard,
-		loadAppDataFromStorage, startUnencryptedSession,
+		loadAppDataFromStorage, startUnencryptedSession, reloadUnencryptedSession, dismissForeignStorageNotice, beginStorageAccess,
 		reportStorageSaveState, describeUnlockFailure, handleForeignStorageUpdate, notifyStorageRepairs,
 		checkAppVersion,
 		performAppUpdate,

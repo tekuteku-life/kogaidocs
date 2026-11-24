@@ -2,6 +2,74 @@
    共通ユーティリティ関数
 ========================================================================= */
 
+/*
+ * 描画の補助と Trusted Types のポリシー（内部仕様書 I-15-01〜I-15-04）。
+ * HTML の文字列を画面へ入れるのは renderHtml だけとし、文書に属さない template で解析した木から、
+ * 許可リストにない要素・属性を取り除いてから移す。ポリシーはこの即時関数の中に閉じ込め、グローバルの名前から参照させない。
+ */
+const { renderHtml, trustedServiceWorkerUrl } = (() => {
+	const ELEMENTS = new Set(['div', 'span', 'p', 'br', 'hr', 'strong', 'label', 'button', 'input', 'select', 'option', 'table', 'thead', 'tbody', 'tr', 'th', 'td']);
+	const ATTRIBUTES = new Set(['class', 'id', 'type', 'value', 'placeholder', 'maxlength', 'title', 'colspan', 'checked', 'selected', 'disabled', 'spellcheck', 'inputmode', 'autocorrect', 'autocapitalize']);
+	const TYPES = { input: new Set(['text', 'tel', 'email', 'password', 'checkbox']), button: new Set(['button']) };
+	const trustedTypes = typeof window !== 'undefined' ? window.trustedTypes : undefined;
+	const policy = trustedTypes && typeof trustedTypes.createPolicy === 'function' ? trustedTypes.createPolicy('kogai', {
+		createHTML: html => html,
+		createScriptURL: url => {
+			if (url !== './sw.js') throw new TypeError('kogai: 許可していないスクリプトの URL');
+			return url;
+		}
+	}) : null;
+
+	/** 要素（小文字の名前）の属性を残すか。 */
+	function allowedAttribute(tag, name, value) {
+		if (/^data-[a-z0-9-]+$/.test(name) || /^aria-[a-z]+$/.test(name)) return true;
+		if (!ATTRIBUTES.has(name)) return false;
+		if (name === 'type') return !!TYPES[tag] && TYPES[tag].has(value.toLowerCase());
+		if (name === 'spellcheck') return value === 'false';
+		return true;
+	}
+
+	/** container の子孫から、許可リストにない要素（子孫ごと）・要素と文字以外のノード・属性を取り除く。 */
+	function sanitize(container, removed) {
+		for (const node of [...container.childNodes]) {
+			if (node.nodeType === 3) continue;
+			const tag = node.nodeType === 1 ? node.tagName.toLowerCase() : null;
+			if (!tag || !ELEMENTS.has(tag)) {
+				removed.elements.add(tag || node.nodeName);
+				node.remove();
+				continue;
+			}
+			for (const { name, value } of [...node.attributes]) {
+				if (allowedAttribute(tag, name, value)) continue;
+				removed.attributes.add(name);
+				node.removeAttribute(name);
+			}
+			sanitize(node, removed);
+		}
+	}
+
+	/** HTML の文字列を、許可リストで取り除いてから element の中身にする。取り除いた要素・属性の名前を返す。 */
+	function renderHtml(element, html) {
+		const template = document.createElement('template');
+		const text = String(html);
+		template.innerHTML = policy ? policy.createHTML(text) : text;
+		const removed = { elements: new Set(), attributes: new Set() };
+		sanitize(template.content, removed);
+		element.replaceChildren(template.content);
+		const report = { elements: [...removed.elements], attributes: [...removed.attributes] };
+		// 値は名簿を含みうるため、名前だけを記録する。
+		if (report.elements.length || report.attributes.length) console.error('renderHtml removed', report);
+		return report;
+	}
+
+	/** Service Worker の登録の URL（Trusted Types のもとではポリシーの値）。 */
+	function trustedServiceWorkerUrl() {
+		return policy ? policy.createScriptURL('./sw.js') : './sw.js';
+	}
+
+	return { renderHtml, trustedServiceWorkerUrl };
+})();
+
 /**
  * 特殊文字をHTMLエンティティにエスケープします
  * @param {string|number} str
@@ -15,6 +83,17 @@ function esc(str) {
 		.replace(/>/g, "&gt;")
 		.replace(/"/g, "&quot;")
 		.replace(/'/g, "&#39;");
+}
+
+/**
+ * パスワードの確認の表示の状態のクラスだけを替える（要素のほかのクラスを残す。className の代入は移し先のクラスを消す。I-15-05）。
+ * @param {Element} el
+ * @param {string} state '' | 'mismatch' | 'match' | 'pass-msg-ng' | 'pass-msg-ok'
+ */
+function setPassFeedbackState(el, state) {
+	el.classList.remove('mismatch', 'match', 'pass-msg-ng', 'pass-msg-ok');
+	el.classList.add('pass-feedback-msg');
+	if (state) el.classList.add(state);
 }
 
 /**
@@ -359,7 +438,7 @@ function resetPasswordInputs(root = document) {
 		const msgEl = document.getElementById(id);
 		if (msgEl) {
 			msgEl.textContent = '';
-			if (id !== 'modal-unlock-error') msgEl.className = 'pass-feedback-msg';
+			if (id !== 'modal-unlock-error') setPassFeedbackState(msgEl, '');
 		}
 	}
 }
@@ -1070,6 +1149,9 @@ if (typeof window !== 'undefined') {
 
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
+		renderHtml,
+		trustedServiceWorkerUrl,
+		setPassFeedbackState,
 		getFiscalYear,
 		requireImportShape,
 		isImportObject,

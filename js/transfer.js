@@ -31,41 +31,41 @@ function renderTransferForm() {
 	}
 	if (!transferState.children || transferState.children.length === 0) transferState.children = [createTransferChild()];
 
-	container.innerHTML = transferState.children.map((child, index) => {
+	renderHtml(container, transferState.children.map((child, index) => {
 		if (child.className === undefined || (child.className === '' && child.class)) child.className = child.class || '1';
 		const canRemove = transferState.children.length > 1;
 		return `
-			<div class="transfer-child-row card" style="margin-bottom: 1rem; padding: 1rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff;">
-				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.5rem;">
-					<strong style="color: #1e293b; font-size: 1rem;">児童 ${index + 1}</strong>
-					${canRemove ? `<button type="button" class="btn btn-outline-danger btn-sm" data-click="removeTransferChildRow" data-index="${index}" style="font-size: 0.8rem; padding: 2px 8px;">この児童を削除</button>` : ''}
+			<div class="transfer-child-row card u-mb-1rem u-p-1rem u-b-1px-solid-cbd5e1 u-br-8px u-bg-fff">
+				<div class="u-d-flex u-jc-space-between u-ai-center u-mb-0_75rem u-bb-1px-solid-e2e8f0 u-pb-0_5rem">
+					<strong class="u-c-1e293b u-fs-1rem">児童 ${index + 1}</strong>
+					${canRemove ? `<button type="button" class="btn btn-outline-danger btn-sm u-fs-0_8rem u-p-2px-8px" data-click="removeTransferChildRow" data-index="${index}">この児童を削除</button>` : ''}
 				</div>
-				<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem;">
+				<div class="u-d-grid u-gtc-repeat-auto-fit-minmax-130px-1fr u-gap-0_75rem u-mb-0_75rem">
 					<div>
-						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">学年 <span style="color: #ef4444;">*</span></label>
-						<select class="form-control" data-change="updateTransferChild" data-index="${index}" data-field="grade" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<label class="u-d-block u-fs-0_8rem u-c-475569 u-mb-2px">学年 <span class="u-c-ef4444">*</span></label>
+						<select class="form-control u-w-100p u-p-6px u-b-1px-solid-cbd5e1 u-br-4px" data-change="updateTransferChild" data-index="${index}" data-field="grade">
 							<option value="" ${!/^[1-6]$/.test(child.grade) ? 'selected' : ''}>学年を選択</option>
 							${[1, 2, 3, 4, 5, 6].map(g => `<option value="${g}" ${String(child.grade) === String(g) ? 'selected' : ''}>${g}年生</option>`).join('')}
 						</select>
 					</div>
 					<div>
-						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">組 <span style="color: #ef4444;">*</span></label>
-						<input type="text" maxlength="4096" class="form-control" value="${esc(child.className || child.class || '')}" placeholder="例: 1組" data-input="updateTransferChild" data-index="${index}" data-field="className" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<label class="u-d-block u-fs-0_8rem u-c-475569 u-mb-2px">組 <span class="u-c-ef4444">*</span></label>
+						<input type="text" maxlength="4096" class="form-control u-w-100p u-p-6px u-b-1px-solid-cbd5e1 u-br-4px" value="${esc(child.className || child.class || '')}" placeholder="例: 1組" data-input="updateTransferChild" data-index="${index}" data-field="className">
 					</div>
 				</div>
-				<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem;">
+				<div class="u-d-grid u-gtc-repeat-auto-fit-minmax-130px-1fr u-gap-0_75rem u-mb-0_75rem">
 					<div>
-						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">氏名（姓） <span style="color: #ef4444;">*</span></label>
-						<input type="text" maxlength="4096" class="form-control" value="${esc(child.lastName || '')}" placeholder="例: 山田" data-input="updateTransferChild" data-index="${index}" data-field="lastName" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<label class="u-d-block u-fs-0_8rem u-c-475569 u-mb-2px">氏名（姓） <span class="u-c-ef4444">*</span></label>
+						<input type="text" maxlength="4096" class="form-control u-w-100p u-p-6px u-b-1px-solid-cbd5e1 u-br-4px" value="${esc(child.lastName || '')}" placeholder="例: 山田" data-input="updateTransferChild" data-index="${index}" data-field="lastName">
 					</div>
 					<div>
-						<label style="display: block; font-size: 0.8rem; color: #475569; margin-bottom: 2px;">氏名（名） <span style="color: #ef4444;">*</span></label>
-						<input type="text" maxlength="4096" class="form-control" value="${esc(child.firstName || '')}" placeholder="例: 太郎" data-input="updateTransferChild" data-index="${index}" data-field="firstName" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px;">
+						<label class="u-d-block u-fs-0_8rem u-c-475569 u-mb-2px">氏名（名） <span class="u-c-ef4444">*</span></label>
+						<input type="text" maxlength="4096" class="form-control u-w-100p u-p-6px u-b-1px-solid-cbd5e1 u-br-4px" value="${esc(child.firstName || '')}" placeholder="例: 太郎" data-input="updateTransferChild" data-index="${index}" data-field="firstName">
 					</div>
 				</div>
 			</div>
 		`;
-	}).join('');
+	}).join(''));
 }
 
 // 児童行を追加します（兄弟姉妹）
@@ -215,8 +215,16 @@ async function resetTransferForm() {
 	renderTransferForm();
 	resetPasswordInputs(document.getElementById('tab-transfer'));
 	const printArea = document.getElementById('print-area');
-	if (printArea) printArea.innerHTML = '';
-	await saveTransferLocal();
+	if (printArea) printArea.replaceChildren();
+	// 別のタブの保存と競合したときは、その新しい内容を消さず、消去できなかったことを示す（E-16-03・I-16-02）。
+	// 保存の前からの暗号化中のロック（メモリだけで入力する）と保存の停止では、従来どおり保存しないまま消去を終える。
+	// ロックは保存の前に判定する（解除中の他タブの書込みは、保存の中でロックする。SEC-34）。
+	const memoryOnly = isStorageEncrypted() && !isStorageUnlocked();
+	const saved = await saveTransferLocal();
+	if (saved === false && !memoryOnly && !isStorageWriteSuspended('kogai_transfer_v2')) {
+		alert('家庭・児童の情報を端末から消去できませんでした。最新の内容を確かめて、もう一度消去してください。');
+		return false;
+	}
 	return true;
 }
 
@@ -233,34 +241,10 @@ function clearTransferForm() {
 	renderTransferForm();
 	resetPasswordInputs(document.getElementById('tab-transfer'));
 	const printArea = document.getElementById('print-area');
-	if (printArea) printArea.innerHTML = '';
+	if (printArea) printArea.replaceChildren();
 }
 
-// ローカルストレージへの自動保存
-function saveTransferLocal() {
-	if (typeof state !== 'undefined') {
-		state.transferState = transferState;
-	}
-	return saveStorageData('kogai_transfer_v2', transferState);
-}
-
-// ローカルストレージからの読み込み
-async function loadTransferLocal() {
-	const generation = getStorageSessionGeneration();
-	try {
-		const data = await loadStorageDecrypted('kogai_transfer_v2');
-		if (data !== null) {
-			const clean = validateStoredData(data, 'kogai_transfer_v2');
-			assertStorageSession(generation);
-			transferState.children = clean.children;
-			transferState.memo = clean.memo;
-			for (const field of ['address', 'tel']) transferState[field] = clean[field];
-		}
-	} catch (e) {
-		console.warn("Failed to load transfer local state", e);
-	}
-	renderTransferForm();
-}
+// 保存は js/state.js の saveTransferLocal、読込は起動時・解除時の読込だけとする（BL-007・I-16-05）。
 
 if (typeof module !== 'undefined' && module.exports) {
 	global.transferState = transferState;
@@ -273,8 +257,6 @@ if (typeof module !== 'undefined' && module.exports) {
 	global.copyTransferEncryptedText = copyTransferEncryptedText;
 	global.resetTransferForm = resetTransferForm;
 	global.clearTransferForm = clearTransferForm;
-	global.saveTransferLocal = saveTransferLocal;
-	global.loadTransferLocal = loadTransferLocal;
 	global.updateTransferHousehold = updateTransferHousehold;
 
 	module.exports = {
@@ -289,8 +271,6 @@ if (typeof module !== 'undefined' && module.exports) {
 		copyTransferEncryptedText,
 		resetTransferForm,
 		clearTransferForm,
-		saveTransferLocal,
-		loadTransferLocal,
 		updateTransferHousehold
 	};
 }

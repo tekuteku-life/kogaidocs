@@ -179,6 +179,8 @@ test('security core: metadata deletion during encryption prevents a late write w
 test('security core: startup rejects malformed plaintext storage with a visible notice', async () => {
 	fresh();
 	navigator.onLine = false;
+	// 保存値のないキーは js/state.js の初期値で開くため（I-16-03）、通常どおり開くことを、保存した地区のデータが読まれることで確かめる。
+	localStorage.setItem(keys[0], JSON.stringify(state.currentDistrict));
 	localStorage.setItem(keys[1], JSON.stringify({ districts: 'bad-list' }));
 	await applicationStartup();
 	// E-12-05: 読めないモードだけ保存を停止して案内し、他のモードは通常どおり開く。

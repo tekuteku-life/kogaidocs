@@ -676,6 +676,9 @@ test('security SEC-29: saveAndCloseRepDistrictDetailModal preserves modal & draf
 	app.initAutoLockListeners();
 	window.dispatchEvent({ type: 'storage', key: 'kogai_district_v2', oldValue: '{}', newValue: null, storageArea: localStorage });
 	assert.equal(cryptoLib.isStorageEncrypted(), false);
+	// 未暗号化の他タブの更新はロックせず、読み直して案内する（R-27・I-16-03）。読み直しが終わってから次へ進む。
+	await new Promise(resolve => setTimeout(resolve, 0));
+	assert.equal(document.getElementById('storage-foreign-update-notice').hidden, false, 'An unencrypted update reloads and shows the notice');
 
 	// SEC-34 (I-12-06): identical values are ignored, while a valid STORAGE_ENC:2: foreign write locks without resetting security
 	fresh();

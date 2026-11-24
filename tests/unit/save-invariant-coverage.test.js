@@ -30,35 +30,62 @@ function fresh() {
 	return alerts;
 }
 
-test('SEC-30 coverage: an unexpected startup load failure still opens a safe default state', async () => {
-	const alerts = fresh();
-	const original = global.loadStorageDecrypted;
-	global.loadStorageDecrypted = async () => { throw new Error('unexpected storage failure'); };
+/** 起動時の未暗号化の読込の反映で、1回だけ予期しない失敗を起こす（キーごとの検証の失敗は読めないキーとして扱うため、正規化の側で起こす）。 */
+async function startWithUnexpectedFailure() {
+	const original = global.normalizeNameFields;
+	let thrown = false;
+	global.normalizeNameFields = (...args) => { if (!thrown) { thrown = true; throw new Error('unexpected storage failure'); } return original(...args); };
 	try {
 		await app.startUnencryptedSession();
-	} finally { global.loadStorageDecrypted = original; }
-	assert.ok(alerts.some(message => /安全な初期状態で起動しました/.test(message)));
-	assert.equal(cryptoLib.getSuspendedStorageKeys().length, 0, 'Nothing was stored, so nothing is suspended');
-});
+	} finally { global.normalizeNameFields = original; }
+}
 
-test('I-12-07 (Gate 2): an unexpected load failure with stored originals suspends those keys instead of overwriting them', async () => {
-	const alerts = fresh();
-	localStorage.setItem('kogai_neighbor_v2', JSON.stringify({ district: '有効な原本', neighborhood: [] }));
-	localStorage.setItem('kogai_transfer_v2', JSON.stringify({ children: [], memo: '有効な原本' }));
-	const before = JSON.stringify(localStorage.store);
-	const original = global.loadStorageDecrypted;
-	global.loadStorageDecrypted = async () => { throw new Error('unexpected storage failure'); };
+/** 起動時の未暗号化の読込を、反映の外（排他区間の要求）で1回だけ失敗させる。 */
+async function startWithLockFailure() {
+	const original = navigator.locks;
+	let rejected = false;
+	navigator.locks = { request: (...args) => { if (!rejected) { rejected = true; return Promise.reject(new Error('unexpected lock failure')); } return original.request(...args); } };
 	try {
 		await app.startUnencryptedSession();
-	} finally { global.loadStorageDecrypted = original; }
-	assert.ok(alerts.some(message => /安全な初期状態で起動しました/.test(message)));
-	assert.deepEqual(cryptoLib.getSuspendedStorageKeys().sort(), ['kogai_neighbor_v2', 'kogai_transfer_v2']);
-	state.neighborState.district = '既定値での上書き';
-	assert.equal(await saveNeighborLocal(), false);
-	assert.equal(await saveTransferLocal(), false);
-	assert.equal(JSON.stringify(localStorage.store), before, 'The stored originals are never overwritten');
-	assert.equal(document.getElementById('storage-save-warning').hidden, false);
-});
+	} finally { navigator.locks = original; }
+	assert.ok(rejected, 'The lock request failed once');
+}
+
+/** 起動の前のタブと同じく、既知値のない状態にする（全消去は既知値を記録するので、その後に暗号化中のロックで空にする。I-16-01）。 */
+async function forgetKnownStorageValues() {
+	await cryptoLib.clearStorageSecurity();
+	localStorage.setItem('kogai_auth_meta', JSON.stringify({ isEncrypted: true }));
+	cryptoLib.lockStorage();
+	localStorage.removeItem('kogai_auth_meta');
+}
+
+for (const [label, start] of [['inside the reflection', startWithUnexpectedFailure], ['outside the reflection', startWithLockFailure]]) {
+	test(`SEC-30 coverage: an unexpected startup load failure ${label} still opens a safe default state`, async () => {
+		const alerts = fresh();
+		await forgetKnownStorageValues();
+		await start();
+		assert.ok(alerts.some(message => /安全な初期状態で起動しました/.test(message)));
+		assert.equal(cryptoLib.getSuspendedStorageKeys().length, 0, 'Nothing was stored, so nothing is suspended');
+		assert.equal(await saveNeighborLocal(), true, 'A mode without stored data is still saved after the failure (R-27・I-16-03)');
+	});
+
+	test(`I-12-07 (Gate 2): an unexpected load failure ${label} with stored originals suspends those keys instead of overwriting them`, async () => {
+		const alerts = fresh();
+		await forgetKnownStorageValues();
+		localStorage.setItem('kogai_neighbor_v2', JSON.stringify({ district: '有効な原本', neighborhood: [] }));
+		localStorage.setItem('kogai_transfer_v2', JSON.stringify({ children: [], memo: '有効な原本' }));
+		const before = JSON.stringify(localStorage.store);
+		await start();
+		assert.ok(alerts.some(message => /安全な初期状態で起動しました/.test(message)));
+		assert.deepEqual(cryptoLib.getSuspendedStorageKeys().sort(), ['kogai_neighbor_v2', 'kogai_transfer_v2']);
+		state.neighborState.district = '既定値での上書き';
+		assert.equal(await saveNeighborLocal(), false);
+		assert.equal(await saveTransferLocal(), false);
+		assert.equal(JSON.stringify(localStorage.store), before, 'The stored originals are never overwritten');
+		assert.equal(document.getElementById('storage-save-warning').hidden, false);
+		assert.equal(await saveRepLocal(), true, 'A mode without stored data is still saved');
+	});
+}
 
 test('SEC-30 coverage: storage failures other than foreign updates still propagate from saveStorageData', async () => {
 	fresh();

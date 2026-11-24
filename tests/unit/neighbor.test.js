@@ -450,3 +450,13 @@ test('neighbor: integrated card (#card-n-file) 4 major sections exist', () => {
 	assert(secYear, '#sec-n-year should exist');
 });
 
+
+test('neighbor: the roster table shows the address, phone, email and note values', () => {
+	setupDomEnvironment();
+	state.neighborState = { district: '値の自治会', neighborhood: [{ role: '会長', lastName: '姓', firstName: '名', lastNameKana: '', firstNameKana: '', address: '住所の値', tel: '電話の値', email: 'mail@example.com', note: '備考の値' }] };
+	neighbor.renderNeighborTable();
+	const tbody = document.getElementById('neighbor-tbody');
+	for (const [field, value] of [['address', '住所の値'], ['tel', '電話の値'], ['email', 'mail@example.com'], ['note', '備考の値']]) {
+		assert.strictEqual(tbody.querySelector(`[data-field="${field}"]`).value, value, `${field} shows its value`);
+	}
+});

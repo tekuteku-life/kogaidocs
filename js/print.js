@@ -8,7 +8,7 @@ function isOfficerPrintBlocked(outputIsCurrent) {
 
 function clearOfficerPrintArea() {
 	const area = document.getElementById('print-area');
-	if (area) area.innerHTML = '';
+	if (area) area.replaceChildren();
 }
 
 function setRepPrintChecks(flag) {
@@ -56,7 +56,7 @@ function printSingleDistrictSelected() {
 	}
 
 	const area = document.getElementById('print-area');
-	if (area) area.innerHTML = pages.join('');
+	if (area) renderHtml(area, pages.join(''));
 
 	const origTitle = document.title;
 	const targetTitle = checkedNames.length === 1
@@ -126,7 +126,7 @@ function printSingleDistrictSeparately() {
 			clearOfficerPrintArea();
 			break;
 		}
-		if (area) area.innerHTML = item.html;
+		if (area) renderHtml(area, item.html);
 		try {
 			document.title = item.title;
 			window.print();
@@ -221,7 +221,10 @@ function executeRepSelectedPrint() {
 	}
 
 	const area = document.getElementById('print-area');
-	if (area) area.innerHTML = pages.join('');
+	if (area) {
+		renderHtml(area, pages.join(''));
+		applyPrintSeatColumns(area);
+	}
 
 	const origTitle = document.title;
 	const targetTitle = checkedTypes.length === 1 && repTypeNames[checkedTypes[0]]
@@ -317,12 +320,12 @@ function buildStudentPageHtml(d, options, allDistricts) {
 				<table class="print-table">
 					<thead>
 						<tr>
-							<th style="width:6%">No.</th>
-							<th style="width:12%">学年－組</th>
-							<th style="width:24%">児童名</th>
-							<th style="width:32%">住所</th>
-							<th style="width:14%">電話番号</th>
-							<th style="width:12%">班長・副班長</th>
+							<th class="u-w-6p">No.</th>
+							<th class="u-w-12p">学年－組</th>
+							<th class="u-w-24p">児童名</th>
+							<th class="u-w-32p">住所</th>
+							<th class="u-w-14p">電話番号</th>
+							<th class="u-w-12p">班長・副班長</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -336,24 +339,24 @@ function buildStudentPageHtml(d, options, allDistricts) {
 							const gradeClass = s.grade ? `${esc(s.grade)}${s.class ? '-' + esc(s.class) : ''}` : '-';
 							return `
 								<tr>
-									<td style="text-align:center;">${idx + 1}</td>
-									<td style="text-align:center;">${gradeClass}</td>
+									<td class="u-ta-center">${idx + 1}</td>
+									<td class="u-ta-center">${gradeClass}</td>
 									<td>${nameHtml}</td>
 									<td>${esc(s.address)}</td>
 									<td>${esc(s.tel)}</td>
-									<td style="text-align:center; font-weight:bold;">${esc(s.leader)}</td>
+									<td class="u-ta-center u-fw-bold">${esc(s.leader)}</td>
 								</tr>
 							`;
-						}).join('') : `<tr><td colspan="6" style="text-align:center;">該当児童なし</td></tr>`}
+						}).join('') : `<tr><td colspan="6" class="u-ta-center">該当児童なし</td></tr>`}
 					</tbody>
 				</table>
 				<div class="summary-box">
 					<div class="summary-title">${summaryTitle}</div>
 					<div class="summary-stats">
 						<span><strong>班の児童数：</strong>${sorted.length}名${hanOutCount ? `（うち学区外: ${hanOutCount}名）` : ''}</span>
-						<span style="margin-left: 20px;"><strong>地区全体の児童数：</strong>${districtTotal}名${districtOutCount ? `（うち学区外: ${districtOutCount}名）` : ''}</span>
+						<span class="u-ml-20px"><strong>地区全体の児童数：</strong>${districtTotal}名${districtOutCount ? `（うち学区外: ${districtOutCount}名）` : ''}</span>
 					</div>
-					<div class="summary-grades" style="margin-top: 4px;">
+					<div class="summary-grades u-mt-4px">
 						<div><strong>[班の学年別内訳]</strong> ${formatGradeCounts(counts)}</div>
 						<div><strong>[地区全体の学年別内訳]</strong> ${formatGradeCounts(districtCounts)}</div>
 					</div>
@@ -382,10 +385,10 @@ function buildNeighborPageHtml(d) {
 			<table class="print-table">
 				<thead>
 					<tr>
-						<th style="width:20%">役職</th>
-						<th style="width:24%">氏名</th>
-						<th style="width:36%">住所</th>
-						<th style="width:20%">電話番号</th>
+						<th class="u-w-20p">役職</th>
+						<th class="u-w-24p">氏名</th>
+						<th class="u-w-36p">住所</th>
+						<th class="u-w-20p">電話番号</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -403,7 +406,7 @@ function buildNeighborPageHtml(d) {
 								<td>${esc(n.tel)}</td>
 							</tr>
 						`;
-					}).join('') : `<tr><td colspan="4" style="text-align:center;">該当なし</td></tr>`}
+					}).join('') : `<tr><td colspan="4" class="u-ta-center">該当なし</td></tr>`}
 				</tbody>
 			</table>
 		</div>
@@ -438,10 +441,10 @@ function buildPtaOfficersRosterPageHtml(districts) {
 			<table class="print-table">
 				<thead>
 					<tr>
-						<th style="width:25%">地区名</th>
-						<th style="width:35%">役員氏名</th>
-						<th style="width:20%">役職</th>
-						<th style="width:20%">お子様の学年</th>
+						<th class="u-w-25p">地区名</th>
+						<th class="u-w-35p">役員氏名</th>
+						<th class="u-w-20p">役職</th>
+						<th class="u-w-20p">お子様の学年</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -458,11 +461,11 @@ function buildPtaOfficersRosterPageHtml(districts) {
 							<tr>
 								<td>${esc(item.district)}${hStr ? ` (${esc(hStr)})` : ''}</td>
 								<td>${nameHtml}</td>
-								<td style="text-align:center;">${esc(o.role || '校外委員')}</td>
-								<td style="text-align:center;">${gradeStr}</td>
+								<td class="u-ta-center">${esc(o.role || '校外委員')}</td>
+								<td class="u-ta-center">${gradeStr}</td>
 							</tr>
 						`;
-					}).join('') : `<tr><td colspan="4" style="text-align:center;">該当役員なし</td></tr>`}
+					}).join('') : `<tr><td colspan="4" class="u-ta-center">該当役員なし</td></tr>`}
 				</tbody>
 			</table>
 
@@ -471,11 +474,11 @@ function buildPtaOfficersRosterPageHtml(districts) {
 				<table class="print-table">
 					<thead>
 						<tr>
-							<th style="width:16%">役職</th>
-							<th style="width:20%">地区名</th>
-							<th style="width:24%">氏名</th>
-							<th style="width:20%">電話番号</th>
-							<th style="width:20%">メールアドレス</th>
+							<th class="u-w-16p">役職</th>
+							<th class="u-w-20p">地区名</th>
+							<th class="u-w-24p">氏名</th>
+							<th class="u-w-20p">電話番号</th>
+							<th class="u-w-20p">メールアドレス</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -488,14 +491,14 @@ function buildPtaOfficersRosterPageHtml(districts) {
 								: esc(name);
 							return `
 								<tr>
-									<td style="text-align:center; font-weight:bold;">${esc(o.role)}</td>
+									<td class="u-ta-center u-fw-bold">${esc(o.role)}</td>
 									<td>${esc(item.district)}</td>
 									<td>${nameHtml}</td>
 									<td>${esc(o.tel || '-')}</td>
 									<td>${esc(o.email || '-')}</td>
 								</tr>
 							`;
-						}).join('') : `<tr><td colspan="5" style="text-align:center; color:#666;">（代表三役が未登録です。「役職」欄に代表・書記・会計等をご指定ください）</td></tr>`}
+						}).join('') : `<tr><td colspan="5" class="u-ta-center u-c-666">（代表三役が未登録です。「役職」欄に代表・書記・会計等をご指定ください）</td></tr>`}
 					</tbody>
 				</table>
 			</div>
@@ -541,17 +544,17 @@ function buildSchoolOfficersRosterPageHtml(districts, allDistricts) {
 				<span>※取扱注意（学校提出用）</span>
 				<span>作成日：${new Date().toLocaleDateString('ja-JP')}</span>
 			</div>
-			<table class="print-table" style="font-size:9pt;">
+			<table class="print-table u-fs-9pt">
 				<thead>
 					<tr>
-						<th style="width:11%">地区</th>
-						<th style="width:13%">役員氏名</th>
-						<th style="width:13%">児童氏名</th>
-						<th style="width:10%">児童学年－組</th>
-						<th style="width:13%">電話番号</th>
-						<th style="width:20%">住所</th>
-						<th style="width:11%">地区＋班児童数</th>
-						<th style="width:9%">学区外児童数</th>
+						<th class="u-w-11p">地区</th>
+						<th class="u-w-13p">役員氏名</th>
+						<th class="u-w-13p">児童氏名</th>
+						<th class="u-w-10p">児童学年－組</th>
+						<th class="u-w-13p">電話番号</th>
+						<th class="u-w-20p">住所</th>
+						<th class="u-w-11p">地区＋班児童数</th>
+						<th class="u-w-9p">学区外児童数</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -573,22 +576,22 @@ function buildSchoolOfficersRosterPageHtml(districts, allDistricts) {
 
 						let studentCountText = `地区: ${r.distTotal}名`;
 						if (r.hanStudentCount !== null && r.hanName) {
-							studentCountText += `<br><span style="font-size:8pt; color:#444;">(${esc(r.hanName)}: ${r.hanStudentCount}名)</span>`;
+							studentCountText += `<br><span class="u-fs-8pt u-c-444">(${esc(r.hanName)}: ${r.hanStudentCount}名)</span>`;
 						}
 
 						return `
 							<tr>
-								<td>${esc(r.district)}${r.hanName ? `<br><span style="font-size:8pt; color:#444;">(${esc(r.hanName)})</span>` : ''}</td>
+								<td>${esc(r.district)}${r.hanName ? `<br><span class="u-fs-8pt u-c-444">(${esc(r.hanName)})</span>` : ''}</td>
 								<td>${oNameHtml}</td>
 								<td>${cNameHtml}</td>
-								<td style="text-align:center;">${gradeClass}</td>
+								<td class="u-ta-center">${gradeClass}</td>
 								<td>${esc(o.tel || '-')}</td>
 								<td>${esc(o.address || '-')}</td>
-								<td style="text-align:center;">${studentCountText}</td>
-								<td style="text-align:center;">${r.distOutCount}名</td>
+								<td class="u-ta-center">${studentCountText}</td>
+								<td class="u-ta-center">${r.distOutCount}名</td>
 							</tr>
 						`;
-					}).join('') : `<tr><td colspan="8" style="text-align:center;">該当データなし</td></tr>`}
+					}).join('') : `<tr><td colspan="8" class="u-ta-center">該当データなし</td></tr>`}
 				</tbody>
 			</table>
 		</div>
@@ -774,11 +777,11 @@ function buildSzAttendance1PageHtml(targetDistricts) {
 			<table class="print-table">
 				<thead>
 					<tr>
-						<th style="width:30%">ご所属（地区・団体名）</th>
-						<th style="width:18%">お役職</th>
-						<th style="width:26%">ご芳名</th>
-						<th style="width:12%">ご出欠</th>
-						<th style="width:14%">備考</th>
+						<th class="u-w-30p">ご所属（地区・団体名）</th>
+						<th class="u-w-18p">お役職</th>
+						<th class="u-w-26p">ご芳名</th>
+						<th class="u-w-12p">ご出欠</th>
+						<th class="u-w-14p">備考</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -787,7 +790,7 @@ function buildSzAttendance1PageHtml(targetDistricts) {
 							<td>${esc(r.org)}</td>
 							<td>${esc(r.role)}</td>
 							<td>${formatNameWithSama(r.name, r.kana)}</td>
-							<td style="text-align:center;"></td>
+							<td class="u-ta-center"></td>
 							<td></td>
 						</tr>
 					`).join('')}
@@ -828,11 +831,11 @@ function buildSzAttendance2PageHtml(targetDistricts) {
 			<table class="print-table">
 				<thead>
 					<tr>
-						<th style="width:30%">ご所属（機関名・自治会名）</th>
-						<th style="width:18%">お役職</th>
-						<th style="width:26%">ご芳名</th>
-						<th style="width:12%">ご出欠</th>
-						<th style="width:14%">備考</th>
+						<th class="u-w-30p">ご所属（機関名・自治会名）</th>
+						<th class="u-w-18p">お役職</th>
+						<th class="u-w-26p">ご芳名</th>
+						<th class="u-w-12p">ご出欠</th>
+						<th class="u-w-14p">備考</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -841,7 +844,7 @@ function buildSzAttendance2PageHtml(targetDistricts) {
 							<td>${esc(r.org)}</td>
 							<td>${esc(r.role)}</td>
 							<td>${formatNameWithSama(r.name, r.kana)}</td>
-							<td style="text-align:center;"></td>
+							<td class="u-ta-center"></td>
 							<td></td>
 						</tr>
 					`).join('')}
@@ -864,17 +867,17 @@ function buildSzAttendance3BlankPageHtml() {
 			<table class="print-table">
 				<thead>
 					<tr>
-						<th style="width:30%">ご所属（団体・機関・地区名）</th>
-						<th style="width:18%">お役職</th>
-						<th style="width:26%">ご芳名</th>
-						<th style="width:12%">ご出欠</th>
-						<th style="width:14%">備考</th>
+						<th class="u-w-30p">ご所属（団体・機関・地区名）</th>
+						<th class="u-w-18p">お役職</th>
+						<th class="u-w-26p">ご芳名</th>
+						<th class="u-w-12p">ご出欠</th>
+						<th class="u-w-14p">備考</th>
 					</tr>
 				</thead>
 				<tbody>
 					${blankRows.map(() => `
 						<tr>
-							<td style="height:26pt;"></td>
+							<td class="u-h-26pt"></td>
 							<td></td>
 							<td>${formatNameWithSama("", "")}</td>
 							<td></td>
@@ -888,6 +891,14 @@ function buildSzAttendance3BlankPageHtml() {
 }
 
 // ⑩ スクゾ 座席表
+/** 座席表の列の数（data-cols。2〜10 の整数）を、描画の後に要素のスタイルへ設定する（style 属性を使わない。I-15-05）。 */
+function applyPrintSeatColumns(root) {
+	for (const grid of root.querySelectorAll('.print-seat-grid')) {
+		const cols = Number(grid.dataset.cols);
+		if (Number.isInteger(cols) && cols >= 2 && cols <= 10) grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+	}
+}
+
 function buildSzSeatChartPageHtml() {
 	const cfg = repState.seatConfig || {};
 	const dimension = (value, maximum, fallback) => Number.isFinite(Number(value))
@@ -912,7 +923,7 @@ function buildSzSeatChartPageHtml() {
 				cellsHtml.push(`<div class="print-seat-cell"><div class="seat-p-name">${esc(cellData.customText)}</div></div>`);
 			} else if (ref) {
 				const dispName = ref.name ? `${ref.name} 様` : "（ご出席者 様）";
-				const note = cellData.customText ? `<div style="font-size:7.5pt; margin-top:2px;">${esc(cellData.customText)}</div>` : "";
+				const note = cellData.customText ? `<div class="u-fs-7_5pt u-mt-2px">${esc(cellData.customText)}</div>` : "";
 				cellsHtml.push(`
 					<div class="print-seat-cell">
 						<div class="seat-p-org">${esc(ref.org)}</div>
@@ -937,7 +948,7 @@ function buildSzSeatChartPageHtml() {
 				<div class="print-seat-side">${esc(cfg.leftSide)}</div>
 				<div class="print-seat-center">
 					<div class="print-seat-topbottom">${esc(cfg.topLabel)}</div>
-					<div class="print-seat-grid" style="grid-template-columns: repeat(${cols}, 1fr);">
+					<div class="print-seat-grid" data-cols="${cols}">
 						${cellsHtml.join('')}
 					</div>
 					<div class="print-seat-topbottom">${esc(cfg.bottomLabel)}</div>
@@ -992,12 +1003,12 @@ function buildSzMasterRosterPageHtml(targetDistricts) {
 			<table class="print-table">
 				<thead>
 					<tr>
-						<th style="width:14%">区分</th>
-						<th style="width:22%">所属・地区名</th>
-						<th style="width:14%">役職</th>
-						<th style="width:18%">氏名</th>
-						<th style="width:22%">連絡先・住所・備考</th>
-						<th style="width:10%">スクゾ出欠</th>
+						<th class="u-w-14p">区分</th>
+						<th class="u-w-22p">所属・地区名</th>
+						<th class="u-w-14p">役職</th>
+						<th class="u-w-18p">氏名</th>
+						<th class="u-w-22p">連絡先・住所・備考</th>
+						<th class="u-w-10p">スクゾ出欠</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -1012,7 +1023,7 @@ function buildSzMasterRosterPageHtml(targetDistricts) {
 								<td>${esc(r.role)}</td>
 								<td>${nameHtml}</td>
 								<td>${esc(r.contact)}</td>
-								<td style="text-align:center;">${esc(r.attend)}</td>
+								<td class="u-ta-center">${esc(r.attend)}</td>
 							</tr>
 						`;
 					}).join('')}
@@ -1040,6 +1051,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		buildSzAttendance2PageHtml,
 		buildSzAttendance3BlankPageHtml,
 		buildSzSeatChartPageHtml,
+		applyPrintSeatColumns,
 		buildSzMasterRosterPageHtml
 	};
 	Object.assign(global, module.exports);

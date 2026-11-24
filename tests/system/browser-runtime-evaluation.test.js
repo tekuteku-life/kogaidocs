@@ -30,6 +30,9 @@ test('browser runtime evaluation: all scripts in index.html load cleanly without
 			contains: () => false
 		},
 		appendChild: () => {},
+		// 描画の補助（js/utils.js の renderHtml）が使う template の内容と replaceChildren（I-15-02）。
+		childNodes: [],
+		replaceChildren: () => {},
 		querySelectorAll: () => [],
 		querySelector: () => null,
 		addEventListener: () => {},
@@ -44,7 +47,7 @@ test('browser runtime evaluation: all scripts in index.html load cleanly without
 			getElementById: () => domMock,
 			querySelectorAll: () => [],
 			querySelector: () => null,
-			createElement: () => ({ ...domMock }),
+			createElement: tag => ({ ...domMock, ...(tag === 'template' ? { content: { childNodes: [] } } : {}) }),
 			addEventListener: () => {},
 			removeEventListener: () => {},
 			dispatchEvent: () => true
@@ -127,7 +130,8 @@ test('browser runtime evaluation: all scripts in index.html load cleanly without
 	assert.strictEqual(typeof ctx.copyTransferEncryptedText, 'function', 'copyTransferEncryptedText must be defined on window');
 	assert.strictEqual(typeof ctx.clearTransferForm, 'function', 'clearTransferForm must be defined on window');
 	assert.strictEqual(typeof ctx.saveTransferLocal, 'function', 'saveTransferLocal must be defined on window');
-	assert.strictEqual(typeof ctx.loadTransferLocal, 'function', 'loadTransferLocal must be defined on window');
+	// 家庭情報入力の保存は js/state.js の saveTransferLocal だけとし、本番で呼ばれない js/transfer.js の読込の関数は除く（BL-007・I-16-05）。
+	assert.strictEqual(typeof ctx.loadTransferLocal, 'undefined', 'The unused transfer load function is removed');
 
 	// Verify state objects exist and have valid structure in lexical scope
 	const evaluatedCurrentDistrict = vm.runInContext('currentDistrict', ctx);

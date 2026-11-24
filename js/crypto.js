@@ -26,7 +26,8 @@ const PAYLOAD_PREFIX = 'ENC:2:';
 const LEGACY_PAYLOAD_PREFIX = 'ENC:';
 const WEBAUTHN_USER_ID = new Uint8Array([107, 111, 103, 97, 105, 100, 111, 99, 115]); // "kogaidocs"
 
-// 保存前検証で拒否中のキー、平文起動で読めずに書込を停止したキー、自タブが最後に読んだ・書いた暗号文（SEC-30・SEC-34）。
+// 保存前検証で拒否中のキー、書込を停止したキー（未暗号化の起動・読み直しで読めないキー、未暗号化の読込の反映の失敗、未暗号化の起動の予期しない失敗。I-12-07・I-16-03）、
+// 照合の基準とする既知値（データキーごとの、自タブが最後に読んだ・書いた保存値。暗号文と平文。SEC-30・SEC-34・R-27・I-16-01）。
 const storageSaveRejectedKeys = new Set();
 const suspendedStorageKeys = new Set();
 const knownStorageValues = new Map();
@@ -83,9 +84,14 @@ function rememberKnownStorageValue(storageKey, value) {
 	if (STORAGE_DATA_KEYS.includes(storageKey)) knownStorageValues.set(storageKey, value);
 }
 
-/** 排他区間内で、他タブが自タブの知らない暗号文を書いていないかを確認する。 */
+/**
+ * 排他区間内で、他タブが自タブの知らない値を書いていないかを確認する（暗号化中は SEC-34、未暗号化は R-27・I-16-02）。
+ * 既知値のないキーは、暗号化中は照合せず、未暗号化では拒否する（起動時の読込の前に、保存済みのデータを上書きしない。I-16-01）。
+ */
 function assertNoForeignStorageUpdate(storageKey) {
-	if (!knownStorageValues.has(storageKey) || localStorage.getItem(storageKey) === knownStorageValues.get(storageKey)) return;
+	// 照合するのは4つのデータキーだけとする（既知値も4つのデータキーだけを記録する）。
+	if (!STORAGE_DATA_KEYS.includes(storageKey)) return;
+	if (knownStorageValues.has(storageKey) ? localStorage.getItem(storageKey) === knownStorageValues.get(storageKey) : isStorageEncrypted()) return;
 	const error = new Error('STORAGE_FOREIGN_UPDATE');
 	error.code = 'STORAGE_FOREIGN_UPDATE';
 	throw error;
@@ -727,6 +733,8 @@ async function setupStorageEncryptionUnlocked(password, enableBiometric = false,
 	const check = validatePassword(password);
 	if (!check.valid) throw new Error(check.message);
 	if (suspendedStorageKeys.size) throw storageError('STORAGE_WRITES_SUSPENDED', '保存を停止しているモードがあるため、端末暗号化を設定できません。全消去してから再試行してください。');
+	// メモリの内容を暗号化して書くため、他タブの書込みの後では設定しない（暗号化中の再設定を含む。I-16-02）。
+	STORAGE_DATA_KEYS.forEach(assertNoForeignStorageUpdate);
 	// 鍵生成・認証器登録より前に一度だけ直列化し、その内容を検証・暗号化の双方に使う（I-12-02）。
 	const serialized = [
 		typeof currentDistrict === 'undefined' ? { district: '', officers: [], neighborhood: [], students: [] } : currentDistrict,
@@ -772,6 +780,7 @@ async function setupStorageEncryptionUnlocked(password, enableBiometric = false,
 	for (let i = 0; i < serialized.length; i++) encoded.push(await encryptStorageValue(serialized[i], masterKey, STORAGE_DATA_KEYS[i]));
 	assertStorageContext(generation, authSnapshot);
 	guard();
+	STORAGE_DATA_KEYS.forEach(assertNoForeignStorageUpdate);
 	const metaRaw = JSON.stringify(meta);
 	writeStorageTransaction([...STORAGE_DATA_KEYS.map((key, index) => [key, encoded[index]]), [STORAGE_AUTH_KEY, metaRaw]]);
 	STORAGE_DATA_KEYS.forEach(key => markStorageSaveState(key, false));
@@ -785,6 +794,13 @@ async function setupStorageEncryptionUnlocked(password, enableBiometric = false,
 async function setupStorageEncryption(password, enableBiometric = false, guard) {
 	try {
 		return await withStorageLock('exclusive', () => setupStorageEncryptionUnlocked(password, enableBiometric, guard), true);
+	} catch (error) {
+		if (error && error.code === 'STORAGE_FOREIGN_UPDATE') {
+			flushStorageSaveReport();
+			notifyForeignStorageUpdate();
+			throw new Error('STORAGE_SESSION_CHANGED');
+		}
+		throw error;
 	} finally {
 		flushStorageSaveReport();
 	}
@@ -869,10 +885,12 @@ async function unlockStorageWithWebAuthn(guard) {
  * ストレージを再ロックします（メモリ内のアクティブ鍵をクリア）
  */
 function lockStorage() {
+	// 既知値を空にするのは暗号化中だけとする（未暗号化のときに空にすると、次の読み直しまでの保存が照合なしで通る。I-16-01）。
+	const encrypted = isStorageEncrypted();
 	storageSessionGeneration++;
 	activeStorageKey = null;
 	activeStorageAuthSnapshot = null;
-	knownStorageValues.clear();
+	if (encrypted) knownStorageValues.clear();
 	activationRepairs = { generation: -1, repairs: [] };
 }
 
@@ -883,6 +901,8 @@ function clearStorageSecurityUnlocked() {
 	lockStorage();
 	localStorage.removeItem(STORAGE_AUTH_KEY);
 	STORAGE_DATA_KEYS.forEach(key => localStorage.removeItem(key));
+	// 全消去の後は、保存値がないことを既知値とする（I-16-01）。
+	STORAGE_DATA_KEYS.forEach(key => knownStorageValues.set(key, null));
 	storageSecurityInvalidated = false;
 	suspendedStorageKeys.clear();
 	storageSaveRejectedKeys.clear();
@@ -906,8 +926,11 @@ async function saveStorageDataUnlocked(storageKey, serialized, options = {}) {
 	if (!isStorageEncrypted()) {
 		if (officerPlaintextWriteDenied(storageKey)) return false;
 		if (suspendedStorageKeys.has(storageKey) && !options.allowSuspended) return false;
+		// 照合から書込みまでに await を置かない（Web Locks がないときも、ほかのタスクを間に入れない。I-16-02）。
+		assertNoForeignStorageUpdate(storageKey);
 		if (options.validate && !acceptStorageSerialized(storageKey, serialized)) return false;
 		localStorage.setItem(storageKey, serialized);
+		rememberKnownStorageValue(storageKey, serialized);
 		markStorageSaveState(storageKey, false);
 		return true;
 	}
@@ -1148,7 +1171,8 @@ async function replaceStoredAppData(models, guard = () => {}) {
 			// 役員の名簿データを含まない引き継ぎは、復元先の地区・代表を保持する（QA-01）。
 			const targetIndices = officerModels ? [0, 1, 2, 3] : [2, 3];
 			const replacedKeys = targetIndices.map(index => STORAGE_DATA_KEYS[index]);
-			if (encrypted) replacedKeys.forEach(assertNoForeignStorageUpdate);
+			// 暗号化の有無によらず照合する（I-16-02）。
+			replacedKeys.forEach(assertNoForeignStorageUpdate);
 			const key = activeStorageKey;
 			const entries = [];
 			for (const index of targetIndices) {
@@ -1158,7 +1182,7 @@ async function replaceStoredAppData(models, guard = () => {}) {
 				entries.push([STORAGE_DATA_KEYS[index], encoded]);
 			}
 			guard();
-			if (encrypted) replacedKeys.forEach(assertNoForeignStorageUpdate);
+			replacedKeys.forEach(assertNoForeignStorageUpdate);
 			writeStorageTransaction(entries);
 			replacedKeys.forEach(storageKey => markStorageSaveState(storageKey, false));
 			resumeStorageWrites(replacedKeys);
@@ -1208,6 +1232,48 @@ async function loadStorageDecrypted(storageKey) {
 	return withStorageLock('shared', () => loadStorageDecryptedUnlocked(storageKey));
 }
 
+/** 処理の世代だけを進める（既知値は変えない。他タブの書込みの後の読み直しの前に、古い保存・取込・出力を止める。I-16-03）。 */
+function advanceStorageSessionGeneration() {
+	storageSessionGeneration++;
+	return storageSessionGeneration;
+}
+
+/**
+ * 未暗号化の読込（起動時と読み直し。I-16-03）。1つの排他区間の中で、4つのデータキーを読み、反映の関数（apply）を同期で呼び、
+ * 例外がなければ読んだ値を既知値として記録して世代を進める。暗号化中なら読まずに false、generation が今の世代と異なれば
+ * STORAGE_SESSION_CHANGED を送出する。読んで反映したら true を返す。
+ * 反映の関数の例外（予期しない失敗）では、メモリと世代を変えないまま、メモリの元の値（既知値。ないときは null。起動の前のメモリは
+ * js/state.js の初期値で、保存値がないことに当たる）と読んだ値が異なるキーの保存を停止し、4つのキーの読んだ値を既知値として
+ * 記録してから送出する（古いメモリで保存値を上書きせず、停止しないキーは保存でき、停止中のキーは置換の取込・復元で解ける。I-16-03）。
+ */
+async function loadUnencryptedStorage(generation, apply) {
+	if (isStorageEncrypted()) return false;
+	return withStorageLock('exclusive', () => {
+		if (isStorageEncrypted()) return false;
+		if (generation !== storageSessionGeneration) throw new Error('STORAGE_SESSION_CHANGED');
+		const raw = Object.fromEntries(STORAGE_DATA_KEYS.map(key => [key, localStorage.getItem(key)]));
+		try {
+			apply(raw);
+		} catch (error) {
+			suspendStorageWrites(STORAGE_DATA_KEYS.filter(key => raw[key] !== (knownStorageValues.has(key) ? knownStorageValues.get(key) : null)));
+			for (const key of STORAGE_DATA_KEYS) knownStorageValues.set(key, raw[key]);
+			throw error;
+		}
+		for (const key of STORAGE_DATA_KEYS) knownStorageValues.set(key, raw[key]);
+		storageSessionGeneration++;
+		return true;
+	});
+}
+
+/**
+ * 起動時の未暗号化の読込が反映の関数の外で失敗したとき（排他区間の要求の失敗など。I-16-03）、既知値のないキーに今の保存値を
+ * 記録する（保存値のないモードを保存でき、停止中のキーを置換の取込・復元で解けるようにする）。既知値のあるキーは変えない
+ * （記録の後の他タブの書込みを、照合で見つけられるようにする）。暗号化中の既知値は、解除が4つのキーについて記録し直す。
+ */
+function rememberUnreflectedStorageValues() {
+	for (const key of STORAGE_DATA_KEYS) if (!knownStorageValues.has(key)) knownStorageValues.set(key, localStorage.getItem(key));
+}
+
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
 		captureStorageOutputGuard,
@@ -1243,10 +1309,11 @@ if (typeof module !== 'undefined' && module.exports) {
 		clearStorageSecurity,
 		saveStorageData,
 		loadStorageDecrypted,
+		loadUnencryptedStorage, advanceStorageSessionGeneration, rememberUnreflectedStorageValues,
 		replaceStoredAppData,
 		validateStorageModel, extractEncryptedPayload,
 		getStorageSaveRejectedKeys, getSuspendedStorageKeys, isStorageWriteSuspended,
-		suspendStorageWrites, clearStorageSaveRejections, saveStorageDataUnlocked, takeActivationRepairs,
+		suspendStorageWrites, resumeStorageWrites, clearStorageSaveRejections, saveStorageDataUnlocked, takeActivationRepairs,
 		get activeStorageKey() { return activeStorageKey; },
 		set activeStorageKey(v) { activeStorageKey = v; }
 	};

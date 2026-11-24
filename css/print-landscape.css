@@ -1,0 +1,2 @@
+/* 旗振り表の横の印刷（内部仕様書 I-15-05）。index.html の link は media="not all" で、js/hata.js の printHataSchedule が印刷の間だけ print にする。 */
+@page { size: A4 landscape; margin: 10mm; }

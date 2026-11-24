@@ -237,29 +237,29 @@ function validateRepPasswords() {
 
 	if (!pass && !confirm) {
 		msgEl.textContent = "";
-		msgEl.className = "pass-feedback-msg";
+		setPassFeedbackState(msgEl, '');
 		return;
 	}
 
 	const chk = validatePassword(pass);
 	if (!chk.valid) {
 		msgEl.textContent = "⚠ " + chk.message.replace(/\n/g, " ");
-		msgEl.className = "pass-feedback-msg pass-msg-ng";
+		setPassFeedbackState(msgEl, 'pass-msg-ng');
 		return;
 	}
 
 	if (!confirm) {
 		msgEl.textContent = "確認用パスワードを入力してください";
-		msgEl.className = "pass-feedback-msg";
+		setPassFeedbackState(msgEl, '');
 		return;
 	}
 
 	if (pass !== confirm) {
 		msgEl.textContent = "⚠ パスワードが一致しません";
-		msgEl.className = "pass-feedback-msg pass-msg-ng";
+		setPassFeedbackState(msgEl, 'pass-msg-ng');
 	} else {
 		msgEl.textContent = "✓ パスワードが一致しました（12文字以上OK）";
-		msgEl.className = "pass-feedback-msg pass-msg-ok";
+		setPassFeedbackState(msgEl, 'pass-msg-ok');
 	}
 }
 
@@ -325,7 +325,7 @@ function runRepYearUpdate() {
 	repState.seatConfig.cells = {};
 	resetPasswordInputs(document.getElementById('tab-rep'));
 	const printArea = document.getElementById('print-area');
-	if (printArea) printArea.innerHTML = "";
+	if (printArea) printArea.replaceChildren();
 	saveRepLocal();
 	renderRepAll();
 	alert("代表データの年度更新が完了しました。「代表統合ファイル(.txt)を保存」から次年度代表への引き継ぎファイルを出力できます。");
@@ -398,7 +398,7 @@ function closeRepDistrictDetailModalWithoutSaving() {
 	}
 	['rep-modal-officer-tbody', 'rep-modal-students-tbody', 'rep-modal-neighbor-tbody'].forEach(id => {
 		const body = document.getElementById(id);
-		if (body) body.innerHTML = '';
+		if (body) body.replaceChildren();
 	});
 	const title = document.getElementById('rep-modal-district-title');
 	if (title) title.textContent = '地区名簿の閲覧・編集';
@@ -620,7 +620,8 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 	window.addEventListener('keydown', (e) => {
 		if (e.key === 'Escape') {
 			const modal = document.getElementById('rep-add-district-modal');
-			if (modal && modal.style.display !== 'none') {
+			// 初めはクラス（u-d-none）で隠すため、開いたときの値との一致で判定する（I-15-05）。
+			if (modal && modal.style.display === 'flex') {
 				closeAddDistrictModal();
 			}
 		}
@@ -636,70 +637,70 @@ function renderRepDistrictDetailModal() {
 
 	const oBody = document.getElementById('rep-modal-officer-tbody');
 	if (oBody) {
-		oBody.innerHTML = (modalCurrentDistrict.officers || []).map((off, idx) => `
+		renderHtml(oBody, (modalCurrentDistrict.officers || []).map((off, idx) => `
 			<tr>
-				<td><input type="text" maxlength="4096" value="${esc(off.role || '')}" placeholder="校外委員" style="width:100px;" data-input="updateModalOfficer" data-index="${idx}" data-field="role"></td>
+				<td><input type="text" maxlength="4096" value="${esc(off.role || '')}" placeholder="校外委員" class="u-w-100px" data-input="updateModalOfficer" data-index="${idx}" data-field="role"></td>
 				<td>
-					<input type="text" maxlength="4096" value="${esc(off.lastName || '')}" placeholder="姓" style="width:65px;" data-input="updateModalOfficer" data-index="${idx}" data-field="lastName">
-					<input type="text" maxlength="4096" value="${esc(off.firstName || '')}" placeholder="名" style="width:65px;" data-input="updateModalOfficer" data-index="${idx}" data-field="firstName">
+					<input type="text" maxlength="4096" value="${esc(off.lastName || '')}" placeholder="姓" class="u-w-65px" data-input="updateModalOfficer" data-index="${idx}" data-field="lastName">
+					<input type="text" maxlength="4096" value="${esc(off.firstName || '')}" placeholder="名" class="u-w-65px" data-input="updateModalOfficer" data-index="${idx}" data-field="firstName">
 				</td>
-				<td><input type="text" maxlength="4096" value="${esc(off.han || '')}" placeholder="担当班" style="width:70px;" data-input="updateModalOfficer" data-index="${idx}" data-field="han"></td>
-				<td><input type="text" maxlength="4096" value="${esc(off.tel || '')}" placeholder="電話番号" style="width:100px;" data-input="updateModalOfficer" data-index="${idx}" data-field="tel"></td>
-				<td><input type="text" maxlength="4096" value="${esc(off.email || '')}" placeholder="メール" style="width:120px;" data-input="updateModalOfficer" data-index="${idx}" data-field="email"></td>
+				<td><input type="text" maxlength="4096" value="${esc(off.han || '')}" placeholder="担当班" class="u-w-70px" data-input="updateModalOfficer" data-index="${idx}" data-field="han"></td>
+				<td><input type="text" maxlength="4096" value="${esc(off.tel || '')}" placeholder="電話番号" class="u-w-100px" data-input="updateModalOfficer" data-index="${idx}" data-field="tel"></td>
+				<td><input type="text" maxlength="4096" value="${esc(off.email || '')}" placeholder="メール" class="u-w-120px" data-input="updateModalOfficer" data-index="${idx}" data-field="email"></td>
 				<td>
-					<div style="display:flex; gap:2px; align-items:center;">
-						<input type="text" maxlength="4096" value="${esc(off.childGrade || '')}" placeholder="年" style="width:28px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childGrade">
-						<input type="text" maxlength="4096" value="${esc(off.childClass || '')}" placeholder="組" style="width:32px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childClass">
-						<input type="text" maxlength="4096" value="${esc(off.childLastName || '')}" placeholder="姓" style="width:50px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childLastName">
-						<input type="text" maxlength="4096" value="${esc(off.childFirstName || '')}" placeholder="名" style="width:50px;" data-input="updateModalOfficer" data-index="${idx}" data-field="childFirstName">
+					<div class="u-d-flex u-gap-2px u-ai-center">
+						<input type="text" maxlength="4096" value="${esc(off.childGrade || '')}" placeholder="年" class="u-w-28px" data-input="updateModalOfficer" data-index="${idx}" data-field="childGrade">
+						<input type="text" maxlength="4096" value="${esc(off.childClass || '')}" placeholder="組" class="u-w-32px" data-input="updateModalOfficer" data-index="${idx}" data-field="childClass">
+						<input type="text" maxlength="4096" value="${esc(off.childLastName || '')}" placeholder="姓" class="u-w-50px" data-input="updateModalOfficer" data-index="${idx}" data-field="childLastName">
+						<input type="text" maxlength="4096" value="${esc(off.childFirstName || '')}" placeholder="名" class="u-w-50px" data-input="updateModalOfficer" data-index="${idx}" data-field="childFirstName">
 					</div>
 				</td>
-				<td style="text-align:center;">
+				<td class="u-ta-center">
 					<button type="button" class="btn btn-danger btn-xs" data-click="removeModalOfficerRow" data-index="${idx}">×</button>
 				</td>
 			</tr>
-		`).join('');
+		`).join(''));
 	}
 
 	const stBody = document.getElementById('rep-modal-students-tbody');
 	if (stBody) {
-		stBody.innerHTML = (modalCurrentDistrict.students || []).map((s, idx) => `
+		renderHtml(stBody, (modalCurrentDistrict.students || []).map((s, idx) => `
 			<tr>
-				<td><input type="text" maxlength="4096" value="${esc(s.grade || '')}" style="width:40px;" data-input="updateModalStudent" data-index="${idx}" data-field="grade"></td>
-				<td><input type="text" maxlength="4096" value="${esc(s.class || '')}" style="width:45px;" data-input="updateModalStudent" data-index="${idx}" data-field="class"></td>
-				<td><input type="text" maxlength="4096" value="${esc(s.han || '')}" style="width:50px;" data-input="updateModalStudent" data-index="${idx}" data-field="han"></td>
+				<td><input type="text" maxlength="4096" value="${esc(s.grade || '')}" class="u-w-40px" data-input="updateModalStudent" data-index="${idx}" data-field="grade"></td>
+				<td><input type="text" maxlength="4096" value="${esc(s.class || '')}" class="u-w-45px" data-input="updateModalStudent" data-index="${idx}" data-field="class"></td>
+				<td><input type="text" maxlength="4096" value="${esc(s.han || '')}" class="u-w-50px" data-input="updateModalStudent" data-index="${idx}" data-field="han"></td>
 				<td>
-					<input type="text" maxlength="4096" value="${esc(s.lastName || '')}" placeholder="姓" style="width:65px;" data-input="updateModalStudent" data-index="${idx}" data-field="lastName">
-					<input type="text" maxlength="4096" value="${esc(s.firstName || '')}" placeholder="名" style="width:65px;" data-input="updateModalStudent" data-index="${idx}" data-field="firstName">
+					<input type="text" maxlength="4096" value="${esc(s.lastName || '')}" placeholder="姓" class="u-w-65px" data-input="updateModalStudent" data-index="${idx}" data-field="lastName">
+					<input type="text" maxlength="4096" value="${esc(s.firstName || '')}" placeholder="名" class="u-w-65px" data-input="updateModalStudent" data-index="${idx}" data-field="firstName">
 				</td>
 				<td>
-					<input type="text" maxlength="4096" value="${esc(s.address || '')}" placeholder="住所" style="width:110px;" data-input="updateModalStudent" data-index="${idx}" data-field="address">
+					<input type="text" maxlength="4096" value="${esc(s.address || '')}" placeholder="住所" class="u-w-110px" data-input="updateModalStudent" data-index="${idx}" data-field="address">
 				</td>
 				<td>
-					<input type="text" maxlength="4096" value="${esc(s.tel || '')}" placeholder="電話番号" style="width:100px;" data-input="updateModalStudent" data-index="${idx}" data-field="tel">
+					<input type="text" maxlength="4096" value="${esc(s.tel || '')}" placeholder="電話番号" class="u-w-100px" data-input="updateModalStudent" data-index="${idx}" data-field="tel">
 				</td>
-				<td style="text-align:center;">
+				<td class="u-ta-center">
 					<button type="button" class="btn btn-danger btn-xs" data-click="removeModalStudentRow" data-index="${idx}">×</button>
 				</td>
 			</tr>
-		`).join('');
+		`).join(''));
 	}
 
 	const nBody = document.getElementById('rep-modal-neighbor-tbody');
 	if (nBody) {
-		nBody.innerHTML = (modalCurrentDistrict.neighborhood || []).map((n, idx) => `
+		renderHtml(nBody, (modalCurrentDistrict.neighborhood || []).map((n, idx) => `
 			<tr>
-				<td><input type="text" maxlength="4096" value="${esc(n.role || '')}" placeholder="役職" style="width:80px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="role"></td>
+				<td><input type="text" maxlength="4096" value="${esc(n.role || '')}" placeholder="役職" class="u-w-80px" data-input="updateModalNeighbor" data-index="${idx}" data-field="role"></td>
 				<td>
-					<input type="text" maxlength="4096" value="${esc(n.lastName || '')}" placeholder="姓" style="width:65px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="lastName">
-					<input type="text" maxlength="4096" value="${esc(n.firstName || '')}" placeholder="名" style="width:65px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="firstName">
+					<input type="text" maxlength="4096" value="${esc(n.lastName || '')}" placeholder="姓" class="u-w-65px" data-input="updateModalNeighbor" data-index="${idx}" data-field="lastName">
+					<input type="text" maxlength="4096" value="${esc(n.firstName || '')}" placeholder="名" class="u-w-65px" data-input="updateModalNeighbor" data-index="${idx}" data-field="firstName">
 				</td>
-				<td><input type="text" maxlength="4096" value="${esc(n.tel || '')}" placeholder="電話番号" style="width:110px;" data-input="updateModalNeighbor" data-index="${idx}" data-field="tel"></td>
-				<td style="text-align:center;">
+				<td><input type="text" maxlength="4096" value="${esc(n.tel || '')}" placeholder="電話番号" class="u-w-110px" data-input="updateModalNeighbor" data-index="${idx}" data-field="tel"></td>
+				<td class="u-ta-center">
 					<button type="button" class="btn btn-danger btn-xs" data-click="removeModalNeighborRow" data-index="${idx}">×</button>
 				</td>
 			</tr>
-		`).join('');
+		`).join(''));
 	}
 }
 
@@ -813,17 +814,17 @@ function renderRepDistrictsTable() {
 	document.getElementById('rep-count').textContent = repState.districts.length;
 	const tbody = document.getElementById('rep-districts-tbody');
 	if (repState.districts.length === 0) {
-		tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748b;">まだ地区データが読み込まれていません。</td></tr>`;
+		renderHtml(tbody, `<tr><td colspan="7" class="u-ta-center u-c-64748b">まだ地区データが読み込まれていません。</td></tr>`);
 		return;
 	}
-	tbody.innerHTML = repState.districts.map((d, i) => {
+	renderHtml(tbody, repState.districts.map((d, i) => {
 		const c = getGradeCounts(d.students);
 		const validN = (d.neighborhood || []).filter(n => n.lastName || n.firstName || n.name || n.role).length;
 		const offList = (d.officers && d.officers.length > 0) ? d.officers : [];
 		const officerHtml = offList.map(off => {
 			const roleBadge = off.role ? `<strong>[${esc(off.role)}]</strong> ` : "";
 			const offName = getFullName(off) || "未入力";
-			const offHan = off.han ? `<span style="font-size:0.75rem; color:#64748b; margin-left:2px;">(${esc(off.han)})</span>` : "";
+			const offHan = off.han ? `<span class="u-fs-0_75rem u-c-64748b u-ml-2px">(${esc(off.han)})</span>` : "";
 			return `<div>${roleBadge}${esc(offName)}${offHan}</div>`;
 		}).join('') || "未入力";
 
@@ -832,10 +833,10 @@ function renderRepDistrictsTable() {
 			return childFullName ? `<div>${esc(off.childGrade || "")}年${esc(off.childClass || "")}組 ${esc(childFullName)}</div>` : `<div>（未入力）</div>`;
 		}).join('') || "（未入力）";
 
-		const hanBadge = d.han ? `<span style="font-size:0.8rem; color:#475569; margin-left:4px;">(${esc(d.han)})</span>` : "";
+		const hanBadge = d.han ? `<span class="u-fs-0_8rem u-c-475569 u-ml-4px">(${esc(d.han)})</span>` : "";
 		return `
 			<tr>
-				<td style="text-align:center;">
+				<td class="u-ta-center">
 					<input type="checkbox" ${d.selectedForPrint ? 'checked' : ''} data-change="setDistrictPrintSelection" data-index="${i}">
 				</td>
 				<td><strong>${esc(d.district)}</strong>${hanBadge}</td>
@@ -843,14 +844,14 @@ function renderRepDistrictsTable() {
 				<td>${childInfo}</td>
 				<td>${c.total} 名</td>
 				<td>${validN} 名</td>
-				<td style="text-align:center; white-space:nowrap;">
+				<td class="u-ta-center u-ws-nowrap">
 					<button type="button" class="btn btn-outline btn-xs" data-click="openRepDistrictDetailModal" data-index="${i}" title="この地区の名簿・役員情報を閲覧・編集します">📝 名簿</button>
 					<button type="button" class="btn btn-outline btn-xs" data-click="exportSingleDistrictFromRep" data-index="${i}" title="この地区のデータを暗号化して切り出し出力します">📤 切り出し</button>
 					<button type="button" class="btn btn-danger btn-xs" data-click="deleteRepDistrict" data-index="${i}" title="この地区データを一覧から削除します">×</button>
 				</td>
 			</tr>
 		`;
-	}).join('');
+	}).join(''));
 }
 
 function toggleAllDistrictChecks(flag) {
@@ -867,7 +868,7 @@ function clearAllRepDistricts() {
 	repState.districts = [];
 	reconcileSeatState(previous);
 	const printArea = document.getElementById('print-area');
-	if (printArea) printArea.innerHTML = "";
+	if (printArea) printArea.replaceChildren();
 	saveRepLocal();
 	renderRepAll();
 }
@@ -876,11 +877,11 @@ function clearAllRepDistricts() {
 function renderSzNeighborhoodSelector() {
 	const box = document.getElementById('sz-neighborhood-selector');
 	if (repState.districts.length === 0) {
-		box.innerHTML = `<span class="help-text">地区データを読み込むと、ここに各地区の自治会役員が表示されます。</span>`;
+		renderHtml(box, `<span class="help-text">地区データを読み込むと、ここに各地区の自治会役員が表示されます。</span>`);
 		return;
 	}
 	const uniqueDistricts = getUniqueNeighborhoodDistricts(repState.districts, false);
-	box.innerHTML = uniqueDistricts.map(({ d, dIdx }) => {
+	renderHtml(box, uniqueDistricts.map(({ d, dIdx }) => {
 		const neighbors = (d.neighborhood || []).map((n, nIdx) => ({ ...n, nIdx })).filter(n => n.lastName || n.firstName || n.name || n.role);
 		if (neighbors.length === 0) return "";
 		const checksHtml = neighbors.map(n => {
@@ -893,8 +894,8 @@ function renderSzNeighborhoodSelector() {
 				</label>
 			`;
 		}).join('');
-		return `<div style="margin-bottom:6px;"><strong>【${esc(d.district)}】</strong> ${checksHtml}</div>`;
-	}).join('') || `<span class="help-text">自治会役員が登録されていません。</span>`;
+		return `<div class="u-mb-6px"><strong>【${esc(d.district)}】</strong> ${checksHtml}</div>`;
+	}).join('') || `<span class="help-text">自治会役員が登録されていません。</span>`);
 }
 
 function toggleSzNeighbor(dIdx, nIdx, flag) {
@@ -944,13 +945,13 @@ function deleteSzExternalRow(index) {
 /* スクゾ外部関係者テーブル */
 function renderSzExternalTable() {
 	const tbody = document.getElementById('sz-external-tbody');
-	tbody.innerHTML = "";
+	tbody.replaceChildren();
 	const cats = ["学校関係者", "PTA本部", "役所・警察・関係機関", "その他"];
 	(repState.szExternals || []).forEach((ex, i) => {
 		normalizeNameFields(ex);
 		const tr = document.createElement('tr');
-		tr.innerHTML = `
-			<td style="text-align:center;"><input type="checkbox" ${ex.attend?'checked':''} data-change="updateSzEx" data-index="${i}" data-field="attend"></td>
+		renderHtml(tr, `
+			<td class="u-ta-center"><input type="checkbox" ${ex.attend?'checked':''} data-change="updateSzEx" data-index="${i}" data-field="attend"></td>
 			<td>
 				<select data-change="updateSzEx" data-index="${i}" data-field="category">
 					${cats.map(c => `<option value="${c}" ${ex.category===c?'selected':''}>${c}</option>`).join('')}
@@ -971,8 +972,8 @@ function renderSzExternalTable() {
 				</div>
 			</td>
 			<td><input type="text" maxlength="4096" value="${esc(ex.contact)}" placeholder="電話番号・備考等" data-input="updateSzEx" data-index="${i}" data-field="contact"></td>
-			<td style="text-align:center;"><button type="button" class="btn btn-danger btn-sm" data-click="deleteSzExternalRow" data-index="${i}">×</button></td>
-		`;
+			<td class="u-ta-center"><button type="button" class="btn btn-danger btn-sm" data-click="deleteSzExternalRow" data-index="${i}">×</button></td>
+		`);
 		tbody.appendChild(tr);
 	});
 }

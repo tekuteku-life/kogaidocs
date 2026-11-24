@@ -170,7 +170,8 @@ test('crypto: WebAuthn PRF register and unwrap with mock credentials', async () 
 });
 
 test('crypto: setupStorageEncryption and unlock / lock lifecycle', async () => {
-	localStorage.clear();
+	// アプリの全消去で空にする（保存値がないことが既知値になる。直接の clear は、他タブの書込みと区別できない。R-27・I-16-01）。
+	await cryptoLib.clearStorageSecurity();
 	global.currentDistrict = { district: "初期町" };
 	global.repState = { districts: [] };
 
@@ -241,7 +242,7 @@ test('crypto: setupStorageEncryption and unlock / lock lifecycle', async () => {
 });
 
 test('crypto: loadStorageDecrypted handles plain and invalid entries', async () => {
-	localStorage.clear();
+	await cryptoLib.clearStorageSecurity();
 	const locks = navigator.locks;
 	delete navigator.locks;
 

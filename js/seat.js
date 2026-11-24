@@ -121,7 +121,7 @@ function renderSeatEditor() {
 
 	const grid = document.getElementById('seat-grid-container');
 	grid.style.gridTemplateColumns = `repeat(${cfg.cols}, 1fr)`;
-	grid.innerHTML = "";
+	grid.replaceChildren();
 
 	const options = getAllSzParticipantsForSeat();
 
@@ -133,11 +133,11 @@ function renderSeatEditor() {
 			div.className = 'seat-cell-edit';
 
 			const optsHtml = options.map(o => `<option value="${esc(o.key)}" ${cellData.refKey===o.key?'selected':''}>${esc(o.label)}</option>`).join('');
-			div.innerHTML = `
-				<div style="font-size:0.7rem; color:#64748b;">${r+1}段-${c+1}列</div>
+			renderHtml(div, `
+				<div class="u-fs-0_7rem u-c-64748b">${r+1}段-${c+1}列</div>
 				<select data-change="updateSeatCell" data-target="${cellKey}" data-field="refKey">${optsHtml}</select>
 				<input type="text" maxlength="4096" value="${esc(cellData.customText)}" placeholder="自由記述・補足メモ" data-input="updateSeatCell" data-target="${cellKey}" data-field="customText">
-			`;
+			`);
 			grid.appendChild(div);
 		}
 	}
