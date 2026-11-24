@@ -37,6 +37,7 @@ class MockClassList {
 
 class MockElement {
 	constructor(tagName = 'div') {
+		this.nodeType = 1;
 		this.tagName = tagName.toLowerCase();
 		this.id = '';
 		this._className = '';
@@ -82,13 +83,54 @@ class MockElement {
 		return this._innerHTML || '';
 	}
 	set innerHTML(html) {
-		this._innerHTML = html;
+		// Trusted Types の値（TrustedHTML）は文字列に直して読む。
+		this._innerHTML = html !== null && typeof html === 'object' ? String(html) : html;
+		html = this._innerHTML;
+		this._dirty = false;
 		this.children = [];
 		if (!html) {
 			this.textContent = '';
 			return;
 		}
 		parseHtmlToChildren(html, this);
+	}
+
+	// 描画の補助（js/utils.js の renderHtml）のための template・子・属性の一覧（I-15-06）。
+	get childNodes() {
+		return this.children;
+	}
+
+	get attributes() {
+		return Object.entries(this.attrs).map(([name, value]) => ({ name, value }));
+	}
+
+	/** template の内容。取り除いたか（_dirty）を、移す先の innerHTML の読出しに使う。 */
+	get content() {
+		if (this.tagName !== 'template') return undefined;
+		return { nodeType: 11, children: this.children, childNodes: this.children, template: this };
+	}
+
+	/** 子を置き換える。template の内容を移したときは、何も取り除いていなければ入れた文字列をそのまま innerHTML として読ませる。 */
+	replaceChildren(...nodes) {
+		const moved = nodes.length === 1 && nodes[0] && nodes[0].nodeType === 11 ? nodes[0] : null;
+		const incoming = moved ? [...moved.children] : nodes;
+		for (const child of this.children) child.parentElement = null;
+		this.children = [];
+		for (const child of incoming) this.appendChild(child);
+		this._innerHTML = moved && !moved.template._dirty ? moved.template._innerHTML : '';
+		this.textContent = moved ? moved.template.textContent : '';
+		if (moved) {
+			moved.template.children = [];
+			moved.template._innerHTML = '';
+			moved.template.textContent = '';
+		}
+	}
+
+	/** 祖先の template に、取り除いたことを記録する。 */
+	_markDirty() {
+		for (let node = this; node; node = node.parentElement) {
+			if (node.tagName === 'template') node._dirty = true;
+		}
 	}
 
 	get outerHTML() {
@@ -121,9 +163,11 @@ class MockElement {
 	}
 
 	removeAttribute(k) {
+		this._markDirty();
 		delete this.attrs[k];
 		if (k === 'id') this.id = '';
 		if (k === 'class') this.className = '';
+		if (k === 'type') this.type = '';
 		if (k.startsWith('data-')) {
 			const prop = k.slice(5).replace(/-([a-z])/g, (_, l) => l.toUpperCase());
 			delete this.dataset[prop];
@@ -137,6 +181,7 @@ class MockElement {
 	}
 
 	removeChild(child) {
+		this._markDirty();
 		const idx = this.children.indexOf(child);
 		if (idx >= 0) this.children.splice(idx, 1);
 		child.parentElement = null;
@@ -567,8 +612,19 @@ async function waitForStoredChange(storageKey, previous) {
 	if (localStorage.getItem(storageKey) === previous) throw new Error(storageKey + ' was not saved');
 }
 
+/**
+ * アプリの起動時の未暗号化の読込と同じく、今の保存値を既知値として記録する（メモリは変えない）。
+ * 試験が保存領域を直接用意した後に呼ぶ（呼ばないと、その値は他タブの書込みとして扱われ、保存・取込・復元・暗号化の設定が拒否される。R-27・I-16-01）。
+ */
+function recordStoredValues() {
+	// 未暗号化の読込がない版（比較元）では、記録するものがない（同じ試験を比較元でも実行できるようにする）。
+	if (typeof global.loadUnencryptedStorage !== 'function') return Promise.resolve(false);
+	return global.loadUnencryptedStorage(global.getStorageSessionGeneration(), () => {});
+}
+
 if (typeof module !== 'undefined' && module.exports) {
 	module.exports = {
+		recordStoredValues,
 		MockElement,
 		MockClassList,
 		MockLocalStorage,

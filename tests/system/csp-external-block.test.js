@@ -24,7 +24,7 @@ const read = file => {
 	if (file.endsWith('.css')) return blankMarkupComments(text, /\/\*[\s\S]*?\*\//g);
 	return text;
 };
-const EXPECTED_CSP = "default-src 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+const EXPECTED_CSP = "default-src 'none'; script-src 'self'; script-src-attr 'none'; style-src 'self'; img-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; trusted-types kogai";
 /** I-14-01: 配信するファイルの範囲。 */
 const SERVED_ROOT_FILES = ['index.html', 'manifest.json', 'sw.js', 'version.json'];
 const SERVED_DIRECTORIES = { css: ['.css'], icons: ['.png', '.svg'], js: ['.js'] };
@@ -273,10 +273,13 @@ test('R-25 / E-14-01: the policy denies by default and allows only the own origi
 	const directives = new Map(EXPECTED_CSP.split(';').map(part => part.trim().split(/\s+/)).map(([name, ...sources]) => [name, sources]));
 	for (const name of ['default-src', 'frame-src', 'object-src', 'base-uri', 'form-action', 'script-src-attr']) assert.deepEqual(directives.get(name), ["'none'"], name);
 	for (const name of ['script-src', 'img-src', 'connect-src', 'manifest-src', 'worker-src']) assert.deepEqual(directives.get(name), ["'self'"], name);
-	// 'unsafe-inline' は style 属性と印刷の向きの <style> 要素に必要なため、style-src（要素と属性の両方）に置く。
-	assert.deepEqual(directives.get('style-src'), ["'self'", "'unsafe-inline'"]);
+	// R-26・E-14-01: スタイルは自オリジンのスタイルシートだけとし、インライン許可を置かない。Trusted Types を強制し、ポリシーは kogai の1つだけとする。
+	assert.deepEqual(directives.get('style-src'), ["'self'"]);
+	assert.deepEqual(directives.get('require-trusted-types-for'), ["'script'"]);
+	assert.deepEqual(directives.get('trusted-types'), ['kogai']);
 	for (const [name, sources] of directives) {
-		for (const source of sources) assert.ok(["'self'", "'none'", "'unsafe-inline'"].includes(source), `${name} allows no host, scheme or data: (${source})`);
+		if (['require-trusted-types-for', 'trusted-types'].includes(name)) continue;
+		for (const source of sources) assert.ok(["'self'", "'none'"].includes(source), `${name} allows no host, scheme, data: or inline source (${source})`);
 	}
 	for (const name of ['font-src', 'media-src', 'child-src', 'prefetch-src', 'style-src-attr', 'style-src-elem', 'report-uri', 'report-to']) assert.equal(directives.has(name), false, `${name} falls back or is not used`);
 });
@@ -305,8 +308,12 @@ test('R-25 / I-14-02: network APIs are limited to the same-origin version check 
 		'sw.js request',
 		'sw.js request'
 	], 'fetch is used only for the version check and the service worker assets');
-	const registrations = jsFiles.flatMap(file => [...read(file).matchAll(/serviceWorker\.register\(([^,)]*)/g)].map(found => found[1].trim()));
-	assert.deepEqual(registrations, ["'./sw.js'"]);
+	// Service Worker の登録の URL は、Trusted Types のポリシーが ./sw.js だけを受け付けて作る（I-15-04）。
+	const registrations = jsFiles.flatMap(file => read(file).split('\n').filter(line => /serviceWorker\.register\(/.test(line)).map(line => `${file} ${line.trim()}`));
+	assert.deepEqual(registrations, ["js/app.js navigator.serviceWorker.register(trustedServiceWorkerUrl(), { updateViaCache: 'none' }).catch(err => {"]);
+	const scriptUrls = jsFiles.flatMap(file => read(file).split('\n').filter(line => /createScriptURL/.test(line)).map(line => `${file} ${line.trim()}`));
+	assert.deepEqual(scriptUrls, ['js/utils.js createScriptURL: url => {', "js/utils.js return policy ? policy.createScriptURL('./sw.js') : './sw.js';"]);
+	assert.match(read('js/utils.js'), /createScriptURL: url => \{\n\t\t\tif \(url !== '\.\/sw\.js'\) throw new TypeError\(/, 'The policy accepts only ./sw.js');
 	assert.deepEqual(scan(codeFiles, match.serviceWorker), [], 'The service worker only claims its clients');
 	assert.match(read('sw.js'), /self\.clients\.claim\(\)/);
 });
@@ -483,7 +490,7 @@ test('R-25 / I-14-02: sensitive names occur only at the allowlisted lines, whate
 		"js/handoff.js const url = new URL(location.href);",
 		"js/handoff.js function buildExternalBrowserUrl(location = window.location, mode = 'district') {",
 		"js/handoff.js function buildExternalBrowserUrl(location = window.location, mode = 'district') {",
-		"js/hata.js <td style=\"width: 32%;\">${esc(location)}</td>",
+		"js/hata.js <td class=\"u-w-32p\">${esc(location)}</td>",
 		"js/hata.js const location = c.location ?? '〇〇交差点・小学校正門前';",
 		"js/hata.js const location = c.location ?? '〇〇交差点・小学校正門前';",
 		"js/hata.js let text = `【${c.title ?? ''}】\\n地区: ${c.district ?? currentDistrict.district ?? ''}\\n場所: ${c.location ?? ''}\\n時間: ${c.time ?? ''}\\n`;",
@@ -587,7 +594,15 @@ test('R-25 / E-14-03 / I-14-02: spell checking and writing suggestions are disab
 	const body = read('index.html').match(/<body\b[^>]*>/)[0];
 	assert.match(body, /\sspellcheck="false"/);
 	assert.match(body, /\swritingsuggestions="false"/);
-	assert.deepEqual(scan(['index.html', ...jsFiles], match.inputAssistEnabled), [], 'No element re-enables spell checking or writing suggestions');
+	// 描画の補助（js/utils.js）は spellcheck の属性を値が false のときだけ残すため、その許可リストと判定の2行だけを行の内容で許す（I-14-02・I-15-02）。
+	const sanitizerLines = [
+		"const ATTRIBUTES = new Set(['class', 'id', 'type', 'value', 'placeholder', 'maxlength', 'title', 'colspan', 'checked', 'selected', 'disabled', 'spellcheck', 'inputmode', 'autocorrect', 'autocapitalize']);",
+		"if (name === 'spellcheck') return value === 'false';"
+	];
+	const utilsLines = read('js/utils.js').split('\n');
+	for (const line of sanitizerLines) assert.equal(utilsLines.filter(entry => entry.trim() === line).length, 1, `js/utils.js has the sanitizer line once: ${line}`);
+	const utilsRest = utilsLines.map(line => sanitizerLines.includes(line.trim()) ? '' : line).join('\n');
+	assert.deepEqual([...scan(['index.html', ...jsFiles.filter(file => file !== 'js/utils.js')], match.inputAssistEnabled), ...match.inputAssistEnabled(utilsRest)], [], 'No element re-enables spell checking or writing suggestions');
 });
 
 /** I-14-03: 配信するファイルを一時ディレクトリへ写し、変更を加えて、この静的試験を子プロセスで実行する。 */

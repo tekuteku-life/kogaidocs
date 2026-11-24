@@ -42,6 +42,9 @@ function createTab() {
 	const context = vm.createContext(sandbox);
 	for (const source of sources) vm.runInContext(source, context);
 	vm.runInContext("currentDistrict.district = '旧保存地区'; neighborState.district = '旧保存自治会';", context);
+	// アプリの起動と同じく、未暗号化の読込で既知値を記録する（暗号化中の保存領域では読まずに終わる。R-27・I-16-01）。
+	// 未暗号化の読込がない版（比較元）でも同じ試験を実行できるよう、関数があるときだけ呼ぶ。
+	vm.runInContext("if (typeof loadUnencryptedStorage === 'function') loadUnencryptedStorage(getStorageSessionGeneration(), () => {}).catch(() => {});", context);
 	return {
 		context, localStorage, subtle, calls,
 		run: code => vm.runInContext(code, context),

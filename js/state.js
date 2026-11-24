@@ -86,6 +86,14 @@ let transferState = {
 	memo: ""
 };
 
+// 読込の時点の4つのモデルの初期値の写し。未暗号化の読込で、保存値がないキーと読めないキーのモデルに使う（I-16-03）。
+const INITIAL_STATE_MODELS = JSON.stringify({ district: currentDistrict, rep: repState, neighbor: neighborState, transfer: transferState });
+
+/** 4つのモデルの初期値（毎回新しい写し）。 */
+function defaultStateModels() {
+	return JSON.parse(INITIAL_STATE_MODELS);
+}
+
 function saveDistrictLocal() {
 	const dNameEl = document.getElementById('d-name');
 	if (!dNameEl) return;
@@ -245,6 +253,7 @@ if (typeof module !== 'undefined' && module.exports) {
 	global.saveNeighborLocal = saveNeighborLocal;
 	global.saveTransferLocal = saveTransferLocal;
 	global.applyStorableChange = applyStorableChange;
+	global.defaultStateModels = defaultStateModels;
 	// CommonJS試験でもブラウザの共有グローバルと同じモデルを参照する。
 	for (const [name, get, set] of [
 		['currentDistrict', () => currentDistrict, value => { currentDistrict = value; }],
@@ -268,7 +277,8 @@ if (typeof module !== 'undefined' && module.exports) {
 		get saveNeighborLocal() { return global.saveNeighborLocal !== undefined ? global.saveNeighborLocal : saveNeighborLocal; },
 		set saveNeighborLocal(fn) { global.saveNeighborLocal = fn; },
 		get saveTransferLocal() { return global.saveTransferLocal !== undefined ? global.saveTransferLocal : saveTransferLocal; },
-		set saveTransferLocal(fn) { global.saveTransferLocal = fn; }
+		set saveTransferLocal(fn) { global.saveTransferLocal = fn; },
+		defaultStateModels
 	};
 	global.state = module.exports;
 }

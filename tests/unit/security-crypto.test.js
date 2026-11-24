@@ -80,6 +80,10 @@ function createTab(localStorage = storage()) {
 	const context = vm.createContext(sandbox);
 	for (const source of sources) vm.runInContext(source, context);
 	vm.runInContext("currentDistrict.district = '保護する地区'; neighborState.district = '保護する自治会';", context);
+	// アプリの起動と同じく、未暗号化の読込で既知値を記録する（暗号化中の保存領域では読まずに終わる。R-27・I-16-01）。
+	// ロックの順に処理されるため、この後にこのタブが要求する処理は、読込の後に行われる。
+	// 未暗号化の読込がない版（比較元）でも同じ試験を実行できるよう、関数があるときだけ呼ぶ。
+	vm.runInContext("if (typeof loadUnencryptedStorage === 'function') loadUnencryptedStorage(getStorageSessionGeneration(), () => {}).catch(() => {});", context);
 	return {
 		context, localStorage, subtle, locks, credentials: sandbox.navigator.credentials,
 		run: code => vm.runInContext(code, context),
@@ -432,7 +436,8 @@ test('security crypto locks: clear requested between setup commit keys waits and
 		if (!requested && key === keys[0]) {
 			requested = true;
 			clearTask = clearer.run('clearStorageSecurity()');
-			statesAtCommit = owner.locks.requests.map(request => ({ mode: request.mode, state: request.state }));
+			// 各タブの起動時の未暗号化の読込の要求（終わったもの）を除く（I-16-03）。
+			statesAtCommit = owner.locks.requests.filter(request => request.state !== 'released').map(request => ({ mode: request.mode, state: request.state }));
 			keysAtCommit = Object.keys(owner.localStorage.snapshot());
 		}
 	};
@@ -472,7 +477,7 @@ test('security crypto locks: plaintext save queued during initial encryption ree
 	let during, snapshotDuring;
 	try {
 		await new Promise(resolve => setImmediate(resolve));
-		during = owner.locks.requests.map(request => ({ mode: request.mode, state: request.state }));
+		during = owner.locks.requests.filter(request => request.state !== 'released').map(request => ({ mode: request.mode, state: request.state }));
 		snapshotDuring = owner.localStorage.snapshot();
 	} finally { gate.release(); }
 	await setup;
@@ -505,13 +510,15 @@ for (const action of ['clear', 'rekey']) {
 			await new Promise(resolve => setImmediate(resolve));
 			during = owner.locks.requests.slice(-2).map(request => ({ mode: request.mode, state: request.state }));
 		} finally { gate.release(); }
-		await Promise.all([save, mutation]);
+		const [, mutationOutcome] = await Promise.all([save, Promise.resolve(mutation).then(value => ({ value }), error => ({ error }))]);
 		assert.deepEqual(during, [{ mode: 'exclusive', state: 'held' }, { mode: 'exclusive', state: 'pending' }]);
 		if (action === 'clear') assert.deepEqual(owner.localStorage.snapshot(), {});
 		else {
-			other.run('lockStorage()');
-			await other.run("unlockStorageWithPassword('ChangedMaster2!')");
-			for (const key of keys) assert.ok(await other.run(`loadStorageDecrypted('${key}')`), 'Every committed mode authenticates under the replacement key');
+			// 再設定は他タブのメモリの内容を暗号化して書くため、このタブの保存の後では古い内容で上書きせずに拒否する（R-27・I-16-02）。
+			assert.equal(mutationOutcome.error?.message, 'STORAGE_SESSION_CHANGED', 'The rekey of a stale tab is refused after the save');
+			owner.run('lockStorage()');
+			await owner.run(`unlockStorageWithPassword('${password}')`);
+			assert.equal((await owner.run(`loadStorageDecrypted('${keys[0]}')`)).district, '保存完了待ちの地区', 'The saved value survives under the original key');
 		}
 		assertOneExclusiveNamespace(owner.locks);
 	});
@@ -672,6 +679,8 @@ for (const action of ['setup', 'password unlock', 'webauthn unlock', 'load', 'sa
 
 test('security crypto locks: unavailable Web Locks still permits unencrypted single-key save, load and complete deletion', async () => {
 	const owner = createTab();
+	// 起動時の未暗号化の読込が終わってから Web Locks をなくす。
+	await new Promise(resolve => setImmediate(resolve));
 	delete owner.context.navigator.locks;
 	assert.equal(await owner.run(`saveStorageData('${keys[0]}', {district:'未暗号化で利用する地区'})`), true);
 	assert.equal(JSON.parse(owner.localStorage.getItem(keys[0])).district, '未暗号化で利用する地区');

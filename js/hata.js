@@ -570,18 +570,18 @@ function calculateHataStats(schedule, members) {
 function renderHataSummary(stats, containerEl) {
 	const el = containerEl || document.getElementById('hata-summary-container') || document.getElementById('summaryContainer');
 	if (!el) return;
-	el.innerHTML = '';
+	el.replaceChildren();
 
 	const entries = Object.entries(stats || {});
 	if (entries.length === 0) {
-		el.innerHTML = '<div class="help-text" style="grid-column: 1 / -1; text-align: center; padding: 0.5rem;">メンバーが登録されていません</div>';
+		renderHtml(el, '<div class="help-text u-gc-1-s-n1 u-ta-center u-p-0_5rem">メンバーが登録されていません</div>');
 		return;
 	}
 
 	entries.forEach(([name, count]) => {
 		const div = document.createElement('div');
 		div.className = 'summary-item';
-		div.innerHTML = `<strong>${esc(name)}</strong><br>通常: ${esc(count.regular)}回<br><span style="color:#d97706; font-size:0.75rem;">特別: ${esc(count.special)}回</span>`;
+		renderHtml(div, `<strong>${esc(name)}</strong><br>通常: ${esc(count.regular)}回<br><span class="u-c-d97706 u-fs-0_75rem">特別: ${esc(count.special)}回</span>`);
 		el.appendChild(div);
 	});
 }
@@ -608,33 +608,33 @@ function toggleHataSummary() {
 function buildHataScheduleHtml(schedule, viewMode = 'sheet', config = null) {
 	if (Array.isArray(schedule)) validateHataScheduleOutput(schedule);
 	if (!Array.isArray(schedule) || schedule.length === 0) {
-		return `<div class="help-text" style="text-align:center; padding:1.5rem;">シフトがまだ生成されていません。「自動生成」ボタンを押してください。</div>`;
+		return `<div class="help-text u-ta-center u-p-1_5rem">シフトがまだ生成されていません。「自動生成」ボタンを押してください。</div>`;
 	}
 
 	if (viewMode === 'list') {
 		const cardsHtml = schedule.map((s, idx) => {
-			const badge = s.isSpecial ? '<span class="badge badge-warning" style="font-size:0.75rem;">特別</span>' : (s.isSwapped ? '<span class="badge badge-info" style="font-size:0.75rem;">交代</span>' : '');
-			const noteHtml = s.note ? `<div style="font-size:0.8rem; color:#64748b; margin-top:2px;">${esc(s.note)}</div>` : '';
+			const badge = s.isSpecial ? '<span class="badge badge-warning u-fs-0_75rem">特別</span>' : (s.isSwapped ? '<span class="badge badge-info u-fs-0_75rem">交代</span>' : '');
+			const noteHtml = s.note ? `<div class="u-fs-0_8rem u-c-64748b u-mt-2px">${esc(s.note)}</div>` : '';
 			return `
-				<div class="hata-card-item" style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem 0.8rem; border-bottom:1px solid #e2e8f0;">
+				<div class="hata-card-item u-d-flex u-jc-space-between u-ai-center u-p-0_6rem-0_8rem u-bb-1px-solid-e2e8f0">
 					<div>
-						<span style="font-weight:600; color:#334155;">${esc(s.date)} (${esc(s.dayOfWeek || s.day || '')})</span>
+						<span class="u-fw-600 u-c-334155">${esc(s.date)} (${esc(s.dayOfWeek || s.day || '')})</span>
 						${badge}
 						${noteHtml}
 					</div>
-					<div style="font-weight:700; color:#1e293b; font-size:1rem;">
+					<div class="u-fw-700 u-c-1e293b u-fs-1rem">
 						${esc(s.person)}
 					</div>
 				</div>
 			`;
 		}).join('');
 
-		return `<div class="hata-card-list" style="background:#fff; border-radius:6px; border:1px solid #e2e8f0;">${cardsHtml}</div>`;
+		return `<div class="hata-card-list u-bg-fff u-br-6px u-b-1px-solid-e2e8f0">${cardsHtml}</div>`;
 	}
 
 	if (viewMode === 'grid') {
 		const rowsHtml = schedule.map((s, idx) => {
-			const badge = s.isSpecial ? '<span class="badge badge-warning" style="margin-left:4px;">特別</span>' : (s.isSwapped ? '<span class="badge badge-info" style="margin-left:4px;">交代</span>' : '');
+			const badge = s.isSpecial ? '<span class="badge badge-warning u-ml-4px">特別</span>' : (s.isSwapped ? '<span class="badge badge-info u-ml-4px">交代</span>' : '');
 			return `
 				<tr>
 					<td>${esc(s.date)} (${esc(s.dayOfWeek || s.day || '')})</td>
@@ -645,12 +645,12 @@ function buildHataScheduleHtml(schedule, viewMode = 'sheet', config = null) {
 		}).join('');
 
 		return `
-			<table class="edit-table hata-grid-table" style="width:100%;">
+			<table class="edit-table hata-grid-table u-w-100p">
 				<thead>
 					<tr>
-						<th style="width:30%;">日付</th>
-						<th style="width:40%;">当番担当者</th>
-						<th style="width:30%;">備考</th>
+						<th class="u-w-30p">日付</th>
+						<th class="u-w-40p">当番担当者</th>
+						<th class="u-w-30p">備考</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -719,7 +719,7 @@ function buildHataPrintHtml(schedule, config) {
 						const noteText = item.note || item.tag || '特別枠';
 						rowsHtml += `<tr class="row-special"><td>${dateWithDay}</td><td><span class="badge-special">★${esc(noteText)}:</span><strong>${esc(item.person)}</strong></td></tr>`;
 					} else {
-						const badge = item.isSwapped ? '<span class="badge badge-info" style="margin-left:4px;">交代</span>' : '';
+						const badge = item.isSwapped ? '<span class="badge badge-info u-ml-4px">交代</span>' : '';
 						rowsHtml += `<tr><td>${dateWithDay}</td><td>${esc(item.person)}${badge}</td></tr>`;
 					}
 				} else {
@@ -732,8 +732,8 @@ function buildHataPrintHtml(schedule, config) {
 					<table class="schedule-table">
 						<thead>
 							<tr>
-								<th style="width: 42%;">月日(曜)</th>
-								<th style="width: 58%;">担当 / 事由</th>
+								<th class="u-w-42p">月日(曜)</th>
+								<th class="u-w-58p">担当 / 事由</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -744,7 +744,7 @@ function buildHataPrintHtml(schedule, config) {
 			`;
 		}
 	} else {
-		columnsHtml = `<div class="help-text" style="text-align:center; padding:1.5rem; width:100%;">シフトがまだ生成されていません。「自動生成」ボタンを押してください。</div>`;
+		columnsHtml = `<div class="help-text u-ta-center u-p-1_5rem u-w-100p">シフトがまだ生成されていません。「自動生成」ボタンを押してください。</div>`;
 	}
 
 	return `
@@ -754,12 +754,12 @@ function buildHataPrintHtml(schedule, config) {
 				<div class="sheet-title">${esc(title)}</div>
 				<table class="sheet-meta-table">
 					<tr>
-						<td class="sheet-meta-label" style="width: 8%;">地区</td>
-						<td style="width: 14%;">${esc(district)}</td>
-						<td class="sheet-meta-label" style="width: 8%;">場所</td>
-						<td style="width: 32%;">${esc(location)}</td>
-						<td class="sheet-meta-label" style="width: 8%;">時間</td>
-						<td style="width: 30%; white-space: pre-wrap; line-height: 1.25;">${esc(time)}</td>
+						<td class="sheet-meta-label u-w-8p">地区</td>
+						<td class="u-w-14p">${esc(district)}</td>
+						<td class="sheet-meta-label u-w-8p">場所</td>
+						<td class="u-w-32p">${esc(location)}</td>
+						<td class="sheet-meta-label u-w-8p">時間</td>
+						<td class="u-w-30p u-ws-pre-wrap u-lh-1_25">${esc(time)}</td>
 					</tr>
 					<tr>
 						<td class="sheet-meta-label">実施曜日</td>
@@ -862,21 +862,21 @@ function renderHataExemptList() {
 	const members = currentDistrict.hata?.members;
 	const names = [...new Set(typeof members === 'string' ? members.split('\n').map(name => name.trim()).filter(Boolean) : households.map(hh => hh.displayName))];
 	if (names.length === 0) {
-		container.innerHTML = '<span class="help-text">当番名簿に担当者がいません。名簿を入力するか、児童名簿を反映してください。</span>';
+		renderHtml(container, '<span class="help-text">当番名簿に担当者がいません。名簿を入力するか、児童名簿を反映してください。</span>');
 		return;
 	}
 
-	container.innerHTML = names.map(name => {
+	renderHtml(container, names.map(name => {
 		const hh = households.find(household => household.displayName === name);
 		const key = hh ? hh.key : name;
 		const checked = exemptSet.has(key) || exemptSet.has(name) || exemptSet.has(name.replace(/\s+/g, '_')) ? 'checked' : '';
 		return `
-			<label style="display:inline-flex; align-items:center; gap:4px; margin-right:12px; margin-bottom:6px; font-size:0.85rem; cursor:pointer;">
+			<label class="u-d-inline-flex u-ai-center u-gap-4px u-mr-12px u-mb-6px u-fs-0_85rem u-cur-pointer">
 				<input type="checkbox" ${checked} data-household-key="${esc(key)}" data-member-name="${esc(name)}" data-change="toggleHataExempt">
 				<span>${esc(name)}${hh ? ` (${hh.children.length}名)` : ''}</span>
 			</label>
 		`;
-	}).join('');
+	}).join(''));
 }
 
 function toggleHataExempt(householdKey, isExempt, memberName = householdKey) {
@@ -1003,7 +1003,7 @@ function clearHataOutputElement(id, hide = false) {
 	const el = document.getElementById(id);
 	if (!el) return;
 	if (hide) { el.value = ''; el.hidden = true; }
-	else el.innerHTML = '';
+	else el.replaceChildren();
 }
 
 async function copyHataForLine() {
@@ -1099,7 +1099,7 @@ function renderHataSchedulePreview(explicitSchedule) {
 
 	const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 	const viewMode = isMobile ? 'list' : 'sheet';
-	previewContainer.innerHTML = buildHataScheduleHtml(hataCurrentSchedule, viewMode);
+	renderHtml(previewContainer, buildHataScheduleHtml(hataCurrentSchedule, viewMode));
 
 	// 当番回数アコーディオンの更新
 	const summaryContainer = document.getElementById('hata-summary-container') || document.getElementById('summaryContainer');
@@ -1128,16 +1128,16 @@ function printHataSchedule() {
 	// 印刷ウィンドウまたはインライン印刷
 	const printEl = document.createElement('div');
 	printEl.id = 'hata-print-active-sheet';
-	printEl.innerHTML = printContent;
+	renderHtml(printEl, printContent);
 	document.body.appendChild(printEl);
 	document.body.classList.add('printing-hata');
 
 	const origTitle = document.title;
 	const hata = currentDistrict.hata;
 	const targetTitle = `${hata?.title || '旗振りシフト表'}_${hata?.district || currentDistrict.district || 'PTA'}_${getHataFilenameDate(hata)}`.replace(/[\/\\:*?"<>|]/g, '_');
-	const pageStyle = document.createElement('style');
-	pageStyle.textContent = `@media print { @page { size: A4 ${hata?.orientation === 'landscape' ? 'landscape' : 'portrait'}; margin: 10mm; } }`;
-	document.head.appendChild(pageStyle);
+	// 横の設定では、横向きの @page だけを持つスタイルシート（index.html の link）を印刷の間だけ当てる（<style> 要素は CSP で拒否される。I-15-05）。
+	const landscapeSheet = document.getElementById('hata-print-landscape');
+	if (landscapeSheet && hata?.orientation === 'landscape') landscapeSheet.media = 'print';
 
 	try {
 		document.title = targetTitle;
@@ -1146,7 +1146,7 @@ function printHataSchedule() {
 		}
 	} finally {
 		document.title = origTitle;
-		pageStyle.remove();
+		if (landscapeSheet) landscapeSheet.media = 'not all';
 		document.body.classList.remove('printing-hata');
 		if (printEl.parentElement) {
 			printEl.parentElement.removeChild(printEl);

@@ -2,7 +2,7 @@ const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { setupDomEnvironment } = require('../helpers/dom-mock');
 let transfer, utils, crypto, state, district, rep;
-beforeEach(() => {
+beforeEach(async () => {
 	setupDomEnvironment();
 	for (const name of ['state', 'utils', 'crypto', 'transfer', 'district', 'rep']) delete require.cache[require.resolve(`../../js/${name}.js`)];
 	state = require('../../js/state'); utils = require('../../js/utils'); crypto = require('../../js/crypto');
@@ -12,6 +12,8 @@ beforeEach(() => {
 	] };
 	document.getElementById('transfer-export-pass').value = 'Household123!';
 	document.getElementById('transfer-export-pass-confirm').value = 'Household123!';
+	// アプリの起動時の未暗号化の読込と同じく、保存値を既知値として記録する（R-27・I-16-01）。
+	if (crypto.loadUnencryptedStorage) await crypto.loadUnencryptedStorage(crypto.getStorageSessionGeneration(), () => {});
 });
 
 test('household: file and clipboard retain shared contact data through district and representative intake', async () => {
@@ -75,10 +77,12 @@ test('household: old draft migration, local restore and complete privacy reset',
 	assert.equal(transfer.transferState.address, '', 'An intentional blank is not restored from legacy child fields');
 	transfer.updateTransferHousehold('address', '更新住所');
 	transfer.updateTransferHousehold('__proto__', 'ignored');
-	await transfer.saveTransferLocal();
+	await state.saveTransferLocal();
 	transfer.clearTransferForm();
 	assert.equal(document.getElementById('transfer-address').value, '');
-	await transfer.loadTransferLocal();
+	// 読込は起動時・解除時の読込だけとする（BL-007・I-16-05）。保存値の検証と描画で戻ることを確かめる。
+	transfer.transferState = utils.validateStoredData(JSON.parse(localStorage.getItem('kogai_transfer_v2')), 'kogai_transfer_v2');
+	transfer.renderTransferForm();
 	assert.equal(transfer.transferState.address, '更新住所');
 	assert.equal(document.getElementById('transfer-address').value, '更新住所');
 	await transfer.resetTransferForm();

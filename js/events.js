@@ -80,6 +80,7 @@ const uiEventHandlers = new Map([
 	['handlePasswordUnlock', () => handlePasswordUnlock()],
 	['handleResetStorageConfirm', () => handleResetStorageConfirm()],
 	['closeStorageSettingsModal', () => closeStorageSettingsModal()],
+	['dismissForeignStorageNotice', () => dismissForeignStorageNotice()],
 	['closeAddDistrictModal', () => closeAddDistrictModal()],
 	['closeRepDistrictDetailModalWithoutSaving', () => closeRepDistrictDetailModalWithoutSaving()],
 	['addModalOfficerRow', () => addModalOfficerRow()],
@@ -141,7 +142,8 @@ const uiEventHandlers = new Map([
 	['togglePastePanel', element => {
 		if (!UI_PASTE_TARGETS.includes(element.dataset.target)) return;
 		const panel = document.getElementById(element.dataset.target);
-		if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+		// 初めはクラス（u-d-none）で隠すため、要素のスタイルは空から始まる。表示の値との一致で判定する（I-15-05）。
+		if (panel) panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
 	}],
 	['clearAddDistrictError', () => {
 		const error = document.getElementById('rep-new-district-error');

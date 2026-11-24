@@ -412,7 +412,7 @@ browserTest('UI lock purge: all state, draft modal, print, plaintext/paste and r
 	await ui.encrypt();
 	await ui.click('#rep-districts-tbody button[data-click="openRepDistrictDetailModal"][data-index="0"]');
 	ui.field('#rep-modal-students-tbody tr:first-child', 'firstName', '秘密の下書き');
-	ui.element('#print-area').innerHTML = '<p>秘密の印刷名簿</p>';
+	renderHtml(ui.element('#print-area'), '<p>秘密の印刷名簿</p>');
 	for (const el of document.querySelectorAll('textarea, input[id$="-pass"], input[id$="-pass-confirm"]')) el.value = '秘密の入力';
 	// 詳細モーダル表示中にも起きる自動ロックと同一の実装入口で検証する。
 	handleImmediateLock();
@@ -903,14 +903,17 @@ browserTest('UI printing CSS: old ordinary reports do not leak into hata print, 
 		assert.strictEqual(getComputedStyle(ui.element('.container')).display, 'none', 'Editing UI hidden for print');
 		assert.strictEqual(getComputedStyle(ui.element('header')).display, 'none', 'Header hidden for print');
 		assert.ok(ui.visible('#hata-print-active-sheet'), 'Only active shift sheet visible');
-		const rules = [...document.querySelectorAll('style')].flatMap(style => [...style.sheet.cssRules]);
-		const pageRules = rules.flatMap(rule => rule.cssRules ? [...rule.cssRules] : [rule]).filter(rule => rule.selectorText === '@page' || rule.constructor.name === 'CSSPageRule');
-		assert.ok(pageRules.some(rule => rule.style.getPropertyValue('size').includes('landscape')), 'Selected orientation reaches print page rules');
+		// 横の向きは、横向きの @page だけを持つスタイルシートの link を印刷の間だけ当てて指定する（<style> 要素は CSP で拒否される。I-15-05）。
+		const landscape = ui.element('#hata-print-landscape');
+		assert.strictEqual(landscape.media, 'print', 'The landscape page sheet applies while printing');
+		assert.ok(landscape.sheet && landscape.sheet.media.mediaText === 'print', 'The loaded sheet is active for print media');
+		assert.strictEqual(document.querySelectorAll('style').length, 0, 'No style element is added');
 	};
 	await ui.printMedia(true);
 	// 印刷メディアは画面ボタンを非表示にするため、押下直後に印刷が呼ばれる実入口を使う。
 	printHataSchedule();
 	assert.strictEqual(printCount, 1, 'Print CSS inspected inside actual pipeline');
+	assert.strictEqual(ui.element('#hata-print-landscape').media, 'not all', 'The landscape page sheet is turned off after printing');
 	await ui.printMedia(false);
 	assert.ok(ui.visible('#mode-active-badge'), 'Screen UI restored');
 });

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { setupDomEnvironment } = require('../helpers/dom-mock');
+const { setupDomEnvironment, recordStoredValues } = require('../helpers/dom-mock');
 const { createMockDistrict, createMockRepState } = require('../helpers/fixtures');
 setupDomEnvironment();
 require('../../js/utils');
@@ -74,6 +74,7 @@ test('handoff: storage replacement rolls back every written model on failure and
 	setupDomEnvironment();
 	const keys = ['kogai_district_v2', 'kogai_rep_v2', 'kogai_neighbor_v2', 'kogai_transfer_v2'];
 	keys.forEach((key, index) => localStorage.setItem(key, 'original-' + index));
+	await recordStoredValues();
 	const original = keys.map(key => localStorage.getItem(key));
 	const before = JSON.stringify(state.currentDistrict);
 	const setItem = localStorage.setItem.bind(localStorage);

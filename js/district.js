@@ -54,7 +54,7 @@ function onHanListInput(val) {
 function renderOfficersList() {
 	const container = document.getElementById('officers-container');
 	if (!container) return;
-	container.innerHTML = "";
+	container.replaceChildren();
 
 	if (!currentDistrict.officers || currentDistrict.officers.length === 0) {
 		currentDistrict.officers = [{}];
@@ -68,7 +68,7 @@ function renderOfficersList() {
 
 		const box = document.createElement('div');
 		box.className = 'officer-item-box';
-		box.innerHTML = `
+		renderHtml(box, `
 			<div class="officer-item-header">
 				<span class="officer-item-title">校外役員 ${idx + 1}${off.han ? `（担当: ${esc(off.han)}）` : ''}</span>
 				${currentDistrict.officers.length > 1 ? `<button type="button" class="btn btn-danger btn-xs" data-click="removeOfficer" data-index="${idx}">この役員を削除</button>` : ''}
@@ -116,12 +116,12 @@ function renderOfficersList() {
 					<label>メールアドレス</label>
 					<input type="email" maxlength="4096" data-field="email" value="${esc(off.email || '')}" placeholder="example@mail.com" data-input="saveDistrictLocal">
 				</div>
-				<div style="grid-column: 1 / -1;">
+				<div class="u-gc-1-s-n1">
 					<label>役員のご住所（※学校提出用名簿に記載）</label>
 					<input type="text" maxlength="4096" data-field="address" value="${esc(off.address || '')}" placeholder="例：〇〇町1-2-3 〇〇マンション101" data-input="saveDistrictLocal">
 				</div>
 			</div>
-			<hr style="margin: 10px 0; border: none; border-top: 1px dashed var(--border);">
+			<hr class="u-m-10px-0 u-b-none u-bt-1px-dashed-border">
 			<div class="grid-form">
 				<div>
 					<label>【封筒宛名・学校用】お子様の学年</label>
@@ -149,7 +149,7 @@ function renderOfficersList() {
 					</div>
 				</div>
 			</div>
-		`;
+		`);
 		container.appendChild(box);
 	});
 }
@@ -182,11 +182,11 @@ function removeOfficer(idx) {
 function renderNeighborhoodTable() {
 	const tbody = document.getElementById('neighborhood-tbody');
 	if (!tbody) return;
-	tbody.innerHTML = "";
+	tbody.replaceChildren();
 	currentDistrict.neighborhood.forEach((row, i) => {
 		normalizeNameFields(row);
 		const tr = document.createElement('tr');
-		tr.innerHTML = `
+		renderHtml(tr, `
 			<td><input type="text" maxlength="4096" value="${esc(row.role)}" placeholder="会長・副会長等" data-input="updateN" data-index="${i}" data-field="role"></td>
 			<td>
 				<div class="name-field-box">
@@ -202,8 +202,8 @@ function renderNeighborhoodTable() {
 			</td>
 			<td><input type="text" maxlength="4096" value="${esc(row.address)}" placeholder="住所" data-input="updateN" data-index="${i}" data-field="address"></td>
 			<td><input type="tel" maxlength="4096" value="${esc(row.tel)}" placeholder="電話番号" data-input="updateN" data-index="${i}" data-field="tel"></td>
-			<td style="text-align:center;"><button class="btn btn-danger btn-sm" data-click="removeN" data-index="${i}">×</button></td>
-		`;
+			<td class="u-ta-center"><button class="btn btn-danger btn-sm" data-click="removeN" data-index="${i}">×</button></td>
+		`);
 		tbody.appendChild(tr);
 	});
 }
@@ -211,14 +211,14 @@ function renderNeighborhoodTable() {
 function renderStudentsTable() {
 	const tbody = document.getElementById('students-tbody');
 	if (!tbody) return;
-	tbody.innerHTML = "";
+	tbody.replaceChildren();
 	const hanList = getDistrictHanList(currentDistrict);
 	currentDistrict.students.forEach((row, i) => {
 		normalizeNameFields(row);
 		const isLeader = row.leader === '班長' || row.leader === 'リーダー';
 		const isSubLeader = row.leader === '副班長' || row.leader === 'サブリーダー';
 		const tr = document.createElement('tr');
-		tr.innerHTML = `
+		renderHtml(tr, `
 			<td>
 				<select data-change="updateS" data-index="${i}" data-field="grade">
 					${[6,5,4,3,2,1].map(g => `<option value="${g}" ${String(row.grade)===String(g)?'selected':''}>${g}年</option>`).join('')}
@@ -253,11 +253,11 @@ function renderStudentsTable() {
 					<option value="副班長" ${isSubLeader ? 'selected' : ''}>副班長</option>
 				</select>
 			</td>
-			<td style="text-align:center;">
+			<td class="u-ta-center">
 				<input type="checkbox" ${row.isOutOfDistrict ? 'checked' : ''} data-change="updateS" data-index="${i}" data-field="isOutOfDistrict">
 			</td>
-			<td style="text-align:center;"><button class="btn btn-danger btn-sm" data-click="removeS" data-index="${i}">×</button></td>
-		`;
+			<td class="u-ta-center"><button class="btn btn-danger btn-sm" data-click="removeS" data-index="${i}">×</button></td>
+		`);
 		tbody.appendChild(tr);
 	});
 	updateStudentSummaryText();
@@ -365,7 +365,7 @@ function clearDistrictOutputDom(clearPrint = false) {
 	}
 	if (clearPrint) {
 		const printArea = document.getElementById('print-area');
-		if (printArea) printArea.innerHTML = '';
+		if (printArea) printArea.replaceChildren();
 	}
 }
 
@@ -455,29 +455,29 @@ function validateDistrictPasswords() {
 
 	if (!pass && !confirm) {
 		msgEl.textContent = "";
-		msgEl.className = "pass-feedback-msg";
+		setPassFeedbackState(msgEl, '');
 		return;
 	}
 
 	const chk = validatePassword(pass);
 	if (!chk.valid) {
 		msgEl.textContent = "⚠ " + chk.message.replace(/\n/g, " ");
-		msgEl.className = "pass-feedback-msg pass-msg-ng";
+		setPassFeedbackState(msgEl, 'pass-msg-ng');
 		return;
 	}
 
 	if (!confirm) {
 		msgEl.textContent = "確認用パスワードを入力してください";
-		msgEl.className = "pass-feedback-msg";
+		setPassFeedbackState(msgEl, '');
 		return;
 	}
 
 	if (pass !== confirm) {
 		msgEl.textContent = "⚠ パスワードが一致しません";
-		msgEl.className = "pass-feedback-msg pass-msg-ng";
+		setPassFeedbackState(msgEl, 'pass-msg-ng');
 	} else {
 		msgEl.textContent = "✓ パスワードが一致しました（12文字以上OK）";
-		msgEl.className = "pass-feedback-msg pass-msg-ok";
+		setPassFeedbackState(msgEl, 'pass-msg-ok');
 	}
 }
 

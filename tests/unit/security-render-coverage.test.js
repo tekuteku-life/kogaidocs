@@ -146,9 +146,31 @@ test('security printing: raw seat dimensions are bounded even without a previous
 	]) {
 		state.repState.seatConfig = config;
 		const html = print.buildSzSeatChartPageHtml();
-		assert.ok(html.includes(`grid-template-columns: repeat(${cols}, 1fr);`));
+		// 列の数は data-cols に置き、描画の後に要素のスタイルへ設定する（style 属性を使わない。I-15-05）。
+		assert.ok(html.includes(`<div class="print-seat-grid" data-cols="${cols}">`));
+		assert.ok(!html.includes('style='), 'The seat chart has no style attribute');
 		assert.equal((html.match(/class="print-seat-cell/g) || []).length, cols * rows);
 		assert.ok(!html.includes('<img'), 'Dimensions never become printable markup');
+		const area = document.createElement('div');
+		renderHtml(area, html);
+		print.applyPrintSeatColumns(area);
+		assert.equal(area.querySelector('.print-seat-grid').style.gridTemplateColumns, `repeat(${cols}, 1fr)`);
+	}
+});
+
+test('security printing: seat columns outside 2-10 or not integers are never applied to the grid style', () => {
+	fresh();
+	for (const value of ['1', '11', '2.5', 'x', '', '3); color: red']) {
+		const area = document.createElement('div');
+		renderHtml(area, `<div class="print-seat-grid" data-cols="${esc(value)}"></div>`);
+		print.applyPrintSeatColumns(area);
+		assert.equal(area.querySelector('.print-seat-grid').style.gridTemplateColumns, undefined, `data-cols=${value} is ignored`);
+	}
+	for (const value of ['2', '10']) {
+		const area = document.createElement('div');
+		renderHtml(area, `<div class="print-seat-grid" data-cols="${value}"></div>`);
+		print.applyPrintSeatColumns(area);
+		assert.equal(area.querySelector('.print-seat-grid').style.gridTemplateColumns, `repeat(${value}, 1fr)`, `data-cols=${value} is applied`);
 	}
 });
 
@@ -174,4 +196,21 @@ test('printing: incomplete district rosters remain printable without inventing p
 	assert.ok(cards.every(html => !html.includes('名簿未収集地区')), 'No missing officer is fabricated as a tent-card recipient');
 	const ruby = print.formatNameWithSama('', '<img id="render-attack">');
 	assert.ok(ruby.includes('&lt;img') && !ruby.includes('<img'));
+});
+
+test('security printing: the representative print applies the seat columns to the rendered seat chart', () => {
+	fresh();
+	state.repState.seatConfig = { cols: 6, rows: 3, cells: {} };
+	const checkbox = document.createElement('input');
+	checkbox.className = 'rep-print-chk';
+	checkbox.value = 'sz_seats';
+	checkbox.checked = true;
+	document.body.appendChild(checkbox);
+	global.print = () => {};
+	window.print = global.print;
+	print.executeRepSelectedPrint();
+	const grid = document.getElementById('print-area').querySelector('.print-seat-grid');
+	assert.ok(grid, 'The seat chart is rendered');
+	assert.equal(grid.style.gridTemplateColumns, 'repeat(6, 1fr)', 'The columns are applied after rendering');
+	checkbox.remove();
 });

@@ -240,7 +240,7 @@ async function restoreBrowserHandoff() {
 			const hataLineEl = document.getElementById('hata-line-text');
 			if (hataLineEl) { hataLineEl.value = ''; hataLineEl.hidden = true; }
 			const printAreaEl = document.getElementById('print-area');
-			if (printAreaEl) printAreaEl.innerHTML = '';
+			if (printAreaEl) printAreaEl.replaceChildren();
 			markHataSaved();
 			clearBrowserHandoff();
 			restoreRepDetailDraft(payload.repDraft);

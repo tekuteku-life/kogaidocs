@@ -2007,3 +2007,25 @@ test('rep: additional coverage for placeholder upsert and transfer error alerts'
 	await rep.loadPastedTransferTextIntoRep();
 	assert(alertMsg.includes('復号に失敗しました'));
 });
+
+test('rep: the district detail dialog shows every officer, student and neighborhood field value', () => {
+	setupDomEnvironment();
+	const district = createMockDistrict({
+		district: '値の確認地区',
+		officers: [{ role: '役職値', lastName: '姓値', firstName: '名値', han: '班値', tel: '電話値', email: 'メール値', childGrade: '学年値', childClass: '組値', childLastName: '児童姓値', childFirstName: '児童名値' }],
+		students: [{ grade: '5', class: '2', han: '児童班値', lastName: '児童姓2', firstName: '児童名2', address: '住所値', tel: '児童電話値' }],
+		neighborhood: [{ role: '会長', lastName: '自治姓値', firstName: '自治名値', tel: '自治電話値' }]
+	});
+	state.repState.districts = [district];
+	rep.openRepDistrictDetailModal(0);
+	const model = rep.getModalCurrentDistrict();
+	for (const [tbody, rows] of [['rep-modal-officer-tbody', model.officers], ['rep-modal-students-tbody', model.students], ['rep-modal-neighbor-tbody', model.neighborhood]]) {
+		const inputs = document.getElementById(tbody).querySelectorAll('input');
+		assert.ok(inputs.length > 0, `${tbody} has inputs`);
+		for (const input of inputs) {
+			const row = rows[Number(input.dataset.index)];
+			assert.strictEqual(input.value, String(row[input.dataset.field]), `${tbody} ${input.dataset.field} shows its value`);
+		}
+	}
+	rep.closeRepDistrictDetailModalWithoutSaving();
+});

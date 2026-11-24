@@ -5,7 +5,8 @@ const { runInHeadlessChrome } = require('./helpers/headless-runner');
 test('UI specification print geometry: tent display face rotates 180 degrees and thirteen envelope recipients form two 3-by-4 grids', async () => {
 	const out = await runInHeadlessChrome(async () => {
 		const area = ui.element('#print-area');
-		area.innerHTML = buildTentCardPageHtml('検証地区', '検証 花子', 'けんしょう はなこ', '校外委員');
+		// Trusted Types のもとでは、ページの中の HTML は描画の補助で入れる（I-15-06）。
+		renderHtml(area, buildTentCardPageHtml('検証地区', '検証 花子', 'けんしょう はなこ', '校外委員'));
 		await ui.printMedia(true);
 		const panels = [...area.querySelectorAll('.tent-panel')];
 		assert.strictEqual(panels.length, 4, 'Four physical fold panels are rendered');
@@ -17,7 +18,7 @@ test('UI specification print geometry: tent display face rotates 180 degrees and
 		assert.ok(faces.every(face => face.textContent.includes('検証 花子')), 'Both faces carry the intended person');
 
 		const officers = Array.from({ length: 13 }, (_, index) => ({ lastName: `役員${index}`, firstName: '花子', childLastName: `児童${index}`, childFirstName: '太郎', childGrade: '3', childClass: '2' }));
-		area.innerHTML = buildEnvelopesPagesHtml([{ district: '配付地区', officers }]).join('');
+		renderHtml(area, buildEnvelopesPagesHtml([{ district: '配付地区', officers }]).join(''));
 		const grids = [...area.querySelectorAll('.address-grid')];
 		assert.strictEqual(grids.length, 2, 'Thirteen recipients create two print pages');
 		for (const [pageIndex, grid] of grids.entries()) {

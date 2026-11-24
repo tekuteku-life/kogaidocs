@@ -614,3 +614,10 @@ test('print: dynamic title synchronization and separate PDF print pipeline', () 
 	assert.strictEqual(titleHistory[0], 'PTA総会・校外役員名簿');
 	assert.strictEqual(document.title, origTitle);
 });
+
+test('print: the PTA officer roster shows the officer role and 校外委員 when the role is empty', () => {
+	const html = print.buildPtaOfficersRosterPageHtml([createMockDistrict({ district: '役職確認地区', officers: [{ lastName: '役職あり', firstName: '', role: '副委員長' }, { lastName: '役職なし', firstName: '', role: '' }] })]);
+	// 役員の行（氏名のセルの次が役職のセル）で確かめる（代表三役の連絡先の表にも役職が出る）。
+	assert.match(html, /<td>役職あり<\/td>\s*<td[^>]*>副委員長<\/td>/, 'The role is shown');
+	assert.match(html, /<td>役職なし<\/td>\s*<td[^>]*>校外委員<\/td>/, 'An empty role is shown as 校外委員');
+});

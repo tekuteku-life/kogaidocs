@@ -9,6 +9,9 @@ const { runInHeadlessChrome } = require('./helpers/headless-runner');
 // R-25・E-14・I-14-03: 実Chromium（file 起動）で、外部オリジンへの各手段の送信が CSP で拒否されることを確かめる。
 // 拒否の根拠は、手段ごとの違反イベント（effectiveDirective・blockedURI）と、CDP の Network.loadingFailed の blockedReason 'csp' である。
 // 陽性の対照として、CSP を持たない対照ページで同じ手段の送信が観測できることを先に確かめる。
+// R-26・I-15-06: アプリのページでは Trusted Types も強制されるため、ページのスクリプトから外部の script 要素・object・Worker を作れない（TypeError）。
+// object の object-src の拒否は、Trusted Types を通らない CDP の DOM.setOuterHTML で入れて確かめる。script-src-elem は動的 import() で確かめる。
+// インライン style・<style> 要素も拒否されるため、style の url() は CSSOM で、@font-face は構築したスタイルシートで、@import は一時のスタイルシート（file 起動では 'self' に一致する）で試す。
 
 /**
  * 各手段の識別子・宛先のパス・期待するディレクティブ。サーバーの受信で確かめられる手段には received を付ける。
@@ -23,13 +26,13 @@ const CHANNELS = [
 	{ id: 'ping', directive: 'connect-src' },
 	{ id: 'image', directive: 'img-src' },
 	{ id: 'style-url', directive: 'img-src' },
-	{ id: 'script', directive: 'script-src-elem' },
+	{ id: 'script', directive: 'script-src-elem', trustedTypes: true },
 	{ id: 'import', directive: 'script-src-elem', received: true },
 	{ id: 'stylesheet', directive: 'style-src-elem' },
 	{ id: 'at-import', directive: 'style-src-elem' },
 	{ id: 'font', directive: 'font-src', received: true },
 	{ id: 'video', directive: 'media-src' },
-	{ id: 'object', directive: 'object-src', originOnly: true },
+	{ id: 'object', directive: 'object-src', originOnly: true, trustedTypes: true, cdp: true },
 	{ id: 'iframe', directive: 'frame-src', originOnly: true },
 	{ id: 'form', directive: 'form-action' },
 	{ id: 'prefetch', directive: 'default-src' },
@@ -73,12 +76,24 @@ function recordViolations() {
  */
 const originFor = (origins, channel) => channel.received ? origins.receiver : origins.external;
 
+/** @import の手段を入れる一時のスタイルシートを作り、その file: URL を返す（構築したスタイルシートの @import は無視される）。 */
+function probeStylesheet(dir, origins) {
+	const url = id => `${originFor(origins, CHANNELS.find(channel => channel.id === id))}/probe-${id}`;
+	const file = path.join(dir, 'csp-probe.css');
+	fs.writeFileSync(file, `@import url("${url('at-import')}");\n`);
+	return `file://${file}`;
+}
+
 /** 外部オリジンを埋め込んだブラウザ側の試験関数を作る（試験関数はブラウザへ文字列として渡される）。 */
-function browserProbe(origins, { expectBlocked }) {
+function browserProbe(origins, { expectBlocked, stylesheet }) {
 	return new Function(`return async () => {
 		const EXT = ${JSON.stringify(origins.external)};
 		const RECEIVER = ${JSON.stringify(origins.receiver)};
 		const CHANNELS = ${JSON.stringify(CHANNELS)};
+		const STYLESHEET = ${JSON.stringify(stylesheet)};
+		// Trusted Types で拒否された手段（アプリのページだけ。TypeError）。
+		window.__trustedTypesRejected = [];
+		const rejectedByTrustedTypes = (id, run) => { try { return run(); } catch (error) { window.__trustedTypesRejected.push(id + ':' + error.name); return null; } };
 		assert.strictEqual(JSON.stringify(window.__cspViolations), '[]', 'Start-up satisfies the CSP');
 		const settle = run => Promise.resolve().then(run).catch(() => {});
 		const url = id => (CHANNELS.find(channel => channel.id === id).received ? RECEIVER : EXT) + '/probe-' + id;
@@ -97,15 +112,21 @@ function browserProbe(origins, { expectBlocked }) {
 		await settle(() => navigator.sendBeacon(url('beacon'), 'payload'));
 		add('a', { href: '#csp-ping', ping: url('ping') }, 'ping').click();
 		add('img', { src: url('image') });
-		add('div', { style: 'width:10px;height:10px;background-image:url("' + url('style-url') + '")' });
-		add('script', { src: url('script') }, '', document.head);
+		// インライン style は拒否されるため、style の url() は CSSOM（要素のスタイルのプロパティ）で設定する。
+		const styled = add('div', {});
+		styled.style.width = '10px'; styled.style.height = '10px';
+		styled.style.backgroundImage = 'url("' + url('style-url') + '")';
+		rejectedByTrustedTypes('script', () => add('script', { src: url('script') }, '', document.head));
 		settle(() => import(url('import')));
 		add('link', { rel: 'stylesheet', href: url('stylesheet') }, '', document.head);
-		add('style', {}, '@import url("' + url('at-import') + '");', document.head);
-		add('style', {}, '@font-face { font-family: cspProbe; src: url("' + url('font') + '"); } .csp-probe-font { font-family: cspProbe; }', document.head);
+		// @import は一時のスタイルシート（自オリジンの file: URL）の中に、@font-face は構築したスタイルシートに置く。
+		add('link', { rel: 'stylesheet', href: STYLESHEET }, '', document.head);
+		const fontSheet = new CSSStyleSheet();
+		fontSheet.replaceSync('@font-face { font-family: cspProbe; src: url("' + url('font') + '"); } .csp-probe-font { font-family: cspProbe; }');
+		document.adoptedStyleSheets = [...document.adoptedStyleSheets, fontSheet];
 		add('div', { class: 'csp-probe-font' }, 'CSP probe');
 		add('video', { src: url('video') });
-		add('object', { data: url('object') });
+		rejectedByTrustedTypes('object', () => add('object', { data: url('object') }));
 		add('iframe', { src: url('iframe') });
 		const target = add('iframe', { name: 'csp-probe-form-target', sandbox: '' });
 		const form = add('form', { action: url('form'), method: 'post', target: target.name });
@@ -116,21 +137,21 @@ function browserProbe(origins, { expectBlocked }) {
 		manifest.setAttribute('href', url('manifest'));
 		// worker-src: 外部オリジンの Worker は file 起動では CSP の判定より前に例外となるため、blob:・data: の Worker で確かめる。
 		window.__workerMessages = [];
-		for (const source of [URL.createObjectURL(new Blob(['postMessage("blob")'], { type: 'text/javascript' })), 'data:text/javascript,postMessage("data")']) {
-			await settle(() => { new Worker(source).onmessage = event => window.__workerMessages.push(event.data); });
+		for (const [index, source] of [URL.createObjectURL(new Blob(['postMessage("blob")'], { type: 'text/javascript' })), 'data:text/javascript,postMessage("data")'].entries()) {
+			await settle(() => rejectedByTrustedTypes(['worker-blob', 'worker-data'][index], () => { new Worker(source).onmessage = event => window.__workerMessages.push(event.data); }));
 		}
 		if (${expectBlocked}) {
 			const blockedUri = channel => channel.originOnly ? EXT : channel.webSocket ? url(channel.id).replace('http:', 'ws:') : url(channel.id);
 			const blockedBy = channel => window.__cspViolations.some(event => event.directive === channel.directive && event.blocked === blockedUri(channel));
-			const pageChannels = CHANNELS.filter(channel => !channel.manifest);
+			const pageChannels = CHANNELS.filter(channel => !channel.manifest && !channel.trustedTypes);
 			await ui.waitFor(() => pageChannels.every(blockedBy), 'Every channel is refused by its directive', 10000).catch(() => {});
 			for (const channel of pageChannels) assert.ok(blockedBy(channel), channel.id + ' is refused by ' + channel.directive + ': ' + JSON.stringify(window.__cspViolations));
-			const workerBlocked = scheme => window.__cspViolations.some(event => event.directive === 'worker-src' && event.blocked === scheme);
-			await ui.waitFor(() => workerBlocked('blob') && workerBlocked('data'), 'blob: and data: workers are refused by worker-src', 10000).catch(() => {});
-			assert.ok(workerBlocked('blob') && workerBlocked('data'), 'blob: and data: workers are refused by worker-src: ' + JSON.stringify(window.__cspViolations));
+			// Trusted Types のもとでは、外部の script 要素・object・文字列の URL の Worker を作れない（worker-src の拒否はこのため観測できず、CSP の文字列の固定で確かめる）。
+			assert.strictEqual(JSON.stringify(window.__trustedTypesRejected.sort()), JSON.stringify(['object:TypeError', 'script:TypeError', 'worker-blob:TypeError', 'worker-data:TypeError']), 'Trusted Types rejects script, object and worker URLs: ' + JSON.stringify(window.__trustedTypesRejected));
 			assert.strictEqual(JSON.stringify(window.__workerMessages), '[]', 'No worker runs');
-			assert.ok(window.__cspViolations.every(event => [EXT, EXT.replace('http:', 'ws:'), RECEIVER].some(origin => event.blocked.startsWith(origin)) || (event.directive === 'worker-src' && ['blob', 'data'].includes(event.blocked))), 'Only the probes violate the policy: ' + JSON.stringify(window.__cspViolations));
+			assert.ok(window.__cspViolations.every(event => [EXT, EXT.replace('http:', 'ws:'), RECEIVER].some(origin => event.blocked.startsWith(origin)) || event.directive === 'require-trusted-types-for'), 'Only the probes violate the policy: ' + JSON.stringify(window.__cspViolations));
 		} else {
+			assert.strictEqual(JSON.stringify(window.__trustedTypesRejected), '[]', 'Control: nothing is rejected by Trusted Types');
 			await ui.waitFor(() => window.__workerMessages.length === 2, 'Control: both workers run', 10000);
 			assert.strictEqual(JSON.stringify(window.__workerMessages.sort()), JSON.stringify(['blob', 'data']), 'Control: blob: and data: workers run');
 			assert.strictEqual(JSON.stringify(window.__cspViolations), '[]', 'The control page has no policy to violate');
@@ -174,7 +195,7 @@ test('UI R-25 control: without a CSP every probe channel is observable in the sa
 	try {
 		fs.writeFileSync(path.join(dir, 'control.html'), '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>control</title></head><body><p>control</p></body></html>');
 		const received = CHANNELS.filter(channel => channel.received);
-		const result = await runInHeadlessChrome(browserProbe(origins, { expectBlocked: false }), {
+		const result = await runInHeadlessChrome(browserProbe(origins, { expectBlocked: false, stylesheet: probeStylesheet(dir, origins) }), {
 			baseUrl: `file://${dir}/control.html`, appReady: false, observeNetwork: true, timeoutMs: 30000, beforeLoad: recordViolations,
 			settle: waitObserved(observed => CHANNELS.every(channel => sentTo(observed, origins, channel))
 				&& received.every(channel => hits.includes(`GET /probe-${channel.id}`)), 'Control observations')
@@ -192,14 +213,25 @@ test('UI R-25 control: without a CSP every probe channel is observable in the sa
 test('UI R-25: every channel to an external origin is refused by its CSP directive and no request leaves the page', async () => {
 	const hits = [];
 	const { servers, origins } = await startExternalServers(hits);
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kogai-csp-probe-'));
 	let manifestViolation;
+	let objectViolation;
 	let pageViolations = [];
 	try {
 		const prefixes = [origins.external, origins.external.replace('http:', 'ws:'), origins.receiver];
 		const toExternal = request => prefixes.some(prefix => request.url.startsWith(prefix));
-		const result = await runInHeadlessChrome(browserProbe(origins, { expectBlocked: true }), {
+		const result = await runInHeadlessChrome(browserProbe(origins, { expectBlocked: true, stylesheet: probeStylesheet(dir, origins) }), {
 			queryMode: 'district', autoSecure: false, observeNetwork: true, timeoutMs: 30000, beforeLoad: recordViolations,
 			settle: async observed => {
+				// object は Trusted Types を通らない CDP の DOM.setOuterHTML で入れ、object-src の拒否を確かめる。
+				const { root } = await observed.send('DOM.getDocument', { depth: 0 });
+				const { nodeId } = await observed.send('DOM.querySelector', { nodeId: root.nodeId, selector: '.csp-probe-font' });
+				await observed.send('DOM.setOuterHTML', { nodeId, outerHTML: `<div class="csp-probe-font">CSP probe</div><object data="${probeUrl(origins.external, 'object')}"></object>` });
+				const objectStart = Date.now();
+				while (!(objectViolation = (await violations(observed)).find(event => event.directive === 'object-src'))) {
+					if (Date.now() - objectStart > 10000) throw new Error('Timed out: object-src violation');
+					await new Promise(resolve => setTimeout(resolve, 20));
+				}
 				await waitObserved(current => current.requests.filter(toExternal).every(request => current.failures.some(failure => failure.requestId === request.requestId))
 					&& current.requests.some(request => request.url === `${origins.receiver}/probe-manifest`), 'Blocked requests end')(observed);
 				const start = Date.now();
@@ -219,11 +251,13 @@ test('UI R-25: every channel to an external origin is refused by its CSP directi
 		}
 		assert.ok(externalRequests.length > 0, 'Some blocked requests are visible to the network observer (XHR, images, scripts and others)');
 		assert.deepEqual(manifestViolation, { directive: 'manifest-src', blocked: `${origins.receiver}/probe-manifest` }, 'The manifest is refused by manifest-src');
-		assert.ok(pageViolations.every(event => prefixes.some(prefix => event.blocked.startsWith(prefix)) || (event.directive === 'worker-src' && ['blob', 'data'].includes(event.blocked))), 'Only the probes violate the policy');
+		assert.deepEqual(objectViolation, { directive: 'object-src', blocked: origins.external }, 'An object inserted outside Trusted Types is refused by object-src');
+		assert.ok(pageViolations.every(event => prefixes.some(prefix => event.blocked.startsWith(prefix)) || event.directive === 'require-trusted-types-for'), 'Only the probes violate the policy');
 		assert.deepEqual(result.webSockets.filter(toExternal), [], 'No WebSocket is created');
 		assert.deepEqual(hits, [], 'The external servers receive no request, including the channels they received in the control');
 	} finally {
 		servers.forEach(close);
+		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
 

@@ -1087,3 +1087,12 @@ test('hata: printHataSchedule dynamically sets document.title to shift table tit
 	assert.strictEqual(titleDuringPrint, `1丁目 登校見守り活動シフト表_1丁目_${hata.getHataFilenameDate(state.currentDistrict.hata)}`, 'PDF name includes title, print district and created date');
 	assert.strictEqual(document.title, origTitle, 'Title after print should be restored');
 });
+
+test('hata: the list view shows the weekday, falling back to the day field', () => {
+	const listHtml = hata.buildHataScheduleHtml([
+		{ date: '2026-06-01', dayOfWeek: '月', person: '1-1 田中', note: '' },
+		{ date: '2026-06-02', day: '火', person: '1-2 佐藤', note: '' }
+	], 'list');
+	assert.ok(listHtml.includes('2026-06-01 (月)'), 'dayOfWeek is shown');
+	assert.ok(listHtml.includes('2026-06-02 (火)'), 'day is used when dayOfWeek is missing');
+});
